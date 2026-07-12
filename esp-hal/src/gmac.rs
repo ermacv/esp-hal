@@ -287,6 +287,9 @@ impl Gmac {
     pub fn reset_dma(&self) -> Result<u32, Error> {
         let bus_mode = (GMAC_BASE + 0x1000) as *mut u32;
         unsafe {
+            ((GMAC_BASE + 0x101c) as *mut u32).write_volatile(0);
+            let pending = ((GMAC_BASE + 0x1014) as *const u32).read_volatile();
+            ((GMAC_BASE + 0x1014) as *mut u32).write_volatile(pending);
             bus_mode.write_volatile(bus_mode.read_volatile() | 1);
             for _ in 0..1_000_000 {
                 if bus_mode.read_volatile() & 1 == 0 {
