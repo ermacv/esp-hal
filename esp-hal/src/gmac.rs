@@ -9,6 +9,39 @@ const GMAC_BASE: usize = 0x2035_0000;
 const CNNT_SYS_BASE: usize = 0x2035_9000;
 const IO_MUX_BASE: usize = 0x2058_2000;
 const CNNT_IO_MUX_BASE: usize = 0x2058_8000;
+const BUFFER_SIZE: usize = 1536;
+
+#[repr(C, align(32))]
+struct Descriptor([u32; 8]);
+
+#[repr(C, align(64))]
+struct Buffer([u8; BUFFER_SIZE]);
+
+/// Statically allocated enhanced descriptor rings and packet buffers.
+pub struct DmaStorage<const RX: usize, const TX: usize> {
+    rx_descriptors: [Descriptor; RX],
+    tx_descriptors: [Descriptor; TX],
+    rx_buffers: [Buffer; RX],
+    tx_buffers: [Buffer; TX],
+}
+
+impl<const RX: usize, const TX: usize> DmaStorage<RX, TX> {
+    /// Creates zero-initialized DMA storage suitable for a `static` cell.
+    pub const fn new() -> Self {
+        Self {
+            rx_descriptors: [const { Descriptor([0; 8]) }; RX],
+            tx_descriptors: [const { Descriptor([0; 8]) }; TX],
+            rx_buffers: [const { Buffer([0; BUFFER_SIZE]) }; RX],
+            tx_buffers: [const { Buffer([0; BUFFER_SIZE]) }; TX],
+        }
+    }
+}
+
+impl<const RX: usize, const TX: usize> Default for DmaStorage<RX, TX> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Ethernet link speed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -116,6 +149,125 @@ impl Gmac {
             ((GMAC_BASE + 0x100c) as *mut u32).write_volatile(rx_base);
             ((GMAC_BASE + 0x1010) as *mut u32).write_volatile(tx_base);
         }
+    }
+
+    /// Initializes enhanced chained RX and TX descriptor rings.
+    pub fn configure_rings<const RX: usize, const TX: usize>(
+        &self,
+        storage: &mut DmaStorage<RX, TX>,
+    ) {
+        assert!(RX > 0 && TX > 0);
+        for index in 0..RX {
+            let next = (index + 1) % RX;
+            storage.rx_descriptors[index].0 = [0; 8];
+            storage.rx_descriptors[index].0[0] = 1 << 31;
+            storage.rx_descriptors[index].0[1] = (BUFFER_SIZE as u32 & 0x1fff) | (1 << 14);
+            storage.rx_descriptors[index].0[2] = storage.rx_buffers[index].0.as_mut_ptr() as u32;
+            storage.rx_descriptors[index].0[3] =
+                core::ptr::addr_of!(storage.rx_descriptors[next]) as u32;
+        }
+        for index in 0..TX {
+            let next = (index + 1) % TX;
+            storage.tx_descriptors[index].0 = [0; 8];
+            storage.tx_descriptors[index].0[0] = 1 << 20;
+            storage.tx_descriptors[index].0[2] = storage.tx_buffers[index].0.as_mut_ptr() as u32;
+            storage.tx_descriptors[index].0[3] =
+                core::ptr::addr_of!(storage.tx_descriptors[next]) as u32;
+        }
+        self.configure_descriptor_lists(
+            storage.rx_descriptors.as_ptr() as u32,
+            storage.tx_descriptors.as_ptr() as u32,
+        );
+    }
+
+    /// Returns the RX descriptor-list base address.
+    pub fn rx_base<const RX: usize, const TX: usize>(&self, storage: &DmaStorage<RX, TX>) -> u32 {
+        storage.rx_descriptors.as_ptr() as u32
+    }
+
+    /// Returns whether an RX descriptor contains one complete valid frame.
+    pub fn rx_ready<const RX: usize, const TX: usize>(
+        &self,
+        storage: &DmaStorage<RX, TX>,
+        index: usize,
+    ) -> bool {
+        let status = unsafe {
+            storage.rx_descriptors[index % RX]
+                .0
+                .as_ptr()
+                .read_volatile()
+        };
+        status & (1 << 31) == 0
+            && status & (1 << 15) == 0
+            && status & (1 << 9) != 0
+            && status & (1 << 8) != 0
+    }
+
+    /// Returns whether a TX descriptor is owned by the CPU.
+    pub fn tx_ready<const RX: usize, const TX: usize>(
+        &self,
+        storage: &DmaStorage<RX, TX>,
+        index: usize,
+    ) -> bool {
+        unsafe {
+            storage.tx_descriptors[index % TX]
+                .0
+                .as_ptr()
+                .read_volatile()
+                & (1 << 31)
+                == 0
+        }
+    }
+
+    /// Gives a received frame to `consume`, then returns its descriptor to DMA.
+    pub fn consume_rx<const RX: usize, const TX: usize, R>(
+        &self,
+        storage: &mut DmaStorage<RX, TX>,
+        index: usize,
+        consume: impl FnOnce(&mut [u8]) -> R,
+    ) -> R {
+        let index = index % RX;
+        let status = unsafe { storage.rx_descriptors[index].0.as_ptr().read_volatile() };
+        let length = (((status >> 16) & 0x3fff) as usize)
+            .saturating_sub(4)
+            .min(BUFFER_SIZE);
+        let result = consume(&mut storage.rx_buffers[index].0[..length]);
+        unsafe {
+            storage.rx_descriptors[index]
+                .0
+                .as_mut_ptr()
+                .write_volatile(1 << 31);
+        }
+        core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
+        self.demand_rx_poll();
+        result
+    }
+
+    /// Gives a TX buffer to `fill`, then hands its descriptor to DMA.
+    pub fn consume_tx<const RX: usize, const TX: usize, R>(
+        &self,
+        storage: &mut DmaStorage<RX, TX>,
+        index: usize,
+        length: usize,
+        fill: impl FnOnce(&mut [u8]) -> R,
+    ) -> R {
+        let index = index % TX;
+        let length = length.min(1514);
+        let result = fill(&mut storage.tx_buffers[index].0[..length]);
+        unsafe {
+            storage.tx_descriptors[index]
+                .0
+                .as_mut_ptr()
+                .add(1)
+                .write_volatile(length as u32);
+            storage.tx_descriptors[index]
+                .0
+                .as_mut_ptr()
+                .write_volatile((1 << 31) | (1 << 30) | (1 << 29) | (1 << 28) | (1 << 20));
+        }
+        core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
+        self.demand_tx_poll();
+        result
     }
 
     /// Starts MAC RX/TX and DMA for the negotiated mode.
