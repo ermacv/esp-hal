@@ -44,10 +44,10 @@ macro_rules! property {
         "riscv"
     };
     ("cores") => {
-        2
+        1
     };
     ("cores", str) => {
-        stringify!(2)
+        stringify!(1)
     };
     ("trm") => {
         "https://github.com/espressif/esp-idf/tree/e88643bc619dff3c21b51705113bb488c9bc0990/components/soc/esp32s31"
@@ -571,7 +571,7 @@ macro_rules! for_each_peripheral {
         _for_each_inner_peripheral!((@ peri_type #[doc =
         "HP_SYS_CLKRST peripheral singleton"] HP_SYS_CLKRST <= HP_SYS_CLKRST()
         (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
-        "SYSTEM peripheral singleton"] SYSTEM <= HP_SYS_CLKRST() (unstable)));
+        "SYSTEM peripheral singleton"] SYSTEM <= HP_SYS() (unstable)));
         _for_each_inner_peripheral!((@ peri_type #[doc = "CLIC peripheral singleton"]
         CLIC <= CLIC() (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
         "IO_MUX peripheral singleton"] IO_MUX <= IO_MUX() (unstable)));
@@ -649,28 +649,27 @@ macro_rules! for_each_peripheral {
         "HP_SYSTEM peripheral singleton"] HP_SYSTEM <= HP_SYS() (unstable)), (@ peri_type
         #[doc = "HP_SYS_CLKRST peripheral singleton"] HP_SYS_CLKRST <= HP_SYS_CLKRST()
         (unstable)), (@ peri_type #[doc = "SYSTEM peripheral singleton"] SYSTEM <=
-        HP_SYS_CLKRST() (unstable)), (@ peri_type #[doc = "CLIC peripheral singleton"]
-        CLIC <= CLIC() (unstable)), (@ peri_type #[doc = "IO_MUX peripheral singleton"]
-        IO_MUX <= IO_MUX() (unstable)), (@ peri_type #[doc =
-        "LP_AON peripheral singleton"] LP_AON <= LP_AON_CLKRST() (unstable)), (@
-        peri_type #[doc = "LP_AON_CLKRST peripheral singleton"] LP_AON_CLKRST <=
-        LP_AON_CLKRST() (unstable)), (@ peri_type #[doc =
-        "LP_I2C_ANA_MST peripheral singleton"] LP_I2C_ANA_MST <= LP_I2C_ANA_MST()
-        (unstable)), (@ peri_type #[doc = "PMU peripheral singleton"] PMU <= PMU()
-        (unstable)), (@ peri_type #[doc = "RTC_TIMER peripheral singleton"] RTC_TIMER <=
-        LP_TIMER() (unstable)), (@ peri_type #[doc = "LP_WDT peripheral singleton"]
-        LP_WDT <= LP_WDT() (unstable)), (@ peri_type #[doc = "LPWR peripheral singleton"]
-        LPWR <= LP_AON_CLKRST() (unstable)), (@ peri_type #[doc =
-        "RNG peripheral singleton"] RNG <= TRNG() (unstable)), (@ peri_type #[doc =
-        "SYSTIMER peripheral singleton"] SYSTIMER <= SYSTIMER() (unstable)), (@ peri_type
-        #[doc = "TIMG0 peripheral singleton"] TIMG0 <= TIMG0() (unstable)), (@ peri_type
-        #[doc = "TIMG1 peripheral singleton"] TIMG1 <= TIMG1() (unstable)), (@ peri_type
-        #[doc = "UART0 peripheral singleton"] UART0 <= UART0(UART0 : {
-        bind_peri_interrupt, enable_peri_interrupt, disable_peri_interrupt })
-        (unstable)), (@ peri_type #[doc = "UART1 peripheral singleton"] UART1 <=
-        UART1(UART1 : { bind_peri_interrupt, enable_peri_interrupt,
+        HP_SYS() (unstable)), (@ peri_type #[doc = "CLIC peripheral singleton"] CLIC <=
+        CLIC() (unstable)), (@ peri_type #[doc = "IO_MUX peripheral singleton"] IO_MUX <=
+        IO_MUX() (unstable)), (@ peri_type #[doc = "LP_AON peripheral singleton"] LP_AON
+        <= LP_AON_CLKRST() (unstable)), (@ peri_type #[doc =
+        "LP_AON_CLKRST peripheral singleton"] LP_AON_CLKRST <= LP_AON_CLKRST()
+        (unstable)), (@ peri_type #[doc = "LP_I2C_ANA_MST peripheral singleton"]
+        LP_I2C_ANA_MST <= LP_I2C_ANA_MST() (unstable)), (@ peri_type #[doc =
+        "PMU peripheral singleton"] PMU <= PMU() (unstable)), (@ peri_type #[doc =
+        "RTC_TIMER peripheral singleton"] RTC_TIMER <= LP_TIMER() (unstable)), (@
+        peri_type #[doc = "LP_WDT peripheral singleton"] LP_WDT <= LP_WDT() (unstable)),
+        (@ peri_type #[doc = "LPWR peripheral singleton"] LPWR <= LP_AON_CLKRST()
+        (unstable)), (@ peri_type #[doc = "RNG peripheral singleton"] RNG <= TRNG()
+        (unstable)), (@ peri_type #[doc = "SYSTIMER peripheral singleton"] SYSTIMER <=
+        SYSTIMER() (unstable)), (@ peri_type #[doc = "TIMG0 peripheral singleton"] TIMG0
+        <= TIMG0() (unstable)), (@ peri_type #[doc = "TIMG1 peripheral singleton"] TIMG1
+        <= TIMG1() (unstable)), (@ peri_type #[doc = "UART0 peripheral singleton"] UART0
+        <= UART0(UART0 : { bind_peri_interrupt, enable_peri_interrupt,
         disable_peri_interrupt }) (unstable)), (@ peri_type #[doc =
-        "UART2 peripheral singleton"] UART2 <= UART2(UART2 : { bind_peri_interrupt,
+        "UART1 peripheral singleton"] UART1 <= UART1(UART1 : { bind_peri_interrupt,
+        enable_peri_interrupt, disable_peri_interrupt }) (unstable)), (@ peri_type #[doc
+        = "UART2 peripheral singleton"] UART2 <= UART2(UART2 : { bind_peri_interrupt,
         enable_peri_interrupt, disable_peri_interrupt }) (unstable)), (@ peri_type #[doc
         = "UART3 peripheral singleton"] UART3 <= UART3(UART3 : { bind_peri_interrupt,
         enable_peri_interrupt, disable_peri_interrupt }) (unstable)), (@ peri_type #[doc

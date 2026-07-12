@@ -5226,7 +5226,7 @@ impl Chip {
                 symbols: &[
                     "esp32s31",
                     "riscv",
-                    "multi_core",
+                    "single_core",
                     "soc_has_efuse",
                     "soc_has_gpio",
                     "soc_has_hp_system",
@@ -5271,7 +5271,7 @@ impl Chip {
                 cfgs: &[
                     "cargo:rustc-cfg=esp32s31",
                     "cargo:rustc-cfg=riscv",
-                    "cargo:rustc-cfg=multi_core",
+                    "cargo:rustc-cfg=single_core",
                     "cargo:rustc-cfg=soc_has_efuse",
                     "cargo:rustc-cfg=soc_has_gpio",
                     "cargo:rustc-cfg=soc_has_hp_system",

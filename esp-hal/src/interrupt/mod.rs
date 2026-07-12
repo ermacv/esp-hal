@@ -211,8 +211,8 @@ impl InterruptStatus {
     fn interrupt_status_word(cpu: Cpu, word: usize) -> u32 {
         #[cfg(esp32s31)]
         {
-            let base = 0x2058_5000_usize
-                + if matches!(cpu, Cpu::AppCpu) { 0x800 } else { 0 };
+            let _ = cpu;
+            let base = 0x2058_5000_usize;
             return unsafe { ((base + 0x2a8 + 4 * word) as *const u32).read_volatile() };
         }
 
@@ -406,8 +406,8 @@ pub fn disable(core: Cpu, interrupt: Interrupt) {
 pub(super) fn map_raw(core: Cpu, interrupt: Interrupt, cpu_interrupt: u32) {
     #[cfg(esp32s31)]
     {
-        let base = 0x2058_5000_usize
-            + if matches!(core, Cpu::AppCpu) { 0x800 } else { 0 };
+        let _ = core;
+        let base = 0x2058_5000_usize;
         unsafe {
             ((base + 4 * interrupt as usize) as *mut u32).write_volatile(cpu_interrupt & 0x3f)
         };
@@ -437,8 +437,8 @@ pub(crate) fn mapped_to(cpu: Cpu, interrupt: Interrupt) -> Option<CpuInterrupt> 
 pub(crate) fn mapped_to_raw(cpu: Cpu, interrupt: u32) -> Option<CpuInterrupt> {
     #[cfg(esp32s31)]
     {
-        let base = 0x2058_5000_usize
-            + if matches!(cpu, Cpu::AppCpu) { 0x800 } else { 0 };
+        let _ = cpu;
+        let base = 0x2058_5000_usize;
         let cpu_intr = unsafe { ((base + 4 * interrupt as usize) as *const u32).read_volatile() }
             & 0x3f;
         return CpuInterrupt::from_u32(cpu_intr);

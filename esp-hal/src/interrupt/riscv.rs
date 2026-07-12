@@ -345,7 +345,7 @@ pub fn enable_direct(
         }
     }
 
-    if crate::debugger::debugger_connected() {
+    if cfg!(esp32s31) || crate::debugger::debugger_connected() {
         unsafe { core::ptr::write_volatile(int_slot, instr) };
     } else {
         crate::debugger::DEBUGGER_LOCK.lock(|| unsafe {

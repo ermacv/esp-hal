@@ -1,4 +1,5 @@
 //! ESP32-S31 reset reasons.
+#![allow(missing_docs)]
 
 use strum::FromRepr;
 

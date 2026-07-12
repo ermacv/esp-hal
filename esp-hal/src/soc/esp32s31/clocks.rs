@@ -1,4 +1,5 @@
 //! Bootstrap clock model for ESP32-S31.
+#![allow(missing_docs)]
 
 define_clock_tree_types!();
 

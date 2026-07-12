@@ -8,7 +8,9 @@
 name   = "esp32s31"
 arch   = "riscv"
 target = "riscv32imafc-unknown-none-elf"
-cores  = 2
+# The silicon has two HP cores. The initial port deliberately exposes CPU0
+# only until reset/startup control for CPU1 has been implemented and tested.
+cores  = 1
 trm    = "https://github.com/espressif/esp-idf/tree/e88643bc619dff3c21b51705113bb488c9bc0990/components/soc/esp32s31"
 
 symbols = []
@@ -37,7 +39,7 @@ peripherals = [
     { name = "GPIO" },
     { name = "HP_SYSTEM", pac = "HP_SYS" },
     { name = "HP_SYS_CLKRST" },
-    { name = "SYSTEM", pac = "HP_SYS_CLKRST" },
+    { name = "SYSTEM", pac = "HP_SYS" },
     { name = "CLIC" },
     { name = "IO_MUX" },
     { name = "LP_AON", pac = "LP_AON_CLKRST" },
