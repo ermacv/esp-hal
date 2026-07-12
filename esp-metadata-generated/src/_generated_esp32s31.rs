@@ -395,8 +395,7 @@ macro_rules! for_each_peripheral {
         bind_peri_interrupt, enable_peri_interrupt, disable_peri_interrupt })
         (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
         "FLASH peripheral singleton"] FLASH <= virtual() (unstable)));
-        _for_each_inner_peripheral!((@ peri_type #[doc = "PSRAM peripheral singleton"]
-        PSRAM <= virtual() (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
+        _for_each_inner_peripheral!((@ peri_type #[doc =
         "SW_INTERRUPT peripheral singleton"] SW_INTERRUPT <= virtual() (unstable)));
         _for_each_inner_peripheral!((GPIO(unstable)));
         _for_each_inner_peripheral!((HP_SYSTEM(unstable)));
@@ -426,7 +425,6 @@ macro_rules! for_each_peripheral {
         _for_each_inner_peripheral!((SPI2(unstable)));
         _for_each_inner_peripheral!((USB_DEVICE(unstable)));
         _for_each_inner_peripheral!((FLASH(unstable)));
-        _for_each_inner_peripheral!((PSRAM(unstable)));
         _for_each_inner_peripheral!((SW_INTERRUPT(unstable)));
         _for_each_inner_peripheral!((all(@ peri_type #[doc =
         "EFUSE peripheral singleton"] EFUSE <= EFUSE() (unstable)), (@ peri_type #[doc =
@@ -468,9 +466,8 @@ macro_rules! for_each_peripheral {
         = "USB_DEVICE peripheral singleton"] USB_DEVICE <= USB_SERIAL_JTAG(USB_DEVICE : {
         bind_peri_interrupt, enable_peri_interrupt, disable_peri_interrupt })
         (unstable)), (@ peri_type #[doc = "FLASH peripheral singleton"] FLASH <=
-        virtual() (unstable)), (@ peri_type #[doc = "PSRAM peripheral singleton"] PSRAM
-        <= virtual() (unstable)), (@ peri_type #[doc =
-        "SW_INTERRUPT peripheral singleton"] SW_INTERRUPT <= virtual() (unstable))));
+        virtual() (unstable)), (@ peri_type #[doc = "SW_INTERRUPT peripheral singleton"]
+        SW_INTERRUPT <= virtual() (unstable))));
         _for_each_inner_peripheral!((singletons(GPIO(unstable)), (HP_SYSTEM(unstable)),
         (HP_SYS_CLKRST(unstable)), (SYSTEM(unstable)), (INTERRUPT_CORE0(unstable)),
         (INTERRUPT_CORE1(unstable)), (CLIC(unstable)), (IO_MUX(unstable)),
@@ -479,7 +476,7 @@ macro_rules! for_each_peripheral {
         (RNG(unstable)), (SYSTIMER(unstable)), (TIMG0(unstable)), (TIMG1(unstable)),
         (UART0(unstable)), (UART1(unstable)), (UART2(unstable)), (UART3(unstable)),
         (SPI0(unstable)), (SPI1(unstable)), (SPI2(unstable)), (USB_DEVICE(unstable)),
-        (FLASH(unstable)), (PSRAM(unstable)), (SW_INTERRUPT(unstable))));
+        (FLASH(unstable)), (SW_INTERRUPT(unstable))));
         _for_each_inner_peripheral!((dma_eligible));
     };
 }

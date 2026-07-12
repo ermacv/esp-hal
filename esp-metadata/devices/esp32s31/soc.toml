@@ -62,6 +62,5 @@ peripherals = [
     { name = "SPI2", pac = "GPSPI2", interrupts = { peri = "GPSPI2" } },
     { name = "USB_DEVICE", pac = "USB_SERIAL_JTAG", interrupts = { peri = "USB_DEVICE" } },
     { name = "FLASH", virtual = true },
-    { name = "PSRAM", virtual = true },
     { name = "SW_INTERRUPT", virtual = true },
 ]
