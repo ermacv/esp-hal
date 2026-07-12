@@ -495,8 +495,11 @@ impl Gmac {
             let pending = ((GMAC_BASE + 0x1014) as *const u32).read_volatile();
             ((GMAC_BASE + 0x1014) as *mut u32).write_volatile(pending);
             interrupt::bind_handler(Interrupt::SBD, gmac_interrupt);
-            ((GMAC_BASE + 0x101c) as *mut u32)
-                .write_volatile((1 << 0) | (1 << 6) | (1 << 15) | (1 << 16));
+            // RX completion plus the normal-interrupt summary are sufficient
+            // to wake embassy-net. Enabling the abnormal summary here makes
+            // the level source continuously assert on S31 when DMA initially
+            // reports receive-buffer-unavailable during startup.
+            ((GMAC_BASE + 0x101c) as *mut u32).write_volatile((1 << 6) | (1 << 16));
         }
     }
 
