@@ -1,0 +1,67 @@
+# ESP32-S31 Device Metadata
+#
+# The initial port intentionally declares only the peripherals required for
+# runtime, time, console and flash bring-up. Add capabilities only after they
+# have been checked against the ESP32-S31 ESP-IDF definitions.
+
+[device]
+name   = "esp32s31"
+arch   = "riscv"
+target = "riscv32imafc-unknown-none-elf"
+cores  = 2
+trm    = "https://github.com/espressif/esp-idf/tree/e88643bc619dff3c21b51705113bb488c9bc0990/components/soc/esp32s31"
+
+symbols = []
+
+[device.interrupts]
+support_status = "partial"
+status_registers = 5
+software_interrupt_count = 4
+controller = { Riscv = { flavour = "clic", interrupts = 48, priority_levels = 8 } }
+
+[device.soc]
+cpu_has_branch_predictor = true
+multi_core_enabled = false
+cpu_has_csr_pc = false
+internal_memory_cached = true
+
+# ESP-IDF soc.h defines one 512 KiB unified internal SRAM window. The ROM RAM
+# loader currently reserves the first 64 KiB during bring-up.
+memory_map = { ranges = [
+    { name = "dram", start = 0x2F01_0000, end = 0x2F08_0000 },
+    { name = "dram2_uninit", start = 0x2F00_0000, end = 0x2F01_0000 },
+] }
+
+peripherals = [
+    { name = "EFUSE", hidden = true },
+    { name = "GPIO" },
+    { name = "HP_SYSTEM" },
+    { name = "HP_SYS_CLKRST" },
+    { name = "SYSTEM", pac = "HP_SYS_CLKRST" },
+    { name = "INTERRUPT_CORE0" },
+    { name = "INTERRUPT_CORE1" },
+    { name = "CLIC" },
+    { name = "IO_MUX" },
+    { name = "LP_SYS" },
+    { name = "LP_CLKRST" },
+    { name = "LP_I2C_ANA_MST" },
+    { name = "PMU" },
+    { name = "RTC_TIMER" },
+    { name = "LP_WDT", pac = "RTC_WDT" },
+    { name = "LPWR", pac = "LP_SYS" },
+    { name = "RNG", pac = "LP_TRNG" },
+    { name = "SYSTIMER" },
+    { name = "TIMG0", pac = "TIMERG0" },
+    { name = "TIMG1", pac = "TIMERG1" },
+    { name = "UART0", interrupts = { peri = "UART0" } },
+    { name = "UART1", interrupts = { peri = "UART1" } },
+    { name = "UART2", interrupts = { peri = "UART2" } },
+    { name = "UART3", interrupts = { peri = "UART3" } },
+    { name = "SPI0", pac = "SPIMEM0" },
+    { name = "SPI1", pac = "SPIMEM1" },
+    { name = "SPI2", pac = "GPSPI2", interrupts = { peri = "GPSPI2" } },
+    { name = "USB_DEVICE", pac = "USB_SERIAL_JTAG", interrupts = { peri = "USB_DEVICE" } },
+    { name = "FLASH", virtual = true },
+    { name = "PSRAM", virtual = true },
+    { name = "SW_INTERRUPT", virtual = true },
+]

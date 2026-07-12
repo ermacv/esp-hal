@@ -44,6 +44,7 @@ pub enum Chip {
     Esp32c61,
     Esp32h2,
     Esp32p4,
+    Esp32s31,
     Esp32s2,
     Esp32s3,
 }
@@ -59,11 +60,12 @@ impl core::str::FromStr for Chip {
             "esp32c61" => Ok(Self::Esp32c61),
             "esp32h2" => Ok(Self::Esp32h2),
             "esp32p4" => Ok(Self::Esp32p4),
+            "esp32s31" => Ok(Self::Esp32s31),
             "esp32s2" => Ok(Self::Esp32s2),
             "esp32s3" => Ok(Self::Esp32s3),
             _ => Err(alloc::format!(
                 "Unknown chip {s}. Possible options: esp32, esp32c2, esp32c3, esp32c5, esp32c6, \
-                 esp32c61, esp32h2, esp32p4, esp32s2, esp32s3"
+                 esp32c61, esp32h2, esp32p4, esp32s31, esp32s2, esp32s3"
             )),
         }
     }
@@ -82,6 +84,7 @@ impl Chip {
             ("CARGO_FEATURE_ESP32C61", Self::Esp32c61),
             ("CARGO_FEATURE_ESP32H2", Self::Esp32h2),
             ("CARGO_FEATURE_ESP32P4", Self::Esp32p4),
+            ("CARGO_FEATURE_ESP32S31", Self::Esp32s31),
             ("CARGO_FEATURE_ESP32S2", Self::Esp32s2),
             ("CARGO_FEATURE_ESP32S3", Self::Esp32s3),
         ];
@@ -91,8 +94,8 @@ impl Chip {
                 if chip.is_some() {
                     return Err(
                         "Expected exactly one of the following features to be enabled: esp32, \
-                         esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32p4, esp32s2, \
-                         esp32s3",
+                         esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32p4, \
+                         esp32s31, esp32s2, esp32s3",
                     );
                 }
                 chip = Some(c);
@@ -102,7 +105,7 @@ impl Chip {
             Some(chip) => Ok(chip),
             None => Err(
                 "Expected exactly one of the following features to be enabled: esp32, esp32c2, \
-                 esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32p4, esp32s2, esp32s3",
+                 esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32p4, esp32s31, esp32s2, esp32s3",
             ),
         }
     }
@@ -131,6 +134,7 @@ impl Chip {
             Self::Esp32c61 => "esp32c61",
             Self::Esp32h2 => "esp32h2",
             Self::Esp32p4 => "esp32p4",
+            Self::Esp32s31 => "esp32s31",
             Self::Esp32s2 => "esp32s2",
             Self::Esp32s3 => "esp32s3",
         }
@@ -186,6 +190,7 @@ impl Chip {
             Self::Esp32c61,
             Self::Esp32h2,
             Self::Esp32p4,
+            Self::Esp32s31,
             Self::Esp32s2,
             Self::Esp32s3,
         ]
@@ -5215,6 +5220,115 @@ impl Chip {
                     },
                 ],
             },
+            Self::Esp32s31 => Config {
+                architecture: "riscv",
+                target: "riscv32imafc-unknown-none-elf",
+                symbols: &[
+                    "esp32s31",
+                    "riscv",
+                    "multi_core",
+                    "soc_has_efuse",
+                    "soc_has_gpio",
+                    "soc_has_hp_system",
+                    "soc_has_hp_sys_clkrst",
+                    "soc_has_system",
+                    "soc_has_interrupt_core0",
+                    "soc_has_interrupt_core1",
+                    "soc_has_clic",
+                    "soc_has_io_mux",
+                    "soc_has_lp_sys",
+                    "soc_has_lp_clkrst",
+                    "soc_has_lp_i2c_ana_mst",
+                    "soc_has_pmu",
+                    "soc_has_rtc_timer",
+                    "soc_has_lp_wdt",
+                    "soc_has_lpwr",
+                    "soc_has_rng",
+                    "soc_has_systimer",
+                    "soc_has_timg0",
+                    "soc_has_timg1",
+                    "soc_has_uart0",
+                    "soc_has_uart1",
+                    "soc_has_uart2",
+                    "soc_has_uart3",
+                    "soc_has_spi0",
+                    "soc_has_spi1",
+                    "soc_has_spi2",
+                    "soc_has_usb_device",
+                    "soc_has_flash",
+                    "soc_has_psram",
+                    "soc_has_sw_interrupt",
+                    "interrupts_driver_supported",
+                    "soc_driver_supported",
+                    "interrupts_status_registers=\"5\"",
+                    "interrupt_controller=\"clic\"",
+                    "soc_cpu_has_branch_predictor",
+                    "soc_internal_memory_cached",
+                    "has_dram_region",
+                    "has_dram2_uninit_region",
+                ],
+                cfgs: &[
+                    "cargo:rustc-cfg=esp32s31",
+                    "cargo:rustc-cfg=riscv",
+                    "cargo:rustc-cfg=multi_core",
+                    "cargo:rustc-cfg=soc_has_efuse",
+                    "cargo:rustc-cfg=soc_has_gpio",
+                    "cargo:rustc-cfg=soc_has_hp_system",
+                    "cargo:rustc-cfg=soc_has_hp_sys_clkrst",
+                    "cargo:rustc-cfg=soc_has_system",
+                    "cargo:rustc-cfg=soc_has_interrupt_core0",
+                    "cargo:rustc-cfg=soc_has_interrupt_core1",
+                    "cargo:rustc-cfg=soc_has_clic",
+                    "cargo:rustc-cfg=soc_has_io_mux",
+                    "cargo:rustc-cfg=soc_has_lp_sys",
+                    "cargo:rustc-cfg=soc_has_lp_clkrst",
+                    "cargo:rustc-cfg=soc_has_lp_i2c_ana_mst",
+                    "cargo:rustc-cfg=soc_has_pmu",
+                    "cargo:rustc-cfg=soc_has_rtc_timer",
+                    "cargo:rustc-cfg=soc_has_lp_wdt",
+                    "cargo:rustc-cfg=soc_has_lpwr",
+                    "cargo:rustc-cfg=soc_has_rng",
+                    "cargo:rustc-cfg=soc_has_systimer",
+                    "cargo:rustc-cfg=soc_has_timg0",
+                    "cargo:rustc-cfg=soc_has_timg1",
+                    "cargo:rustc-cfg=soc_has_uart0",
+                    "cargo:rustc-cfg=soc_has_uart1",
+                    "cargo:rustc-cfg=soc_has_uart2",
+                    "cargo:rustc-cfg=soc_has_uart3",
+                    "cargo:rustc-cfg=soc_has_spi0",
+                    "cargo:rustc-cfg=soc_has_spi1",
+                    "cargo:rustc-cfg=soc_has_spi2",
+                    "cargo:rustc-cfg=soc_has_usb_device",
+                    "cargo:rustc-cfg=soc_has_flash",
+                    "cargo:rustc-cfg=soc_has_psram",
+                    "cargo:rustc-cfg=soc_has_sw_interrupt",
+                    "cargo:rustc-cfg=interrupts_driver_supported",
+                    "cargo:rustc-cfg=soc_driver_supported",
+                    "cargo:rustc-cfg=interrupts_status_registers=\"5\"",
+                    "cargo:rustc-cfg=interrupt_controller=\"clic\"",
+                    "cargo:rustc-cfg=soc_cpu_has_branch_predictor",
+                    "cargo:rustc-cfg=soc_internal_memory_cached",
+                    "cargo:rustc-cfg=has_dram_region",
+                    "cargo:rustc-cfg=has_dram2_uninit_region",
+                ],
+                memory_layout: &MemoryLayout {
+                    regions: &[
+                        (
+                            "dram",
+                            MemoryRegion {
+                                address_range: 0x2F010000..0x2F080000,
+                            },
+                        ),
+                        (
+                            "dram2_uninit",
+                            MemoryRegion {
+                                address_range: 0x2F000000..0x2F010000,
+                            },
+                        ),
+                    ],
+                },
+                pins: &[],
+            },
             Self::Esp32s2 => Config {
                 architecture: "xtensa",
                 target: "xtensa-esp32s2-none-elf",
@@ -7150,6 +7264,8 @@ pub fn emit_check_cfg_directives() {
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_mipi_dsi_dpi_clk)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_mipi_dsi_phy_pll_refclk)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_mipi_dsi_phy_cfg_clk)");
+    println!("cargo:rustc-check-cfg=cfg(esp32s31)");
+    println!("cargo:rustc-check-cfg=cfg(soc_has_hp_system)");
     println!("cargo:rustc-check-cfg=cfg(esp32s2)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_dedicated_gpio)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_pms)");

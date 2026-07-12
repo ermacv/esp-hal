@@ -115,6 +115,8 @@ include!("_generated_esp32c61.rs");
 include!("_generated_esp32h2.rs");
 #[cfg(feature = "esp32p4")]
 include!("_generated_esp32p4.rs");
+#[cfg(feature = "esp32s31")]
+include!("_generated_esp32s31.rs");
 #[cfg(feature = "esp32s2")]
 include!("_generated_esp32s2.rs");
 #[cfg(feature = "esp32s3")]
