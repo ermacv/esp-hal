@@ -243,6 +243,20 @@ impl<'d> SystemTimer<'d> {
             PeripheralClockControl::disable(PeripheralEnable::Systimer);
         }
 
+        #[cfg(esp32s31)]
+        {
+            crate::peripherals::HP_SYS_CLKRST::regs()
+                .systimer_ctrl0()
+                .modify(|_, w| {
+                    w.reg_systimer_apb_clk_en().set_bit();
+                    w.reg_systimer_clk_en().set_bit()
+                });
+            SYSTIMER::regs().conf().modify(|_, w| {
+                w.clk_en().set_bit();
+                w.timer_unit0_work_en().set_bit()
+            });
+        }
+
         #[cfg(etm_driver_supported)]
         etm::enable_etm();
 
