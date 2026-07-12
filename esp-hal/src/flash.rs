@@ -51,6 +51,26 @@ pub struct Flash {
 }
 
 impl Flash {
+    /// Uses the flash configuration established by the normal bootloader.
+    pub fn from_bootloader(peri: FLASH<'static>) -> Result<Self, FlashError> {
+        let jedec_id = unsafe {
+            let descriptor = (0x2f07_ffe0 as *const *const u32).read_volatile();
+            descriptor.read_volatile()
+        };
+        let capacity_bits = jedec_id & 0xff;
+        if jedec_id == 0 || jedec_id == 0x00ff_ffff || capacity_bits > 31 {
+            return Err(FlashError::InvalidJedecId);
+        }
+
+        Ok(Self {
+            _peri: peri,
+            info: FlashInfo {
+                jedec_id,
+                size: 1u32 << capacity_bits,
+            },
+        })
+    }
+
     /// Attaches and configures the ROM flash driver after a RAM download.
     ///
     /// This is not needed during a normal flash boot: the ROM and second-stage
