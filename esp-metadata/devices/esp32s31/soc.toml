@@ -69,6 +69,7 @@ peripherals = [
     { name = "SPI2", interrupts = { peri = "SPI2" } },
     { name = "USB_DEVICE", interrupts = { peri = "USB_DEVICE" } },
     { name = "FLASH", virtual = true },
+    { name = "ETH", virtual = true },
     { name = "SW_INTERRUPT", virtual = true },
 ]
 

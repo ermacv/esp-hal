@@ -776,7 +776,8 @@ macro_rules! for_each_peripheral {
         { bind_peri_interrupt, enable_peri_interrupt, disable_peri_interrupt })
         (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
         "FLASH peripheral singleton"] FLASH <= virtual() (unstable)));
-        _for_each_inner_peripheral!((@ peri_type #[doc =
+        _for_each_inner_peripheral!((@ peri_type #[doc = "ETH peripheral singleton"] ETH
+        <= virtual() (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
         "SW_INTERRUPT peripheral singleton"] SW_INTERRUPT <= virtual() (unstable)));
         _for_each_inner_peripheral!((GPIO0)); _for_each_inner_peripheral!((GPIO1));
         _for_each_inner_peripheral!((GPIO2)); _for_each_inner_peripheral!((GPIO3));
@@ -841,6 +842,7 @@ macro_rules! for_each_peripheral {
         _for_each_inner_peripheral!((SPI2(unstable)));
         _for_each_inner_peripheral!((USB_DEVICE(unstable)));
         _for_each_inner_peripheral!((FLASH(unstable)));
+        _for_each_inner_peripheral!((ETH(unstable)));
         _for_each_inner_peripheral!((SW_INTERRUPT(unstable)));
         _for_each_inner_peripheral!((all(@ peri_type #[doc =
         "GPIO0 peripheral singleton"] GPIO0 <= virtual()), (@ peri_type #[doc =
@@ -948,7 +950,8 @@ macro_rules! for_each_peripheral {
         <= USB_DEVICE(USB_DEVICE : { bind_peri_interrupt, enable_peri_interrupt,
         disable_peri_interrupt }) (unstable)), (@ peri_type #[doc =
         "FLASH peripheral singleton"] FLASH <= virtual() (unstable)), (@ peri_type #[doc
-        = "SW_INTERRUPT peripheral singleton"] SW_INTERRUPT <= virtual() (unstable))));
+        = "ETH peripheral singleton"] ETH <= virtual() (unstable)), (@ peri_type #[doc =
+        "SW_INTERRUPT peripheral singleton"] SW_INTERRUPT <= virtual() (unstable))));
         _for_each_inner_peripheral!((singletons(GPIO0), (GPIO1), (GPIO2), (GPIO3),
         (GPIO4), (GPIO5), (GPIO6), (GPIO7), (GPIO8), (GPIO9), (GPIO10), (GPIO11),
         (GPIO12), (GPIO13), (GPIO14), (GPIO15), (GPIO16), (GPIO17), (GPIO18), (GPIO19),
@@ -966,7 +969,7 @@ macro_rules! for_each_peripheral {
         (TIMG0(unstable)), (TIMG1(unstable)), (UART0(unstable)), (UART1(unstable)),
         (UART2(unstable)), (UART3(unstable)), (SPI0(unstable)), (PSRAM_MSPI(unstable)),
         (PSRAM(unstable)), (SPI1(unstable)), (SPI2(unstable)), (USB_DEVICE(unstable)),
-        (FLASH(unstable)), (SW_INTERRUPT(unstable))));
+        (FLASH(unstable)), (ETH(unstable)), (SW_INTERRUPT(unstable))));
         _for_each_inner_peripheral!((dma_eligible));
     };
 }

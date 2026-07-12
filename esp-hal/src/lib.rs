@@ -339,6 +339,8 @@ unstable_module! {
     pub mod debugger;
     #[cfg(esp32s31)]
     pub mod flash;
+    #[cfg(esp32s31)]
+    pub mod gmac;
     pub mod rom;
     #[doc(hidden)]
     pub mod sync;
