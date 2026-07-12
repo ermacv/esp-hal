@@ -5256,6 +5256,7 @@ impl Chip {
                     "soc_has_uart3",
                     "soc_has_spi0",
                     "soc_has_psram_mspi",
+                    "soc_has_psram",
                     "soc_has_spi1",
                     "soc_has_spi2",
                     "soc_has_usb_device",
@@ -5263,6 +5264,7 @@ impl Chip {
                     "soc_has_sw_interrupt",
                     "gpio_driver_supported",
                     "interrupts_driver_supported",
+                    "psram_driver_supported",
                     "soc_driver_supported",
                     "systimer_driver_supported",
                     "gpio_version=\"3\"",
@@ -5276,6 +5278,7 @@ impl Chip {
                     "gpio_output_signal_max=\"256\"",
                     "interrupts_status_registers=\"6\"",
                     "interrupt_controller=\"clic\"",
+                    "psram_extmem_origin=\"1342177280\"",
                     "soc_cpu_has_branch_predictor",
                     "soc_internal_memory_cached",
                     "soc_has_clock_node_xtal_clk",
@@ -5317,6 +5320,7 @@ impl Chip {
                     "cargo:rustc-cfg=soc_has_uart3",
                     "cargo:rustc-cfg=soc_has_spi0",
                     "cargo:rustc-cfg=soc_has_psram_mspi",
+                    "cargo:rustc-cfg=soc_has_psram",
                     "cargo:rustc-cfg=soc_has_spi1",
                     "cargo:rustc-cfg=soc_has_spi2",
                     "cargo:rustc-cfg=soc_has_usb_device",
@@ -5324,6 +5328,7 @@ impl Chip {
                     "cargo:rustc-cfg=soc_has_sw_interrupt",
                     "cargo:rustc-cfg=gpio_driver_supported",
                     "cargo:rustc-cfg=interrupts_driver_supported",
+                    "cargo:rustc-cfg=psram_driver_supported",
                     "cargo:rustc-cfg=soc_driver_supported",
                     "cargo:rustc-cfg=systimer_driver_supported",
                     "cargo:rustc-cfg=gpio_version=\"3\"",
@@ -5337,6 +5342,7 @@ impl Chip {
                     "cargo:rustc-cfg=gpio_output_signal_max=\"256\"",
                     "cargo:rustc-cfg=interrupts_status_registers=\"6\"",
                     "cargo:rustc-cfg=interrupt_controller=\"clic\"",
+                    "cargo:rustc-cfg=psram_extmem_origin=\"1342177280\"",
                     "cargo:rustc-cfg=soc_cpu_has_branch_predictor",
                     "cargo:rustc-cfg=soc_internal_memory_cached",
                     "cargo:rustc-cfg=soc_has_clock_node_xtal_clk",
@@ -7621,7 +7627,8 @@ pub fn emit_check_cfg_directives() {
     println!("cargo:rustc-check-cfg=cfg(ledc_channel_count, values(\"8\",\"6\"))");
     println!(
         "cargo:rustc-check-cfg=cfg(psram_extmem_origin, \
-         values(\"1065353216\",\"1107296256\",\"1207959552\",\"1062207488\",\"1006632960\"))"
+         values(\"1065353216\",\"1107296256\",\"1207959552\",\"1342177280\",\"1062207488\",\"\
+         1006632960\"))"
     );
     println!(
         "cargo:rustc-check-cfg=cfg(rmt_ram_start, \

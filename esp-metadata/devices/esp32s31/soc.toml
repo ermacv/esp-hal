@@ -64,6 +64,7 @@ peripherals = [
     { name = "UART3", interrupts = { peri = "UART3" } },
     { name = "SPI0" },
     { name = "PSRAM_MSPI" },
+    { name = "PSRAM", virtual = true },
     { name = "SPI1" },
     { name = "SPI2", interrupts = { peri = "SPI2" } },
     { name = "USB_DEVICE", interrupts = { peri = "USB_DEVICE" } },
@@ -75,6 +76,9 @@ peripherals = [
 # {include clocks.toml}
 
 [device.systimer]
+
+[device.psram]
+extmem_origin = 0x5000_0000
 
 [device.gpio]
 # ESP32-S31 uses the dual-core GPIO register layout (GPIO v3).  Peripheral

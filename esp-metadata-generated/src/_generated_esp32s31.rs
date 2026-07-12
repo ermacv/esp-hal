@@ -112,6 +112,15 @@ macro_rules! property {
     ("interrupts.disabled_interrupt") => {
         0
     };
+    ("psram.octal_spi") => {
+        false
+    };
+    ("psram.extmem_origin") => {
+        1342177280
+    };
+    ("psram.extmem_origin", str) => {
+        stringify!(1342177280)
+    };
     ("sleep.light_sleep") => {
         false
     };
@@ -757,13 +766,14 @@ macro_rules! for_each_peripheral {
         #[doc = "SPI0 peripheral singleton"] SPI0 <= SPI0() (unstable)));
         _for_each_inner_peripheral!((@ peri_type #[doc =
         "PSRAM_MSPI peripheral singleton"] PSRAM_MSPI <= PSRAM_MSPI() (unstable)));
-        _for_each_inner_peripheral!((@ peri_type #[doc = "SPI1 peripheral singleton"]
-        SPI1 <= SPI1() (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
-        "SPI2 peripheral singleton"] SPI2 <= SPI2(SPI2 : { bind_peri_interrupt,
-        enable_peri_interrupt, disable_peri_interrupt }) (unstable)));
-        _for_each_inner_peripheral!((@ peri_type #[doc =
-        "USB_DEVICE peripheral singleton"] USB_DEVICE <= USB_DEVICE(USB_DEVICE : {
-        bind_peri_interrupt, enable_peri_interrupt, disable_peri_interrupt })
+        _for_each_inner_peripheral!((@ peri_type #[doc = "PSRAM peripheral singleton"]
+        PSRAM <= virtual() (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "SPI1 peripheral singleton"] SPI1 <= SPI1() (unstable)));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "SPI2 peripheral singleton"]
+        SPI2 <= SPI2(SPI2 : { bind_peri_interrupt, enable_peri_interrupt,
+        disable_peri_interrupt }) (unstable))); _for_each_inner_peripheral!((@ peri_type
+        #[doc = "USB_DEVICE peripheral singleton"] USB_DEVICE <= USB_DEVICE(USB_DEVICE :
+        { bind_peri_interrupt, enable_peri_interrupt, disable_peri_interrupt })
         (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
         "FLASH peripheral singleton"] FLASH <= virtual() (unstable)));
         _for_each_inner_peripheral!((@ peri_type #[doc =
@@ -826,6 +836,7 @@ macro_rules! for_each_peripheral {
         _for_each_inner_peripheral!((UART3(unstable)));
         _for_each_inner_peripheral!((SPI0(unstable)));
         _for_each_inner_peripheral!((PSRAM_MSPI(unstable)));
+        _for_each_inner_peripheral!((PSRAM(unstable)));
         _for_each_inner_peripheral!((SPI1(unstable)));
         _for_each_inner_peripheral!((SPI2(unstable)));
         _for_each_inner_peripheral!((USB_DEVICE(unstable)));
@@ -929,7 +940,8 @@ macro_rules! for_each_peripheral {
         enable_peri_interrupt, disable_peri_interrupt }) (unstable)), (@ peri_type #[doc
         = "SPI0 peripheral singleton"] SPI0 <= SPI0() (unstable)), (@ peri_type #[doc =
         "PSRAM_MSPI peripheral singleton"] PSRAM_MSPI <= PSRAM_MSPI() (unstable)), (@
-        peri_type #[doc = "SPI1 peripheral singleton"] SPI1 <= SPI1() (unstable)), (@
+        peri_type #[doc = "PSRAM peripheral singleton"] PSRAM <= virtual() (unstable)),
+        (@ peri_type #[doc = "SPI1 peripheral singleton"] SPI1 <= SPI1() (unstable)), (@
         peri_type #[doc = "SPI2 peripheral singleton"] SPI2 <= SPI2(SPI2 : {
         bind_peri_interrupt, enable_peri_interrupt, disable_peri_interrupt })
         (unstable)), (@ peri_type #[doc = "USB_DEVICE peripheral singleton"] USB_DEVICE
@@ -953,8 +965,9 @@ macro_rules! for_each_peripheral {
         (LP_WDT(unstable)), (LPWR(unstable)), (RNG(unstable)), (SYSTIMER(unstable)),
         (TIMG0(unstable)), (TIMG1(unstable)), (UART0(unstable)), (UART1(unstable)),
         (UART2(unstable)), (UART3(unstable)), (SPI0(unstable)), (PSRAM_MSPI(unstable)),
-        (SPI1(unstable)), (SPI2(unstable)), (USB_DEVICE(unstable)), (FLASH(unstable)),
-        (SW_INTERRUPT(unstable)))); _for_each_inner_peripheral!((dma_eligible));
+        (PSRAM(unstable)), (SPI1(unstable)), (SPI2(unstable)), (USB_DEVICE(unstable)),
+        (FLASH(unstable)), (SW_INTERRUPT(unstable))));
+        _for_each_inner_peripheral!((dma_eligible));
     };
 }
 /// This macro can be used to generate code for each `GPIOn` instance.
