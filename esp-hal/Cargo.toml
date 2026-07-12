@@ -261,6 +261,7 @@ esp32p4 = [
 ## ESP32-S31 (initial CPU0-only port)
 esp32s31 = [
     "dep:esp32s31",
+    "dep:embassy-net-driver-02",
     "esp-riscv-rt/clic-48",
     "esp-rom-sys/esp32s31",
     "esp-sync/esp32s31",

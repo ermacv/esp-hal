@@ -3,7 +3,17 @@
 //! This module owns the SoC-specific clock, access-control, RGMII and MDIO
 //! setup. PHY policy and board reset wiring intentionally remain outside HAL.
 
-use crate::peripherals::{ETH, HP_SYS_CLKRST};
+use core::{
+    sync::atomic::{AtomicBool, AtomicU32, Ordering},
+    task::Context,
+};
+
+use embassy_net_driver_02::{Capabilities, Driver, HardwareAddress, LinkState, RxToken, TxToken};
+
+use crate::{
+    asynch::AtomicWaker,
+    peripherals::{ETH, HP_SYS_CLKRST},
+};
 
 const GMAC_BASE: usize = 0x2035_0000;
 const CNNT_SYS_BASE: usize = 0x2035_9000;
@@ -67,6 +77,9 @@ pub enum Error {
 pub struct Gmac {
     _peri: ETH<'static>,
     phy_address: u8,
+    started: AtomicBool,
+    ring_generation: AtomicU32,
+    net_waker: AtomicWaker,
 }
 
 impl Gmac {
@@ -88,6 +101,9 @@ impl Gmac {
         Self {
             _peri: peri,
             phy_address,
+            started: AtomicBool::new(false),
+            ring_generation: AtomicU32::new(0),
+            net_waker: AtomicWaker::new(),
         }
     }
 
@@ -178,6 +194,8 @@ impl Gmac {
             storage.rx_descriptors.as_ptr() as u32,
             storage.tx_descriptors.as_ptr() as u32,
         );
+        self.ring_generation.fetch_add(1, Ordering::AcqRel);
+        self.net_waker.wake();
     }
 
     /// Returns the RX descriptor-list base address.
@@ -293,6 +311,8 @@ impl Gmac {
             ((GMAC_BASE + 0x1014) as *mut u32).write_volatile(1 << 7);
             self.demand_rx_poll();
         }
+        self.started.store(true, Ordering::Release);
+        self.net_waker.wake();
     }
 
     /// Stops MAC RX/TX and both DMA directions.
@@ -303,6 +323,8 @@ impl Gmac {
             let config = GMAC_BASE as *mut u32;
             config.write_volatile(config.read_volatile() & !((1 << 2) | (1 << 3)));
         }
+        self.started.store(false, Ordering::Release);
+        self.net_waker.wake();
     }
 
     /// Wakes a suspended RX DMA engine.
@@ -352,6 +374,149 @@ impl Gmac {
             }
         }
         Err(Error::MdioTimeout)
+    }
+}
+
+/// `embassy-net-driver` adapter for ESP32-S31 GMAC DMA storage.
+pub struct NetDriver<const RX: usize, const TX: usize> {
+    gmac: &'static Gmac,
+    storage: *mut DmaStorage<RX, TX>,
+    mac: [u8; 6],
+    rx_index: usize,
+    tx_index: usize,
+    generation: u32,
+}
+
+unsafe impl<const RX: usize, const TX: usize> Send for NetDriver<RX, TX> {}
+
+impl<const RX: usize, const TX: usize> NetDriver<RX, TX> {
+    /// Creates an Embassy adapter over statically allocated DMA storage.
+    pub fn new(
+        gmac: &'static Gmac,
+        storage: &'static mut DmaStorage<RX, TX>,
+        mac: [u8; 6],
+    ) -> Self {
+        Self {
+            gmac,
+            storage,
+            mac,
+            rx_index: 0,
+            tx_index: 0,
+            generation: gmac.ring_generation.load(Ordering::Acquire),
+        }
+    }
+
+    fn synchronize(&mut self) {
+        let generation = self.gmac.ring_generation.load(Ordering::Acquire);
+        if generation != self.generation {
+            self.rx_index = 0;
+            self.tx_index = 0;
+            self.generation = generation;
+        }
+    }
+}
+
+/// GMAC receive token.
+pub struct GmacRxToken<'a, const RX: usize, const TX: usize> {
+    gmac: &'static Gmac,
+    storage: *mut DmaStorage<RX, TX>,
+    index: &'a mut usize,
+}
+
+/// GMAC transmit token.
+pub struct GmacTxToken<'a, const RX: usize, const TX: usize> {
+    gmac: &'static Gmac,
+    storage: *mut DmaStorage<RX, TX>,
+    index: &'a mut usize,
+}
+
+impl<const RX: usize, const TX: usize> RxToken for GmacRxToken<'_, RX, TX> {
+    fn consume<R, F>(self, f: F) -> R
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        let index = *self.index;
+        let result = unsafe { self.gmac.consume_rx(&mut *self.storage, index, f) };
+        *self.index = (index + 1) % RX;
+        result
+    }
+}
+
+impl<const RX: usize, const TX: usize> TxToken for GmacTxToken<'_, RX, TX> {
+    fn consume<R, F>(self, length: usize, f: F) -> R
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        let index = *self.index;
+        let result = unsafe { self.gmac.consume_tx(&mut *self.storage, index, length, f) };
+        *self.index = (index + 1) % TX;
+        result
+    }
+}
+
+impl<const RX: usize, const TX: usize> Driver for NetDriver<RX, TX> {
+    type RxToken<'a>
+        = GmacRxToken<'a, RX, TX>
+    where
+        Self: 'a;
+    type TxToken<'a>
+        = GmacTxToken<'a, RX, TX>
+    where
+        Self: 'a;
+
+    fn receive(&mut self, cx: &mut Context<'_>) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+        self.synchronize();
+        self.gmac.net_waker.register(cx.waker());
+        let storage = unsafe { &*self.storage };
+        if !self.gmac.started.load(Ordering::Acquire)
+            || !self.gmac.rx_ready(storage, self.rx_index)
+            || !self.gmac.tx_ready(storage, self.tx_index)
+        {
+            return None;
+        }
+        Some((
+            GmacRxToken {
+                gmac: self.gmac,
+                storage: self.storage,
+                index: &mut self.rx_index,
+            },
+            GmacTxToken {
+                gmac: self.gmac,
+                storage: self.storage,
+                index: &mut self.tx_index,
+            },
+        ))
+    }
+
+    fn transmit(&mut self, cx: &mut Context<'_>) -> Option<Self::TxToken<'_>> {
+        self.synchronize();
+        self.gmac.net_waker.register(cx.waker());
+        let ready = self.gmac.started.load(Ordering::Acquire)
+            && unsafe { self.gmac.tx_ready(&*self.storage, self.tx_index) };
+        ready.then_some(GmacTxToken {
+            gmac: self.gmac,
+            storage: self.storage,
+            index: &mut self.tx_index,
+        })
+    }
+
+    fn link_state(&mut self, cx: &mut Context<'_>) -> LinkState {
+        self.gmac.net_waker.register(cx.waker());
+        if self.gmac.started.load(Ordering::Acquire) {
+            LinkState::Up
+        } else {
+            LinkState::Down
+        }
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        let mut capabilities = Capabilities::default();
+        capabilities.max_transmission_unit = 1514;
+        capabilities
+    }
+
+    fn hardware_address(&self) -> HardwareAddress {
+        HardwareAddress::Ethernet(self.mac)
     }
 }
 
