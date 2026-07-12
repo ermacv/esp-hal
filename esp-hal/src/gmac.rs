@@ -337,6 +337,11 @@ impl Gmac {
         unsafe { ((GMAC_BASE + 0x1004) as *mut u32).write_volatile(1) }
     }
 
+    /// Wakes the network executor after polling hardware without interrupts.
+    pub fn wake_network(&self) {
+        self.net_waker.wake();
+    }
+
     /// Reads one IEEE 802.3 Clause-22 PHY register.
     pub fn mdio_read(&self, register: u8) -> Result<u16, Error> {
         let address = (GMAC_BASE + 0x10) as *mut u32;
