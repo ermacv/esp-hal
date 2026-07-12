@@ -5250,6 +5250,7 @@ impl Chip {
                     "soc_has_uart2",
                     "soc_has_uart3",
                     "soc_has_spi0",
+                    "soc_has_psram_mspi",
                     "soc_has_spi1",
                     "soc_has_spi2",
                     "soc_has_usb_device",
@@ -5305,6 +5306,7 @@ impl Chip {
                     "cargo:rustc-cfg=soc_has_uart2",
                     "cargo:rustc-cfg=soc_has_uart3",
                     "cargo:rustc-cfg=soc_has_spi0",
+                    "cargo:rustc-cfg=soc_has_psram_mspi",
                     "cargo:rustc-cfg=soc_has_spi1",
                     "cargo:rustc-cfg=soc_has_spi2",
                     "cargo:rustc-cfg=soc_has_usb_device",
@@ -7529,6 +7531,7 @@ pub fn emit_check_cfg_directives() {
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_mipi_dsi_phy_cfg_clk)");
     println!("cargo:rustc-check-cfg=cfg(esp32s31)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_hp_system)");
+    println!("cargo:rustc-check-cfg=cfg(soc_has_psram_mspi)");
     println!("cargo:rustc-check-cfg=cfg(esp32s2)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_dedicated_gpio)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_pms)");

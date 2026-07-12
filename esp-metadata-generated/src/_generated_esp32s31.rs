@@ -746,6 +746,8 @@ macro_rules! for_each_peripheral {
         UART3 <= UART3(UART3 : { bind_peri_interrupt, enable_peri_interrupt,
         disable_peri_interrupt }) (unstable))); _for_each_inner_peripheral!((@ peri_type
         #[doc = "SPI0 peripheral singleton"] SPI0 <= SPI0() (unstable)));
+        _for_each_inner_peripheral!((@ peri_type #[doc =
+        "PSRAM_MSPI peripheral singleton"] PSRAM_MSPI <= PSRAM_MSPI() (unstable)));
         _for_each_inner_peripheral!((@ peri_type #[doc = "SPI1 peripheral singleton"]
         SPI1 <= SPI1() (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
         "SPI2 peripheral singleton"] SPI2 <= SPI2(SPI2 : { bind_peri_interrupt,
@@ -809,6 +811,7 @@ macro_rules! for_each_peripheral {
         _for_each_inner_peripheral!((UART2(unstable)));
         _for_each_inner_peripheral!((UART3(unstable)));
         _for_each_inner_peripheral!((SPI0(unstable)));
+        _for_each_inner_peripheral!((PSRAM_MSPI(unstable)));
         _for_each_inner_peripheral!((SPI1(unstable)));
         _for_each_inner_peripheral!((SPI2(unstable)));
         _for_each_inner_peripheral!((USB_DEVICE(unstable)));
@@ -905,14 +908,15 @@ macro_rules! for_each_peripheral {
         = "UART3 peripheral singleton"] UART3 <= UART3(UART3 : { bind_peri_interrupt,
         enable_peri_interrupt, disable_peri_interrupt }) (unstable)), (@ peri_type #[doc
         = "SPI0 peripheral singleton"] SPI0 <= SPI0() (unstable)), (@ peri_type #[doc =
-        "SPI1 peripheral singleton"] SPI1 <= SPI1() (unstable)), (@ peri_type #[doc =
-        "SPI2 peripheral singleton"] SPI2 <= SPI2(SPI2 : { bind_peri_interrupt,
-        enable_peri_interrupt, disable_peri_interrupt }) (unstable)), (@ peri_type #[doc
-        = "USB_DEVICE peripheral singleton"] USB_DEVICE <= USB_DEVICE(USB_DEVICE : {
+        "PSRAM_MSPI peripheral singleton"] PSRAM_MSPI <= PSRAM_MSPI() (unstable)), (@
+        peri_type #[doc = "SPI1 peripheral singleton"] SPI1 <= SPI1() (unstable)), (@
+        peri_type #[doc = "SPI2 peripheral singleton"] SPI2 <= SPI2(SPI2 : {
         bind_peri_interrupt, enable_peri_interrupt, disable_peri_interrupt })
-        (unstable)), (@ peri_type #[doc = "FLASH peripheral singleton"] FLASH <=
-        virtual() (unstable)), (@ peri_type #[doc = "SW_INTERRUPT peripheral singleton"]
-        SW_INTERRUPT <= virtual() (unstable))));
+        (unstable)), (@ peri_type #[doc = "USB_DEVICE peripheral singleton"] USB_DEVICE
+        <= USB_DEVICE(USB_DEVICE : { bind_peri_interrupt, enable_peri_interrupt,
+        disable_peri_interrupt }) (unstable)), (@ peri_type #[doc =
+        "FLASH peripheral singleton"] FLASH <= virtual() (unstable)), (@ peri_type #[doc
+        = "SW_INTERRUPT peripheral singleton"] SW_INTERRUPT <= virtual() (unstable))));
         _for_each_inner_peripheral!((singletons(GPIO0), (GPIO1), (GPIO2), (GPIO3),
         (GPIO4), (GPIO5), (GPIO6), (GPIO7), (GPIO8), (GPIO9), (GPIO10), (GPIO11),
         (GPIO12), (GPIO13), (GPIO14), (GPIO15), (GPIO16), (GPIO17), (GPIO18), (GPIO19),
@@ -927,8 +931,9 @@ macro_rules! for_each_peripheral {
         (RTC_TIMER(unstable)), (LP_WDT(unstable)), (LPWR(unstable)), (RNG(unstable)),
         (SYSTIMER(unstable)), (TIMG0(unstable)), (TIMG1(unstable)), (UART0(unstable)),
         (UART1(unstable)), (UART2(unstable)), (UART3(unstable)), (SPI0(unstable)),
-        (SPI1(unstable)), (SPI2(unstable)), (USB_DEVICE(unstable)), (FLASH(unstable)),
-        (SW_INTERRUPT(unstable)))); _for_each_inner_peripheral!((dma_eligible));
+        (PSRAM_MSPI(unstable)), (SPI1(unstable)), (SPI2(unstable)),
+        (USB_DEVICE(unstable)), (FLASH(unstable)), (SW_INTERRUPT(unstable))));
+        _for_each_inner_peripheral!((dma_eligible));
     };
 }
 /// This macro can be used to generate code for each `GPIOn` instance.
