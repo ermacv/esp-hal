@@ -7,6 +7,8 @@ use crate::{
     interrupt::{self, InterruptHandler},
     peripherals::Interrupt,
 };
+#[cfg(all(feature = "rt", esp32s31))]
+use crate::interrupt::Priority;
 
 pub(crate) fn read_bank_interrupt_status(bank: GpioBank) -> u32 {
     match bank {
@@ -55,6 +57,9 @@ pub(crate) fn gpio_intr_enable(int_enable: bool) -> u8 {
 
 #[cfg(feature = "rt")]
 pub(crate) fn enable_interrupt(handler: InterruptHandler) {
+    #[cfg(esp32s31)]
+    let handler = InterruptHandler::new(handler.handler().callback(), Priority::max());
+
     interrupt::bind_handler(Interrupt::GPIO, handler);
     #[cfg(multi_core)]
     {
