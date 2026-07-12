@@ -520,14 +520,16 @@ impl Gmac {
 
     /// Wakes a suspended RX DMA engine.
     pub fn demand_rx_poll(&self) {
-        // PAC currently marks this command register read-only.
-        unsafe { ((GMAC_BASE + 0x1008) as *mut u32).write_volatile(1) }
+        gmac_regs()
+            .register2_receivepolldemandregister()
+            .write(|w| unsafe { w.rpd().bits(1) });
     }
 
     /// Wakes a suspended TX DMA engine.
     pub fn demand_tx_poll(&self) {
-        // PAC currently marks this command register read-only.
-        unsafe { ((GMAC_BASE + 0x1004) as *mut u32).write_volatile(1) }
+        gmac_regs()
+            .register1_transmitpolldemandregister()
+            .write(|w| unsafe { w.tpd().bits(1) });
     }
 
     /// Wakes the network executor after polling hardware without interrupts.
