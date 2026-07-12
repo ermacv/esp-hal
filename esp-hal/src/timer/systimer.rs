@@ -69,6 +69,21 @@ const UNEVEN_DIVIDER_FLAG: u32 = 0x4000_0000;
 const UNEVEN_MULTIPLIER: u32 = if cfg!(esp32h2) { 2 } else { 5 };
 const UNEVEN_DIVIDER_MASK: u32 = 0x0000_FFFF;
 
+#[cfg(esp32s31)]
+fn s31_read(offset: usize) -> u32 {
+    unsafe { ((SYSTIMER::regs() as *const _ as usize + offset) as *const u32).read_volatile() }
+}
+
+#[cfg(esp32s31)]
+fn s31_write(offset: usize, value: u32) {
+    unsafe { ((SYSTIMER::regs() as *const _ as usize + offset) as *mut u32).write_volatile(value) }
+}
+
+#[cfg(esp32s31)]
+fn s31_modify(offset: usize, clear: u32, set: u32) {
+    s31_write(offset, (s31_read(offset) & !clear) | set);
+}
+
 /// The configuration of a unit.
 #[derive(Copy, Clone)]
 pub enum UnitConfig {
@@ -197,7 +212,7 @@ impl<'d> SystemTimer<'d> {
         // FIXME: this requires a critical section. We can probably do better, if we can formulate
         // invariants well.
         cfg_select! {
-            esp32c5 => {
+            any(esp32c5, esp32s31) => {
                 // Assuming SYSTIMER runs from XTAL, the hardware always runs at 16 MHz.
                 16_000_000
             }
@@ -348,6 +363,21 @@ impl Unit {
 
                 systimer.load().write(|w| w.load().set_bit());
             }
+            esp32s31 => {
+                match self.channel() {
+                    0 => {
+                        systimer.unit0_load_hi().write(|w| unsafe { w.timer_unit0_load_hi().bits(value_hi) });
+                        systimer.unit0_load_lo().write(|w| unsafe { w.timer_unit0_load_lo().bits(value_lo) });
+                        systimer.unit0_load().write(|w| w.timer_unit0_load().set_bit());
+                    }
+                    1 => {
+                        systimer.unit1_load_hi().write(|w| unsafe { w.timer_unit1_load_hi().bits(value_hi) });
+                        systimer.unit1_load_lo().write(|w| unsafe { w.timer_unit1_load_lo().bits(value_lo) });
+                        systimer.unit1_load().write(|w| w.timer_unit1_load().set_bit());
+                    }
+                    _ => unreachable!(),
+                }
+            }
             _ => {
                 let unitload = systimer.unitload(self.channel() as _);
                 let unit_load = systimer.unit_load(self.channel() as _);
@@ -367,7 +397,31 @@ impl Unit {
         let channel = self.channel() as usize;
         let systimer = SYSTIMER::regs();
 
+        #[cfg(esp32s31)]
+        match channel {
+            0 => {
+                systimer.unit0_op().write(|w| w.timer_unit0_update().set_bit());
+                while !systimer.unit0_op().read().timer_unit0_value_valid().bit_is_set() {}
+            }
+            1 => {
+                systimer.unit1_op().write(|w| w.timer_unit1_update().set_bit());
+                while !systimer.unit1_op().read().timer_unit1_value_valid().bit_is_set() {}
+            }
+            _ => unreachable!(),
+        }
+
+        #[cfg(esp32s31)]
+        return match channel {
+            0 => ((systimer.unit0_value_hi().read().bits() as u64) << 32)
+                | systimer.unit0_value_lo().read().bits() as u64,
+            1 => ((systimer.unit1_value_hi().read().bits() as u64) << 32)
+                | systimer.unit1_value_lo().read().bits() as u64,
+            _ => unreachable!(),
+        };
+
+        #[cfg(not(esp32s31))]
         systimer.unit_op(channel).write(|w| w.update().set_bit());
+        #[cfg(not(esp32s31))]
         while !systimer.unit_op(channel).read().value_valid().bit_is_set() {}
 
         // Read LO, HI, then LO again, check that LO returns the same value.
@@ -375,8 +429,11 @@ impl Unit {
         // HI and LO values (or the other core updates the counter mid-read), and this
         // function may get called from the ISR. In this case, the repeated read
         // will return consistent values.
+        #[cfg(not(esp32s31))]
         let unit_value = systimer.unit_value(channel);
+        #[cfg(not(esp32s31))]
         let mut lo_prev = unit_value.lo().read().bits();
+        #[cfg(not(esp32s31))]
         loop {
             let lo = lo_prev;
             let hi = unit_value.hi().read().bits();
@@ -490,6 +547,16 @@ impl Alarm<'_> {
     /// Sets the unit this comparator uses as a reference count.
     #[cfg(not(esp32s2))]
     pub fn set_unit(&self, unit: Unit) {
+        #[cfg(esp32s31)]
+        {
+            s31_modify(
+                0x34 + 4 * self.channel() as usize,
+                1 << 31,
+                u32::from(matches!(unit, Unit::Unit1)) << 31,
+            );
+            return;
+        }
+        #[cfg(not(esp32s31))]
         SYSTIMER::regs()
             .target_conf(self.channel() as usize)
             .modify(|_, w| w.timer_unit_sel().bit(matches!(unit, Unit::Unit1)));
@@ -501,6 +568,16 @@ impl Alarm<'_> {
             ComparatorMode::Period => true,
             ComparatorMode::Target => false,
         };
+        #[cfg(esp32s31)]
+        {
+            s31_modify(
+                0x34 + 4 * self.channel() as usize,
+                1 << 30,
+                u32::from(is_period_mode) << 30,
+            );
+            return;
+        }
+        #[cfg(not(esp32s31))]
         SYSTIMER::regs()
             .target_conf(self.channel() as usize)
             .modify(|_, w| w.period_mode().bit(is_period_mode));
@@ -509,6 +586,14 @@ impl Alarm<'_> {
     /// Get the current mode of the comparator, which is either target or
     /// periodic.
     fn mode(&self) -> ComparatorMode {
+        #[cfg(esp32s31)]
+        return if s31_read(0x34 + 4 * self.channel() as usize) & (1 << 30) != 0 {
+            ComparatorMode::Period
+        } else {
+            ComparatorMode::Target
+        };
+
+        #[cfg(not(esp32s31))]
         if SYSTIMER::regs()
             .target_conf(self.channel() as usize)
             .read()
@@ -524,6 +609,15 @@ impl Alarm<'_> {
     /// Set how often the comparator should generate an interrupt when in
     /// periodic mode.
     fn set_period(&self, value: u32) {
+        #[cfg(esp32s31)]
+        {
+            let channel = self.channel() as usize;
+            s31_modify(0x34 + 4 * channel, 0x03ff_ffff, value & 0x03ff_ffff);
+            s31_write(0x50 + 4 * channel, 1);
+            return;
+        }
+        #[cfg(not(esp32s31))]
+        {
         let systimer = SYSTIMER::regs();
         let tconf = systimer.target_conf(self.channel() as usize);
         unsafe { tconf.modify(|_, w| w.period().bits(value)) };
@@ -532,10 +626,21 @@ impl Alarm<'_> {
             let comp_load = systimer.comp_load(self.channel() as usize);
             comp_load.write(|w| w.load().set_bit());
         }
+        }
     }
 
     /// Set when the comparator should generate an interrupt in target mode.
     fn set_target(&self, value: u64) {
+        #[cfg(esp32s31)]
+        {
+            let channel = self.channel() as usize;
+            s31_write(0x1c + 8 * channel, ((value >> 32) as u32) & 0x000f_ffff);
+            s31_write(0x20 + 8 * channel, value as u32);
+            s31_write(0x50 + 4 * channel, 1);
+            return;
+        }
+        #[cfg(not(esp32s31))]
+        {
         let systimer = SYSTIMER::regs();
         let target = systimer.trgt(self.channel() as usize);
         target.hi().write(|w| w.hi().set((value >> 32) as u32));
@@ -546,6 +651,7 @@ impl Alarm<'_> {
         {
             let comp_load = systimer.comp_load(self.channel() as usize);
             comp_load.write(|w| w.load().set_bit());
+        }
         }
     }
 
@@ -705,6 +811,12 @@ impl super::Timer for Alarm<'_> {
 
     fn enable_interrupt(&self, state: bool) {
         INT_ENA_LOCK.lock(|| {
+            #[cfg(esp32s31)]
+            {
+                let mask = 1 << self.channel();
+                s31_modify(0x64, mask, if state { mask } else { 0 });
+            }
+            #[cfg(not(esp32s31))]
             SYSTIMER::regs()
                 .int_ena()
                 .modify(|_, w| w.target(self.channel()).bit(state));
@@ -712,12 +824,22 @@ impl super::Timer for Alarm<'_> {
     }
 
     fn clear_interrupt(&self) {
+        #[cfg(esp32s31)]
+        {
+            s31_write(0x6c, 1 << self.channel());
+            return;
+        }
+        #[cfg(not(esp32s31))]
         SYSTIMER::regs()
             .int_clr()
             .write(|w| w.target(self.channel()).clear_bit_by_one());
     }
 
     fn is_interrupt_set(&self) -> bool {
+        #[cfg(esp32s31)]
+        return s31_read(0x68) & (1 << self.channel()) != 0;
+
+        #[cfg(not(esp32s31))]
         SYSTIMER::regs()
             .int_raw()
             .read()

@@ -5232,12 +5232,10 @@ impl Chip {
                     "soc_has_hp_system",
                     "soc_has_hp_sys_clkrst",
                     "soc_has_system",
-                    "soc_has_interrupt_core0",
-                    "soc_has_interrupt_core1",
                     "soc_has_clic",
                     "soc_has_io_mux",
-                    "soc_has_lp_sys",
-                    "soc_has_lp_clkrst",
+                    "soc_has_lp_aon",
+                    "soc_has_lp_aon_clkrst",
                     "soc_has_lp_i2c_ana_mst",
                     "soc_has_pmu",
                     "soc_has_rtc_timer",
@@ -5259,10 +5257,14 @@ impl Chip {
                     "soc_has_sw_interrupt",
                     "interrupts_driver_supported",
                     "soc_driver_supported",
-                    "interrupts_status_registers=\"5\"",
+                    "systimer_driver_supported",
+                    "interrupts_status_registers=\"6\"",
                     "interrupt_controller=\"clic\"",
                     "soc_cpu_has_branch_predictor",
                     "soc_internal_memory_cached",
+                    "soc_has_clock_node_xtal_clk",
+                    "soc_has_clock_node_cpu_clk",
+                    "soc_has_clock_node_apb_clk",
                     "has_dram_region",
                     "has_dram2_uninit_region",
                 ],
@@ -5275,12 +5277,10 @@ impl Chip {
                     "cargo:rustc-cfg=soc_has_hp_system",
                     "cargo:rustc-cfg=soc_has_hp_sys_clkrst",
                     "cargo:rustc-cfg=soc_has_system",
-                    "cargo:rustc-cfg=soc_has_interrupt_core0",
-                    "cargo:rustc-cfg=soc_has_interrupt_core1",
                     "cargo:rustc-cfg=soc_has_clic",
                     "cargo:rustc-cfg=soc_has_io_mux",
-                    "cargo:rustc-cfg=soc_has_lp_sys",
-                    "cargo:rustc-cfg=soc_has_lp_clkrst",
+                    "cargo:rustc-cfg=soc_has_lp_aon",
+                    "cargo:rustc-cfg=soc_has_lp_aon_clkrst",
                     "cargo:rustc-cfg=soc_has_lp_i2c_ana_mst",
                     "cargo:rustc-cfg=soc_has_pmu",
                     "cargo:rustc-cfg=soc_has_rtc_timer",
@@ -5302,10 +5302,14 @@ impl Chip {
                     "cargo:rustc-cfg=soc_has_sw_interrupt",
                     "cargo:rustc-cfg=interrupts_driver_supported",
                     "cargo:rustc-cfg=soc_driver_supported",
-                    "cargo:rustc-cfg=interrupts_status_registers=\"5\"",
+                    "cargo:rustc-cfg=systimer_driver_supported",
+                    "cargo:rustc-cfg=interrupts_status_registers=\"6\"",
                     "cargo:rustc-cfg=interrupt_controller=\"clic\"",
                     "cargo:rustc-cfg=soc_cpu_has_branch_predictor",
                     "cargo:rustc-cfg=soc_internal_memory_cached",
+                    "cargo:rustc-cfg=soc_has_clock_node_xtal_clk",
+                    "cargo:rustc-cfg=soc_has_clock_node_cpu_clk",
+                    "cargo:rustc-cfg=soc_has_clock_node_apb_clk",
                     "cargo:rustc-cfg=has_dram_region",
                     "cargo:rustc-cfg=has_dram2_uninit_region",
                 ],
@@ -7328,7 +7332,8 @@ pub fn emit_check_cfg_directives() {
     println!("cargo:rustc-check-cfg=cfg(i2s_mclk_divider_bit_width, values(\"6\",\"9\"))");
     println!("cargo:rustc-check-cfg=cfg(i2s_max_ws_width, values(\"128\",\"512\"))");
     println!(
-        "cargo:rustc-check-cfg=cfg(interrupts_status_registers, values(\"3\",\"2\",\"5\",\"4\"))"
+        "cargo:rustc-check-cfg=cfg(interrupts_status_registers, \
+         values(\"3\",\"2\",\"5\",\"6\",\"4\"))"
     );
     println!(
         "cargo:rustc-check-cfg=cfg(interrupt_controller, \

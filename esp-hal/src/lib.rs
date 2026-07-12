@@ -742,17 +742,17 @@ pub fn init(config: Config) -> Peripherals {
         min_rev % 100,
     );
 
-    #[cfg(soc_cpu_has_branch_predictor)]
+    #[cfg(all(soc_cpu_has_branch_predictor, not(esp32s31)))]
     crate::soc::enable_branch_predictor();
 
     // Have we already overflown the stack?
-    #[cfg(init_stack_ptr_range_check)]
+    #[cfg(all(init_stack_ptr_range_check, not(esp32s31)))]
     crate::soc::ensure_stack_pointer_in_range();
 
-    #[cfg(stack_guard_monitoring)]
+    #[cfg(all(stack_guard_monitoring, not(esp32s31)))]
     crate::soc::enable_main_stack_guard_monitoring();
 
-    #[cfg(all(feature = "rt", enable_pmp, riscv))]
+    #[cfg(all(feature = "rt", enable_pmp, riscv, not(esp32s31)))]
     crate::soc::enable_pmp();
 
     system::disable_peripherals();

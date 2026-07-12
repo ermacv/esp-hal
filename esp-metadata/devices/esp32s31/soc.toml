@@ -15,7 +15,7 @@ symbols = []
 
 [device.interrupts]
 support_status = "partial"
-status_registers = 5
+status_registers = 6
 software_interrupt_count = 4
 controller = { Riscv = { flavour = "clic", interrupts = 48, priority_levels = 8 } }
 
@@ -35,32 +35,39 @@ memory_map = { ranges = [
 peripherals = [
     { name = "EFUSE", hidden = true },
     { name = "GPIO" },
-    { name = "HP_SYSTEM" },
+    { name = "HP_SYSTEM", pac = "HP_SYS" },
     { name = "HP_SYS_CLKRST" },
     { name = "SYSTEM", pac = "HP_SYS_CLKRST" },
-    { name = "INTERRUPT_CORE0" },
-    { name = "INTERRUPT_CORE1" },
     { name = "CLIC" },
     { name = "IO_MUX" },
-    { name = "LP_SYS" },
-    { name = "LP_CLKRST" },
+    { name = "LP_AON", pac = "LP_AON_CLKRST" },
+    { name = "LP_AON_CLKRST" },
     { name = "LP_I2C_ANA_MST" },
     { name = "PMU" },
-    { name = "RTC_TIMER" },
-    { name = "LP_WDT", pac = "RTC_WDT" },
-    { name = "LPWR", pac = "LP_SYS" },
-    { name = "RNG", pac = "LP_TRNG" },
+    { name = "RTC_TIMER", pac = "LP_TIMER" },
+    { name = "LP_WDT" },
+    { name = "LPWR", pac = "LP_AON_CLKRST" },
+    { name = "RNG", pac = "TRNG" },
     { name = "SYSTIMER" },
-    { name = "TIMG0", pac = "TIMERG0" },
-    { name = "TIMG1", pac = "TIMERG1" },
+    { name = "TIMG0" },
+    { name = "TIMG1" },
     { name = "UART0", interrupts = { peri = "UART0" } },
     { name = "UART1", interrupts = { peri = "UART1" } },
     { name = "UART2", interrupts = { peri = "UART2" } },
     { name = "UART3", interrupts = { peri = "UART3" } },
-    { name = "SPI0", pac = "SPIMEM0" },
-    { name = "SPI1", pac = "SPIMEM1" },
-    { name = "SPI2", pac = "GPSPI2", interrupts = { peri = "GPSPI2" } },
-    { name = "USB_DEVICE", pac = "USB_SERIAL_JTAG", interrupts = { peri = "USB_DEVICE" } },
+    { name = "SPI0" },
+    { name = "SPI1" },
+    { name = "SPI2", interrupts = { peri = "SPI2" } },
+    { name = "USB_DEVICE", interrupts = { peri = "USB_DEVICE" } },
     { name = "FLASH", virtual = true },
     { name = "SW_INTERRUPT", virtual = true },
 ]
+
+[device.soc.clocks]
+# {include clocks.toml}
+
+[device.systimer]
+
+[device.sleep]
+support_status = "not_supported"
+wakeup_sources = { Timer = 13 }

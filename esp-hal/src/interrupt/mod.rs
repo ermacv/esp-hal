@@ -52,7 +52,8 @@ cfg_select! {
         use crate::peripherals::DPORT as INTERRUPT_CORE0;
         use crate::peripherals::DPORT as INTERRUPT_CORE1;
     }
-    _ => {
+    esp32s31 => {}
+    not(esp32s31) => {
         use crate::peripherals::INTERRUPT_CORE0;
         #[cfg(multi_core)]
         use crate::peripherals::INTERRUPT_CORE1;
@@ -208,6 +209,14 @@ impl InterruptStatus {
 
     #[inline]
     fn interrupt_status_word(cpu: Cpu, word: usize) -> u32 {
+        #[cfg(esp32s31)]
+        {
+            let base = 0x2058_5000_usize
+                + if matches!(cpu, Cpu::AppCpu) { 0x800 } else { 0 };
+            return unsafe { ((base + 0x2a8 + 4 * word) as *const u32).read_volatile() };
+        }
+
+        #[cfg(not(esp32s31))]
         match cpu {
             Cpu::ProCpu => {
                 #[cfg(esp32p4)]
@@ -395,6 +404,16 @@ pub fn disable(core: Cpu, interrupt: Interrupt) {
 }
 
 pub(super) fn map_raw(core: Cpu, interrupt: Interrupt, cpu_interrupt: u32) {
+    #[cfg(esp32s31)]
+    {
+        let base = 0x2058_5000_usize
+            + if matches!(core, Cpu::AppCpu) { 0x800 } else { 0 };
+        unsafe {
+            ((base + 4 * interrupt as usize) as *mut u32).write_volatile(cpu_interrupt & 0x3f)
+        };
+        return;
+    }
+    #[cfg(not(esp32s31))]
     match core {
         Cpu::ProCpu => {
             INTERRUPT_CORE0::regs()
@@ -416,6 +435,15 @@ pub(crate) fn mapped_to(cpu: Cpu, interrupt: Interrupt) -> Option<CpuInterrupt> 
 }
 
 pub(crate) fn mapped_to_raw(cpu: Cpu, interrupt: u32) -> Option<CpuInterrupt> {
+    #[cfg(esp32s31)]
+    {
+        let base = 0x2058_5000_usize
+            + if matches!(cpu, Cpu::AppCpu) { 0x800 } else { 0 };
+        let cpu_intr = unsafe { ((base + 4 * interrupt as usize) as *const u32).read_volatile() }
+            & 0x3f;
+        return CpuInterrupt::from_u32(cpu_intr);
+    }
+    #[cfg(not(esp32s31))]
     let cpu_intr = match cpu {
         Cpu::ProCpu => INTERRUPT_CORE0::regs()
             .core_0_intr_map(interrupt as usize)
@@ -427,6 +455,7 @@ pub(crate) fn mapped_to_raw(cpu: Cpu, interrupt: u32) -> Option<CpuInterrupt> {
             .read()
             .bits(),
     };
+    #[cfg(not(esp32s31))]
     CpuInterrupt::from_u32(cpu_intr)
 }
 

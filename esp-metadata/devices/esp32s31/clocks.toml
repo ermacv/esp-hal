@@ -1,0 +1,12 @@
+system_clocks = { clock_tree = [
+    { name = "XTAL_CLK", type = "source", values = "40", output = "VALUE * 1_000_000", always_on = true },
+    { name = "CPU_CLK",  type = "source", values = "320", output = "VALUE * 1_000_000", always_on = true },
+    { name = "APB_CLK",  type = "source", values = "80", output = "VALUE * 1_000_000", always_on = true },
+] }
+
+peripheral_clocks = { templates = [
+    { name = "clk_en_template", value = "crate::peripherals::HP_SYS_CLKRST::regs().systimer_ctrl0().modify(|_, w| w.reg_systimer_apb_clk_en().bit(enable).reg_systimer_clk_en().bit(enable));" },
+    { name = "rst_template", value = "crate::peripherals::HP_SYS_CLKRST::regs().systimer_ctrl0().modify(|_, w| w.reg_systimer_rst_en().bit(reset));" },
+], peripheral_clocks = [
+    { name = "Systimer", keep_enabled = true },
+] }

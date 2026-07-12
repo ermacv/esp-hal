@@ -132,6 +132,7 @@ pub mod sleep;
 #[cfg_attr(esp32c61, path = "rtc/esp32c61.rs")]
 #[cfg_attr(esp32h2, path = "rtc/esp32h2.rs")]
 #[cfg_attr(esp32p4, path = "rtc/esp32p4.rs")]
+#[cfg_attr(esp32s31, path = "rtc/esp32s31.rs")]
 #[cfg_attr(esp32s2, path = "rtc/esp32s2.rs")]
 #[cfg_attr(esp32s3, path = "rtc/esp32s3.rs")]
 pub(crate) mod rtc;
@@ -420,11 +421,18 @@ impl<'d> Rtc<'d> {
         // ESP32-S3: TRM v1.5 chapter 8.3
         // ESP32-H2: TRM v0.5 chapter 8.2.3
 
-        let reg = cfg_select! {
-            esp32p4 => LP_AON::regs().lp_store4(),
-            _ => LP_AON::regs().store4(),
-        };
-        reg.modify(|r, w| unsafe { w.bits(r.bits() | Self::RTC_DISABLE_ROM_LOG) });
+        cfg_select! {
+            esp32s31 => {
+                // S31 has no LP scratch STORE4 register. ROM log control will
+                // be wired to its dedicated mechanism once documented.
+            }
+            esp32p4 => {
+                LP_AON::regs().lp_store4().modify(|r, w| unsafe { w.bits(r.bits() | Self::RTC_DISABLE_ROM_LOG) });
+            }
+            _ => {
+                LP_AON::regs().store4().modify(|r, w| unsafe { w.bits(r.bits() | Self::RTC_DISABLE_ROM_LOG) });
+            }
+        }
     }
 
     /// Register an interrupt handler for the RTC.
@@ -514,7 +522,7 @@ impl Rwdt {
 
         // Configure STAGE0 to trigger an interrupt upon expiration
         let cfg_reg = cfg_select! {
-            esp32p4 => regs.config0(),
+            any(esp32p4, esp32s31) => regs.config0(),
             _ => regs.wdtconfig0(),
         };
         cfg_reg.modify(|_, w| unsafe {
@@ -527,7 +535,7 @@ impl Rwdt {
 
         regs.int_ena().modify(|_, w| {
             cfg_select! {
-                esp32p4 => w.lp_wdt().bit(enable),
+                any(esp32p4, esp32s31) => w.lp_wdt().bit(enable),
                 _ => w.wdt().bit(enable),
             }
         });
@@ -551,7 +559,7 @@ impl Rwdt {
 
         LP_WDT::regs().int_clr().write(|w| {
             cfg_select! {
-                esp32p4 => w.lp_wdt().clear_bit_by_one(),
+                any(esp32p4, esp32s31) => w.lp_wdt().clear_bit_by_one(),
                 _ => w.wdt().clear_bit_by_one(),
             }
         });
@@ -562,7 +570,7 @@ impl Rwdt {
     /// Check if the interrupt is set.
     pub fn is_interrupt_set(&self) -> bool {
         cfg_select! {
-            esp32p4 => LP_WDT::regs().int_st().read().lp_wdt().bit_is_set(),
+            any(esp32p4, esp32s31) => LP_WDT::regs().int_st().read().lp_wdt().bit_is_set(),
             _ => LP_WDT::regs().int_st().read().wdt().bit_is_set(),
         }
     }
@@ -572,7 +580,7 @@ impl Rwdt {
         self.set_write_protection(false);
 
         cfg_select! {
-            esp32p4 => LP_WDT::regs().feed().write(|w| w.feed().set_bit()),
+            any(esp32p4, esp32s31) => LP_WDT::regs().feed().write(|w| w.feed().set_bit()),
             _ => LP_WDT::regs().wdtfeed().write(|w| w.wdt_feed().set_bit()),
         };
 
@@ -582,7 +590,7 @@ impl Rwdt {
     fn set_write_protection(&mut self, enable: bool) {
         let wkey = if enable { 0u32 } else { 0x50D8_3AA1 };
         let reg = cfg_select! {
-            esp32p4 => LP_WDT::regs().wprotect(),
+            any(esp32p4, esp32s31) => LP_WDT::regs().wprotect(),
             _ => LP_WDT::regs().wdtwprotect(),
         };
         reg.write(|w| unsafe { w.bits(wkey) });
@@ -593,7 +601,7 @@ impl Rwdt {
 
         let regs = LP_WDT::regs();
         let config0 = cfg_select! {
-            esp32p4 => regs.config0(),
+            any(esp32p4, esp32s31) => regs.config0(),
             _ => regs.wdtconfig0(),
         };
 
@@ -626,12 +634,16 @@ impl Rwdt {
         self.set_write_protection(false);
 
         let regs = LP_WDT::regs();
-        let config_reg = cfg_select! {
-            esp32p4 => regs.config(stage as usize),
-            _ => regs.wdtconfig(stage as usize),
+        cfg_select! {
+            esp32s31 => match stage {
+                RwdtStage::Stage0 => regs.config1().modify(|_, w| unsafe { w.wdt_stg0_hold().bits(timeout_raw) }),
+                RwdtStage::Stage1 => regs.config2().modify(|_, w| unsafe { w.wdt_stg1_hold().bits(timeout_raw) }),
+                RwdtStage::Stage2 => regs.config3().modify(|_, w| unsafe { w.wdt_stg2_hold().bits(timeout_raw) }),
+                RwdtStage::Stage3 => regs.config4().modify(|_, w| unsafe { w.wdt_stg3_hold().bits(timeout_raw) }),
+            },
+            esp32p4 => regs.config(stage as usize).modify(|_, w| unsafe { w.hold().bits(timeout_raw) }),
+            _ => regs.wdtconfig(stage as usize).modify(|_, w| unsafe { w.hold().bits(timeout_raw) }),
         };
-
-        config_reg.modify(|_, w| unsafe { w.hold().bits(timeout_raw) });
 
         self.set_write_protection(true);
     }
@@ -642,7 +654,7 @@ impl Rwdt {
 
         let regs = LP_WDT::regs();
         let cfg_reg = cfg_select! {
-            esp32p4 => regs.config0(),
+            any(esp32p4, esp32s31) => regs.config0(),
             _ => regs.wdtconfig0(),
         };
         cfg_reg.modify(|_, w| unsafe {

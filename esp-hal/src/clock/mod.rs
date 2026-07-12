@@ -109,6 +109,9 @@ impl CpuClock {
             esp32p4 => {
                 Self::_400MHz
             }
+            esp32s31 => {
+                Self::_320MHz
+            }
             _ => {
                 Self::_240MHz
             }
@@ -486,6 +489,11 @@ fn calibrate_rtc_slow_clock() {
         esp32p4 => {
             let reg = LP_AON::regs().lp_store1();
         }
+        esp32s31 => {
+            // Until RTC slow-clock calibration is implemented for S31, use
+            // the nominal 32.768 kHz period in the common 19-bit format.
+            return ((1_000_000_u64 << RtcClock::CAL_FRACT) / 32_768) as u64;
+        }
         _ => {
             let reg = LP_AON::regs().store1();
         }
@@ -525,15 +533,14 @@ fn rtc_slow_cal_period() -> u64 {
     // TODO: file an esp-pacs issue/PR to rename the P4 fields to match.
     // Once that lands this cfg branch can disappear.
     cfg_select! {
-        esp32p4 => {
-            let reg = LP_AON::regs().lp_store1();
+        esp32s31 => {
+            // Nominal 32.768 kHz RTC slow-clock period, in the common
+            // fixed-point format. Hardware calibration will replace this.
+            (1_000_000_u64 << RtcClock::CAL_FRACT) / 32_768
         }
-        _ => {
-            let reg = LP_AON::regs().store1();
-        }
+        esp32p4 => { LP_AON::regs().lp_store1().read().bits() as u64 }
+        _ => { LP_AON::regs().store1().read().bits() as u64 }
     }
-
-    reg.read().bits() as u64
 }
 
 /// Convert RTC slow clock ticks to microseconds using the calibrated period.
