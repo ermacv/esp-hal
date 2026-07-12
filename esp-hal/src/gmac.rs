@@ -4,7 +4,8 @@
 //! setup. PHY policy and board reset wiring intentionally remain outside HAL.
 
 use core::{
-    sync::atomic::{AtomicBool, AtomicU32, Ordering},
+    ptr,
+    sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering},
     task::Context,
 };
 
@@ -12,7 +13,8 @@ use embassy_net_driver_02::{Capabilities, Driver, HardwareAddress, LinkState, Rx
 
 use crate::{
     asynch::AtomicWaker,
-    peripherals::{ETH, HP_SYS_CLKRST},
+    interrupt,
+    peripherals::{ETH, HP_SYS_CLKRST, Interrupt},
 };
 
 const GMAC_BASE: usize = 0x2035_0000;
@@ -20,6 +22,17 @@ const CNNT_SYS_BASE: usize = 0x2035_9000;
 const IO_MUX_BASE: usize = 0x2058_2000;
 const CNNT_IO_MUX_BASE: usize = 0x2058_8000;
 const BUFFER_SIZE: usize = 1536;
+static INTERRUPT_GMAC: AtomicPtr<Gmac> = AtomicPtr::new(ptr::null_mut());
+
+#[crate::handler]
+fn gmac_interrupt() {
+    let status = unsafe { ((GMAC_BASE + 0x1014) as *const u32).read_volatile() };
+    unsafe { ((GMAC_BASE + 0x1014) as *mut u32).write_volatile(status) };
+    let gmac = INTERRUPT_GMAC.load(Ordering::Acquire);
+    if !gmac.is_null() {
+        unsafe { (*gmac).net_waker.wake() };
+    }
+}
 
 #[repr(C, align(32))]
 struct Descriptor([u32; 8]);
@@ -467,6 +480,16 @@ impl Gmac {
     /// Wakes the network executor after polling hardware without interrupts.
     pub fn wake_network(&self) {
         self.net_waker.wake();
+    }
+
+    /// Enables RX/TX DMA interrupts and binds them to the Embassy waker.
+    pub fn enable_interrupts(&'static self) {
+        INTERRUPT_GMAC.store(self as *const Self as *mut Self, Ordering::Release);
+        unsafe {
+            interrupt::bind_handler(Interrupt::SBD, gmac_interrupt);
+            ((GMAC_BASE + 0x101c) as *mut u32)
+                .write_volatile((1 << 0) | (1 << 6) | (1 << 15) | (1 << 16));
+        }
     }
 
     /// Polls the PHY and applies link transitions to MAC and DMA state.
