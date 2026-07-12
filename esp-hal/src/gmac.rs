@@ -453,6 +453,7 @@ impl Gmac {
         }
         self.started.store(true, Ordering::Release);
         self.net_waker.wake();
+        self.enable_interrupts();
     }
 
     /// Stops MAC RX/TX and both DMA directions.
@@ -483,7 +484,7 @@ impl Gmac {
     }
 
     /// Enables RX/TX DMA interrupts and binds them to the Embassy waker.
-    pub fn enable_interrupts(&'static self) {
+    fn enable_interrupts(&self) {
         INTERRUPT_GMAC.store(self as *const Self as *mut Self, Ordering::Release);
         unsafe {
             let pending = ((GMAC_BASE + 0x1014) as *const u32).read_volatile();
