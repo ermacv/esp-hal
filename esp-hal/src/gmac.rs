@@ -86,6 +86,17 @@ pub struct LinkMode {
     pub full_duplex: bool,
 }
 
+/// State transition produced by [`Gmac::poll_link`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkEvent {
+    /// Link state did not change.
+    Unchanged,
+    /// Link became active with the negotiated mode.
+    Up(LinkMode),
+    /// Link was lost and DMA was stopped.
+    Down,
+}
+
 /// Motorcomm YT8531 Gigabit Ethernet PHY policy.
 pub struct Yt8531 {
     rgmii_tx_delay: u8,
@@ -456,6 +467,27 @@ impl Gmac {
     /// Wakes the network executor after polling hardware without interrupts.
     pub fn wake_network(&self) {
         self.net_waker.wake();
+    }
+
+    /// Polls the PHY and applies link transitions to MAC and DMA state.
+    pub fn poll_link<const RX: usize, const TX: usize>(
+        &self,
+        phy: &Yt8531,
+        storage: &mut DmaStorage<RX, TX>,
+    ) -> Result<LinkEvent, Error> {
+        match phy.link_mode(self)? {
+            Some(mode) if !self.started.load(Ordering::Acquire) => {
+                self.configure_rings(storage);
+                self.start(mode.speed, mode.full_duplex, self.rx_base(storage));
+                Ok(LinkEvent::Up(mode))
+            }
+            Some(_) => Ok(LinkEvent::Unchanged),
+            None if self.started.load(Ordering::Acquire) => {
+                self.stop();
+                Ok(LinkEvent::Down)
+            }
+            None => Ok(LinkEvent::Unchanged),
+        }
     }
 
     /// Reads one IEEE 802.3 Clause-22 PHY register.
