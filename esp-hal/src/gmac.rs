@@ -27,9 +27,17 @@ fn gmac_regs() -> &'static crate::pac::gmac::RegisterBlock {
     unsafe { &*crate::pac::GMAC::ptr() }
 }
 
+#[inline]
+fn io_mux_regs() -> &'static crate::pac::io_mux::RegisterBlock {
+    unsafe { &*crate::pac::IO_MUX::ptr() }
+}
+
+#[inline]
+fn cnnt_io_mux_regs() -> &'static crate::pac::cnnt_io_mux::RegisterBlock {
+    unsafe { &*crate::pac::CNNT_IO_MUX::ptr() }
+}
+
 const CNNT_SYS_BASE: usize = 0x2035_9000;
-const IO_MUX_BASE: usize = 0x2058_2000;
-const CNNT_IO_MUX_BASE: usize = 0x2058_8000;
 const BUFFER_SIZE: usize = 1536;
 static INTERRUPT_GMAC: AtomicPtr<Gmac> = AtomicPtr::new(ptr::null_mut());
 
@@ -300,16 +308,20 @@ impl Gmac {
 
     /// Configures the Function-CoreBoard RGMII set-1 data plane (GPIO8..19).
     pub fn configure_rgmii_set1(&self) {
+        for pin in 8..=19 {
+            let input_enable = if pin >= 14 { 1 << 9 } else { 0 };
+            io_mux_regs().gpio(pin).modify(|r, w| unsafe {
+                w.bits(
+                    (r.bits() & !((0x7 << 12) | (1 << 9) | (1 << 8) | (1 << 7)))
+                        | (2 << 12)
+                        | input_enable,
+                )
+            });
+        }
+        cnnt_io_mux_regs()
+            .ctrl()
+            .modify(|_, w| w.gmac_pad_pin_ctrl_ded_sel().set_bit());
         unsafe {
-            for pin in 8..=19 {
-                let input_enable = if pin >= 14 { 1 << 9 } else { 0 };
-                modify(
-                    IO_MUX_BASE + pin * 4,
-                    (0x7 << 12) | (1 << 9) | (1 << 8) | (1 << 7),
-                    (2 << 12) | input_enable,
-                );
-            }
-            modify(CNNT_IO_MUX_BASE + 0x3f4, 0, 1 << 1);
             modify(CNNT_SYS_BASE + 0x40, 0x0000_ff07, (3 << 8) | (1 << 2));
             modify(CNNT_SYS_BASE + 0x44, (1 << 1) | (1 << 2), 0);
             modify(CNNT_SYS_BASE + 0x48, (1 << 0) | (1 << 1), 1 << 2);
