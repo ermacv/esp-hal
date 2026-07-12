@@ -22,6 +22,11 @@ use crate::{
     system::Cpu,
 };
 
+#[inline]
+fn gmac_regs() -> &'static crate::pac::gmac::RegisterBlock {
+    unsafe { &*crate::pac::GMAC::ptr() }
+}
+
 const GMAC_BASE: usize = 0x2035_0000;
 const CNNT_SYS_BASE: usize = 0x2035_9000;
 const IO_MUX_BASE: usize = 0x2058_2000;
@@ -31,14 +36,14 @@ static INTERRUPT_GMAC: AtomicPtr<Gmac> = AtomicPtr::new(ptr::null_mut());
 
 #[crate::handler]
 fn gmac_interrupt() {
-    let status = unsafe { ((GMAC_BASE + 0x1014) as *const u32).read_volatile() };
-    unsafe {
-        ((GMAC_BASE + 0x1014) as *mut u32).write_volatile(status);
-        if status & (1 << 26) != 0 {
-            // GLI is cleared by reading the RGMII/SGMII status register.
-            ((GMAC_BASE + 0xd8) as *const u32).read_volatile();
-        }
-    };
+    let regs = gmac_regs();
+    let status = regs.register5_statusregister().read();
+    regs.register5_statusregister()
+        .write(|w| unsafe { w.bits(status.bits()) });
+    if status.gli().bit_is_set() {
+        regs.register54_sgmii_rgmii_smiicontrolandstatusregister()
+            .read();
+    }
     let gmac = INTERRUPT_GMAC.load(Ordering::Acquire);
     if !gmac.is_null() {
         unsafe { (*gmac).net_waker.wake() };
@@ -242,11 +247,15 @@ impl Gmac {
             (0x2070_6cbc as *mut u32).write_volatile(0);
             (0x2050_44c4 as *mut u32).write_volatile(0);
             (0x2050_48c4 as *mut u32).write_volatile(0);
-            // Mask every MAC-level source. In particular, an RGMII in-band
-            // link transition otherwise keeps the shared SBD line asserted.
-            ((GMAC_BASE + 0x3c) as *mut u32).write_volatile(u32::MAX);
-            ((GMAC_BASE + 0xd8) as *const u32).read_volatile();
         }
+        // Mask every MAC-level source. In particular, an RGMII in-band link
+        // transition otherwise keeps the shared SBD line asserted.
+        gmac_regs()
+            .register15_interruptmaskregister()
+            .write(|w| unsafe { w.bits(u32::MAX) });
+        gmac_regs()
+            .register54_sgmii_rgmii_smiicontrolandstatusregister()
+            .read();
         HP_SYS_CLKRST::regs()
             .emac_ctrl0()
             .modify(|_, w| w.reg_emac_sys_clk_en().set_bit());
@@ -287,7 +296,7 @@ impl Gmac {
 
     /// Returns the Synopsys GMAC version register.
     pub fn version(&self) -> u32 {
-        unsafe { ((GMAC_BASE + 0x20) as *const u32).read_volatile() }
+        gmac_regs().register8_versionregister().read().bits()
     }
 
     /// Configures the Function-CoreBoard RGMII set-1 data plane (GPIO8..19).
@@ -323,16 +332,16 @@ impl Gmac {
 
     /// Resets the DMA engine and returns its hardware feature register.
     pub fn reset_dma(&self) -> Result<u32, Error> {
-        let bus_mode = (GMAC_BASE + 0x1000) as *mut u32;
-        unsafe {
-            ((GMAC_BASE + 0x101c) as *mut u32).write_volatile(0);
-            let pending = ((GMAC_BASE + 0x1014) as *const u32).read_volatile();
-            ((GMAC_BASE + 0x1014) as *mut u32).write_volatile(pending);
-            bus_mode.write_volatile(bus_mode.read_volatile() | 1);
-            for _ in 0..1_000_000 {
-                if bus_mode.read_volatile() & 1 == 0 {
-                    return Ok(((GMAC_BASE + 0x1058) as *const u32).read_volatile());
-                }
+        let regs = gmac_regs();
+        regs.register7_interruptenableregister().reset();
+        let pending = regs.register5_statusregister().read().bits();
+        regs.register5_statusregister()
+            .write(|w| unsafe { w.bits(pending) });
+        regs.register0_busmoderegister()
+            .modify(|_, w| w.swr().set_bit());
+        for _ in 0..1_000_000 {
+            if regs.register0_busmoderegister().read().swr().bit_is_clear() {
+                return Ok(regs.register22_hwfeatureregister().read().bits());
             }
         }
         Err(Error::DmaResetTimeout)
@@ -511,11 +520,13 @@ impl Gmac {
 
     /// Wakes a suspended RX DMA engine.
     pub fn demand_rx_poll(&self) {
+        // PAC currently marks this command register read-only.
         unsafe { ((GMAC_BASE + 0x1008) as *mut u32).write_volatile(1) }
     }
 
     /// Wakes a suspended TX DMA engine.
     pub fn demand_tx_poll(&self) {
+        // PAC currently marks this command register read-only.
         unsafe { ((GMAC_BASE + 0x1004) as *mut u32).write_volatile(1) }
     }
 
@@ -527,16 +538,13 @@ impl Gmac {
     /// Enables RX/TX DMA interrupts and binds them to the Embassy waker.
     fn enable_interrupts(&self) {
         INTERRUPT_GMAC.store(self as *const Self as *mut Self, Ordering::Release);
-        unsafe {
-            let pending = ((GMAC_BASE + 0x1014) as *const u32).read_volatile();
-            ((GMAC_BASE + 0x1014) as *mut u32).write_volatile(pending);
-            interrupt::bind_handler(Interrupt::SBD, gmac_interrupt);
-            // RX completion plus the normal-interrupt summary are sufficient
-            // to wake embassy-net. Enabling the abnormal summary here makes
-            // the level source continuously assert on S31 when DMA initially
-            // reports receive-buffer-unavailable during startup.
-            ((GMAC_BASE + 0x101c) as *mut u32).write_volatile((1 << 6) | (1 << 16));
-        }
+        let regs = gmac_regs();
+        let pending = regs.register5_statusregister().read().bits();
+        regs.register5_statusregister()
+            .write(|w| unsafe { w.bits(pending) });
+        interrupt::bind_handler(Interrupt::SBD, gmac_interrupt);
+        regs.register7_interruptenableregister()
+            .write(|w| w.rie().set_bit().nie().set_bit());
     }
 
     /// Polls the PHY and applies link transitions to MAC and DMA state.
@@ -562,16 +570,20 @@ impl Gmac {
 
     /// Reads one IEEE 802.3 Clause-22 PHY register.
     pub fn mdio_read(&self, register: u8) -> Result<u16, Error> {
-        let address = (GMAC_BASE + 0x10) as *mut u32;
-        let data = (GMAC_BASE + 0x14) as *const u32;
-        unsafe {
-            address.write_volatile(
+        let regs = gmac_regs();
+        regs.register4_gmiiaddressregister().write(|w| unsafe {
+            w.bits(
                 (u32::from(self.phy_address) << 11) | (u32::from(register) << 6) | (5 << 2) | 1,
-            );
-            for _ in 0..1_000_000 {
-                if address.read_volatile() & 1 == 0 {
-                    return Ok(data.read_volatile() as u16);
-                }
+            )
+        });
+        for _ in 0..1_000_000 {
+            if regs
+                .register4_gmiiaddressregister()
+                .read()
+                .gb()
+                .bit_is_clear()
+            {
+                return Ok(regs.register5_gmiidataregister().read().gd().bits());
             }
         }
         Err(Error::MdioTimeout)
@@ -579,21 +591,26 @@ impl Gmac {
 
     /// Writes one IEEE 802.3 Clause-22 PHY register.
     pub fn mdio_write(&self, register: u8, value: u16) -> Result<(), Error> {
-        let address = (GMAC_BASE + 0x10) as *mut u32;
-        let data = (GMAC_BASE + 0x14) as *mut u32;
-        unsafe {
-            data.write_volatile(u32::from(value));
-            address.write_volatile(
+        let regs = gmac_regs();
+        regs.register5_gmiidataregister()
+            .write(|w| unsafe { w.gd().bits(value) });
+        regs.register4_gmiiaddressregister().write(|w| unsafe {
+            w.bits(
                 (u32::from(self.phy_address) << 11)
                     | (u32::from(register) << 6)
                     | (5 << 2)
                     | (1 << 1)
                     | 1,
-            );
-            for _ in 0..1_000_000 {
-                if address.read_volatile() & 1 == 0 {
-                    return Ok(());
-                }
+            )
+        });
+        for _ in 0..1_000_000 {
+            if regs
+                .register4_gmiiaddressregister()
+                .read()
+                .gb()
+                .bit_is_clear()
+            {
+                return Ok(());
             }
         }
         Err(Error::MdioTimeout)
