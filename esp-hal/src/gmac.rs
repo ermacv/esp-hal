@@ -24,11 +24,16 @@ const IO_MUX_BASE: usize = 0x2058_2000;
 const CNNT_IO_MUX_BASE: usize = 0x2058_8000;
 const BUFFER_SIZE: usize = 1536;
 static INTERRUPT_GMAC: AtomicPtr<Gmac> = AtomicPtr::new(ptr::null_mut());
+static LAST_INTERRUPT_STATUS: AtomicU32 = AtomicU32::new(0);
 
 #[crate::handler]
 fn gmac_interrupt() {
     let status = unsafe { ((GMAC_BASE + 0x1014) as *const u32).read_volatile() };
-    unsafe { ((GMAC_BASE + 0x1014) as *mut u32).write_volatile(status) };
+    unsafe {
+        ((GMAC_BASE + 0x101c) as *mut u32).write_volatile(0);
+        ((GMAC_BASE + 0x1014) as *mut u32).write_volatile(status);
+    };
+    LAST_INTERRUPT_STATUS.store(status, Ordering::Release);
     let gmac = INTERRUPT_GMAC.load(Ordering::Acquire);
     if !gmac.is_null() {
         unsafe { (*gmac).net_waker.wake() };
@@ -224,6 +229,10 @@ pub struct Gmac {
 }
 
 impl Gmac {
+    /// Returns and clears the DMA status captured by the interrupt handler.
+    pub fn take_interrupt_status(&self) -> u32 {
+        LAST_INTERRUPT_STATUS.swap(0, Ordering::AcqRel)
+    }
     /// Enables the GMAC clock/reset path and opens DMA access to internal RAM.
     pub fn new(peri: ETH<'static>, phy_address: u8) -> Self {
         interrupt::disable(Cpu::current(), Interrupt::SBD);
