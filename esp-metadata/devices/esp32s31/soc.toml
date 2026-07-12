@@ -58,6 +58,7 @@ peripherals = [
     { name = "UART2", interrupts = { peri = "UART2" } },
     { name = "UART3", interrupts = { peri = "UART3" } },
     { name = "SPI0" },
+    { name = "PSRAM_MSPI", hidden = true },
     { name = "SPI1" },
     { name = "SPI2", interrupts = { peri = "SPI2" } },
     { name = "USB_DEVICE", interrupts = { peri = "USB_DEVICE" } },
