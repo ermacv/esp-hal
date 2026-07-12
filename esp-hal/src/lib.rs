@@ -337,6 +337,8 @@ pub mod interrupt;
 unstable_module! {
     pub mod asynch;
     pub mod debugger;
+    #[cfg(esp32s31)]
+    pub mod flash;
     pub mod rom;
     #[doc(hidden)]
     pub mod sync;
