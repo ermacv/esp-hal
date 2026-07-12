@@ -15,6 +15,7 @@ use crate::{
     asynch::AtomicWaker,
     interrupt,
     peripherals::{ETH, HP_SYS_CLKRST, Interrupt},
+    system::Cpu,
 };
 
 const GMAC_BASE: usize = 0x2035_0000;
@@ -225,6 +226,7 @@ pub struct Gmac {
 impl Gmac {
     /// Enables the GMAC clock/reset path and opens DMA access to internal RAM.
     pub fn new(peri: ETH<'static>, phy_address: u8) -> Self {
+        interrupt::disable(Cpu::current(), Interrupt::SBD);
         // Bare-metal startup leaves non-CPU bus masters behind APM filters.
         unsafe {
             (0x2070_6cbc as *mut u32).write_volatile(0);
