@@ -71,6 +71,122 @@ pub enum Error {
     MdioTimeout,
     /// The DMA controller did not leave software reset.
     DmaResetTimeout,
+    /// The detected PHY identifier is not a YT8531.
+    UnexpectedPhyId,
+    /// A PHY configuration value is outside its valid range.
+    InvalidPhyConfiguration,
+}
+
+/// Negotiated Ethernet mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LinkMode {
+    /// Negotiated line speed.
+    pub speed: Speed,
+    /// Whether full-duplex operation was negotiated.
+    pub full_duplex: bool,
+}
+
+/// Motorcomm YT8531 Gigabit Ethernet PHY policy.
+pub struct Yt8531 {
+    rgmii_tx_delay: u8,
+}
+
+impl Yt8531 {
+    /// Creates a PHY policy with TX delay in 150 ps steps.
+    pub fn new(rgmii_tx_delay: u8) -> Result<Self, Error> {
+        if rgmii_tx_delay > 15 {
+            return Err(Error::InvalidPhyConfiguration);
+        }
+        Ok(Self { rgmii_tx_delay })
+    }
+
+    /// Verifies and configures the PHY after board-level reset and pin routing.
+    pub fn initialize(&self, gmac: &Gmac) -> Result<(), Error> {
+        if (gmac.mdio_read(2)?, gmac.mdio_read(3)?) != (0x4f51, 0xe91b) {
+            return Err(Error::UnexpectedPhyId);
+        }
+        let rgmii = self.read_extended(gmac, 0xa003)?;
+        self.write_extended(
+            gmac,
+            0xa003,
+            (rgmii & !0x000f) | u16::from(self.rgmii_tx_delay),
+        )
+    }
+
+    /// Returns the current link status.
+    pub fn link_up(&self, gmac: &Gmac) -> Result<bool, Error> {
+        let _ = gmac.mdio_read(1)?;
+        Ok(gmac.mdio_read(1)? & (1 << 2) != 0)
+    }
+
+    /// Resolves the negotiated speed and duplex mode.
+    pub fn link_mode(&self, gmac: &Gmac) -> Result<Option<LinkMode>, Error> {
+        if !self.link_up(gmac)? {
+            return Ok(None);
+        }
+        let bmcr = gmac.mdio_read(0)?;
+        if bmcr & (1 << 12) == 0 {
+            let speed = if bmcr & (1 << 6) != 0 {
+                Speed::Mbps1000
+            } else if bmcr & (1 << 13) != 0 {
+                Speed::Mbps100
+            } else {
+                Speed::Mbps10
+            };
+            return Ok(Some(LinkMode {
+                speed,
+                full_duplex: bmcr & (1 << 8) != 0,
+            }));
+        }
+        let gigabit_common = gmac.mdio_read(9)? & (gmac.mdio_read(10)? >> 2);
+        if gigabit_common & (1 << 9) != 0 {
+            return Ok(Some(LinkMode {
+                speed: Speed::Mbps1000,
+                full_duplex: true,
+            }));
+        }
+        if gigabit_common & (1 << 8) != 0 {
+            return Ok(Some(LinkMode {
+                speed: Speed::Mbps1000,
+                full_duplex: false,
+            }));
+        }
+        let common = gmac.mdio_read(4)? & gmac.mdio_read(5)?;
+        let mode = if common & (1 << 8) != 0 {
+            LinkMode {
+                speed: Speed::Mbps100,
+                full_duplex: true,
+            }
+        } else if common & (1 << 7) != 0 {
+            LinkMode {
+                speed: Speed::Mbps100,
+                full_duplex: false,
+            }
+        } else if common & (1 << 6) != 0 {
+            LinkMode {
+                speed: Speed::Mbps10,
+                full_duplex: true,
+            }
+        } else if common & (1 << 5) != 0 {
+            LinkMode {
+                speed: Speed::Mbps10,
+                full_duplex: false,
+            }
+        } else {
+            return Ok(None);
+        };
+        Ok(Some(mode))
+    }
+
+    fn read_extended(&self, gmac: &Gmac, register: u16) -> Result<u16, Error> {
+        gmac.mdio_write(0x1e, register)?;
+        gmac.mdio_read(0x1f)
+    }
+
+    fn write_extended(&self, gmac: &Gmac, register: u16, value: u16) -> Result<(), Error> {
+        gmac.mdio_write(0x1e, register)?;
+        gmac.mdio_write(0x1f, value)
+    }
 }
 
 /// Owned handle to the ESP32-S31 GMAC peripheral.
