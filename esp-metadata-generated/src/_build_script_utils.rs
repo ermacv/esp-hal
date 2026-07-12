@@ -5231,9 +5231,14 @@ impl Chip {
                     "soc_has_gpio",
                     "soc_has_hp_system",
                     "soc_has_hp_sys_clkrst",
+                    "soc_has_hp_apm",
+                    "soc_has_hp_mem_apm",
                     "soc_has_system",
                     "soc_has_clic",
+                    "soc_has_cache",
+                    "soc_has_cpu_apm",
                     "soc_has_io_mux",
+                    "soc_has_iomux_mspi_pin",
                     "soc_has_lp_aon",
                     "soc_has_lp_aon_clkrst",
                     "soc_has_lp_i2c_ana_mst",
@@ -5287,9 +5292,14 @@ impl Chip {
                     "cargo:rustc-cfg=soc_has_gpio",
                     "cargo:rustc-cfg=soc_has_hp_system",
                     "cargo:rustc-cfg=soc_has_hp_sys_clkrst",
+                    "cargo:rustc-cfg=soc_has_hp_apm",
+                    "cargo:rustc-cfg=soc_has_hp_mem_apm",
                     "cargo:rustc-cfg=soc_has_system",
                     "cargo:rustc-cfg=soc_has_clic",
+                    "cargo:rustc-cfg=soc_has_cache",
+                    "cargo:rustc-cfg=soc_has_cpu_apm",
                     "cargo:rustc-cfg=soc_has_io_mux",
+                    "cargo:rustc-cfg=soc_has_iomux_mspi_pin",
                     "cargo:rustc-cfg=soc_has_lp_aon",
                     "cargo:rustc-cfg=soc_has_lp_aon_clkrst",
                     "cargo:rustc-cfg=soc_has_lp_i2c_ana_mst",
@@ -7531,6 +7541,9 @@ pub fn emit_check_cfg_directives() {
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_mipi_dsi_phy_cfg_clk)");
     println!("cargo:rustc-check-cfg=cfg(esp32s31)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_hp_system)");
+    println!("cargo:rustc-check-cfg=cfg(soc_has_hp_mem_apm)");
+    println!("cargo:rustc-check-cfg=cfg(soc_has_cpu_apm)");
+    println!("cargo:rustc-check-cfg=cfg(soc_has_iomux_mspi_pin)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_psram_mspi)");
     println!("cargo:rustc-check-cfg=cfg(esp32s2)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_dedicated_gpio)");

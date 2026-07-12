@@ -712,13 +712,22 @@ macro_rules! for_each_peripheral {
         _for_each_inner_peripheral!((@ peri_type #[doc =
         "HP_SYS_CLKRST peripheral singleton"] HP_SYS_CLKRST <= HP_SYS_CLKRST()
         (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
-        "SYSTEM peripheral singleton"] SYSTEM <= HP_SYS() (unstable)));
-        _for_each_inner_peripheral!((@ peri_type #[doc = "CLIC peripheral singleton"]
-        CLIC <= CLIC() (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
-        "IO_MUX peripheral singleton"] IO_MUX <= IO_MUX() (unstable)));
-        _for_each_inner_peripheral!((@ peri_type #[doc = "LP_AON peripheral singleton"]
-        LP_AON <= LP_AON_CLKRST() (unstable))); _for_each_inner_peripheral!((@ peri_type
-        #[doc = "LP_AON_CLKRST peripheral singleton"] LP_AON_CLKRST <= LP_AON_CLKRST()
+        "HP_APM peripheral singleton"] HP_APM <= HP_APM() (unstable)));
+        _for_each_inner_peripheral!((@ peri_type #[doc =
+        "HP_MEM_APM peripheral singleton"] HP_MEM_APM <= HP_MEM_APM() (unstable)));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "SYSTEM peripheral singleton"]
+        SYSTEM <= HP_SYS() (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "CLIC peripheral singleton"] CLIC <= CLIC() (unstable)));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "CACHE peripheral singleton"]
+        CACHE <= CACHE() (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "CPU_APM peripheral singleton"] CPU_APM <= CPU_APM() (unstable)));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "IO_MUX peripheral singleton"]
+        IO_MUX <= IO_MUX() (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "IOMUX_MSPI_PIN peripheral singleton"] IOMUX_MSPI_PIN <= IOMUX_MSPI_PIN()
+        (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "LP_AON peripheral singleton"] LP_AON <= LP_AON_CLKRST() (unstable)));
+        _for_each_inner_peripheral!((@ peri_type #[doc =
+        "LP_AON_CLKRST peripheral singleton"] LP_AON_CLKRST <= LP_AON_CLKRST()
         (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
         "LP_I2C_ANA_MST peripheral singleton"] LP_I2C_ANA_MST <= LP_I2C_ANA_MST()
         (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
@@ -792,9 +801,14 @@ macro_rules! for_each_peripheral {
         _for_each_inner_peripheral!((GPIO(unstable)));
         _for_each_inner_peripheral!((HP_SYSTEM(unstable)));
         _for_each_inner_peripheral!((HP_SYS_CLKRST(unstable)));
+        _for_each_inner_peripheral!((HP_APM(unstable)));
+        _for_each_inner_peripheral!((HP_MEM_APM(unstable)));
         _for_each_inner_peripheral!((SYSTEM(unstable)));
         _for_each_inner_peripheral!((CLIC(unstable)));
+        _for_each_inner_peripheral!((CACHE(unstable)));
+        _for_each_inner_peripheral!((CPU_APM(unstable)));
         _for_each_inner_peripheral!((IO_MUX(unstable)));
+        _for_each_inner_peripheral!((IOMUX_MSPI_PIN(unstable)));
         _for_each_inner_peripheral!((LP_AON(unstable)));
         _for_each_inner_peripheral!((LP_AON_CLKRST(unstable)));
         _for_each_inner_peripheral!((LP_I2C_ANA_MST(unstable)));
@@ -882,11 +896,17 @@ macro_rules! for_each_peripheral {
         "GPIO peripheral singleton"] GPIO <= GPIO() (unstable)), (@ peri_type #[doc =
         "HP_SYSTEM peripheral singleton"] HP_SYSTEM <= HP_SYS() (unstable)), (@ peri_type
         #[doc = "HP_SYS_CLKRST peripheral singleton"] HP_SYS_CLKRST <= HP_SYS_CLKRST()
-        (unstable)), (@ peri_type #[doc = "SYSTEM peripheral singleton"] SYSTEM <=
-        HP_SYS() (unstable)), (@ peri_type #[doc = "CLIC peripheral singleton"] CLIC <=
-        CLIC() (unstable)), (@ peri_type #[doc = "IO_MUX peripheral singleton"] IO_MUX <=
-        IO_MUX() (unstable)), (@ peri_type #[doc = "LP_AON peripheral singleton"] LP_AON
-        <= LP_AON_CLKRST() (unstable)), (@ peri_type #[doc =
+        (unstable)), (@ peri_type #[doc = "HP_APM peripheral singleton"] HP_APM <=
+        HP_APM() (unstable)), (@ peri_type #[doc = "HP_MEM_APM peripheral singleton"]
+        HP_MEM_APM <= HP_MEM_APM() (unstable)), (@ peri_type #[doc =
+        "SYSTEM peripheral singleton"] SYSTEM <= HP_SYS() (unstable)), (@ peri_type #[doc
+        = "CLIC peripheral singleton"] CLIC <= CLIC() (unstable)), (@ peri_type #[doc =
+        "CACHE peripheral singleton"] CACHE <= CACHE() (unstable)), (@ peri_type #[doc =
+        "CPU_APM peripheral singleton"] CPU_APM <= CPU_APM() (unstable)), (@ peri_type
+        #[doc = "IO_MUX peripheral singleton"] IO_MUX <= IO_MUX() (unstable)), (@
+        peri_type #[doc = "IOMUX_MSPI_PIN peripheral singleton"] IOMUX_MSPI_PIN <=
+        IOMUX_MSPI_PIN() (unstable)), (@ peri_type #[doc = "LP_AON peripheral singleton"]
+        LP_AON <= LP_AON_CLKRST() (unstable)), (@ peri_type #[doc =
         "LP_AON_CLKRST peripheral singleton"] LP_AON_CLKRST <= LP_AON_CLKRST()
         (unstable)), (@ peri_type #[doc = "LP_I2C_ANA_MST peripheral singleton"]
         LP_I2C_ANA_MST <= LP_I2C_ANA_MST() (unstable)), (@ peri_type #[doc =
@@ -926,14 +946,15 @@ macro_rules! for_each_peripheral {
         (GPIO46), (GPIO47), (GPIO48), (GPIO49), (GPIO50), (GPIO51), (GPIO52), (GPIO53),
         (GPIO54), (GPIO55), (GPIO56), (GPIO57), (GPIO58), (GPIO59), (GPIO60), (GPIO61),
         (GPIO(unstable)), (HP_SYSTEM(unstable)), (HP_SYS_CLKRST(unstable)),
-        (SYSTEM(unstable)), (CLIC(unstable)), (IO_MUX(unstable)), (LP_AON(unstable)),
-        (LP_AON_CLKRST(unstable)), (LP_I2C_ANA_MST(unstable)), (PMU(unstable)),
-        (RTC_TIMER(unstable)), (LP_WDT(unstable)), (LPWR(unstable)), (RNG(unstable)),
-        (SYSTIMER(unstable)), (TIMG0(unstable)), (TIMG1(unstable)), (UART0(unstable)),
-        (UART1(unstable)), (UART2(unstable)), (UART3(unstable)), (SPI0(unstable)),
-        (PSRAM_MSPI(unstable)), (SPI1(unstable)), (SPI2(unstable)),
-        (USB_DEVICE(unstable)), (FLASH(unstable)), (SW_INTERRUPT(unstable))));
-        _for_each_inner_peripheral!((dma_eligible));
+        (HP_APM(unstable)), (HP_MEM_APM(unstable)), (SYSTEM(unstable)), (CLIC(unstable)),
+        (CACHE(unstable)), (CPU_APM(unstable)), (IO_MUX(unstable)),
+        (IOMUX_MSPI_PIN(unstable)), (LP_AON(unstable)), (LP_AON_CLKRST(unstable)),
+        (LP_I2C_ANA_MST(unstable)), (PMU(unstable)), (RTC_TIMER(unstable)),
+        (LP_WDT(unstable)), (LPWR(unstable)), (RNG(unstable)), (SYSTIMER(unstable)),
+        (TIMG0(unstable)), (TIMG1(unstable)), (UART0(unstable)), (UART1(unstable)),
+        (UART2(unstable)), (UART3(unstable)), (SPI0(unstable)), (PSRAM_MSPI(unstable)),
+        (SPI1(unstable)), (SPI2(unstable)), (USB_DEVICE(unstable)), (FLASH(unstable)),
+        (SW_INTERRUPT(unstable)))); _for_each_inner_peripheral!((dma_eligible));
     };
 }
 /// This macro can be used to generate code for each `GPIOn` instance.
