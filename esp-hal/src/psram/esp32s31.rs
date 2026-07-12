@@ -12,6 +12,10 @@ use super::{EXTMEM_ORIGIN, PsramSize};
 pub struct PsramConfig {
     /// PSRAM size. `AutoDetect` reads MR2 density.
     pub size: PsramSize,
+    /// Preserve cache/MMU state established by the second-stage bootloader.
+    ///
+    /// Set this for applications executing directly from mapped flash.
+    pub cache_already_initialized: bool,
 }
 
 #[repr(C)]
@@ -78,7 +82,13 @@ pub(crate) fn init_psram(config: &mut PsramConfig) -> bool {
     unsafe {
         esp_rom_spi_set_op_mode(3, 7); // OPI DTR
         esp_rom_spi_cmd_config(3, &mut command);
-        esp_rom_spi_cmd_start(3, (&mut mode_registers as *mut u32).cast(), 2, 1 << 1, false);
+        esp_rom_spi_cmd_start(
+            3,
+            (&mut mode_registers as *mut u32).cast(),
+            2,
+            1 << 1,
+            false,
+        );
     }
     let vendor = ((mode_registers >> 8) & 0x1f) as u8;
     if vendor != 0x0d && vendor != 0x1a {
@@ -91,7 +101,13 @@ pub(crate) fn init_psram(config: &mut PsramConfig) -> bool {
     command.rx_data = &mut mode_registers;
     unsafe {
         esp_rom_spi_cmd_config(3, &mut command);
-        esp_rom_spi_cmd_start(3, (&mut mode_registers as *mut u32).cast(), 2, 1 << 1, false);
+        esp_rom_spi_cmd_start(
+            3,
+            (&mut mode_registers as *mut u32).cast(),
+            2,
+            1 << 1,
+            false,
+        );
     }
     let detected_size = match mode_registers & 0x07 {
         1 => 4 * 1024 * 1024,
@@ -162,7 +178,9 @@ pub(crate) fn map_psram(config: PsramConfig) -> Range<usize> {
             w.reg_cpu_cache_cpu_clk_force_on().set_bit();
             w.reg_mspi_cache_sys_clk_force_on().set_bit()
         });
-        ROM_Boot_Cache_Init();
+        if !config.cache_already_initialized {
+            ROM_Boot_Cache_Init();
+        }
 
         let clocks = HP_SYS_CLKRST::regs();
         clocks.psram_ctrl0().modify(|_, w| {
@@ -185,9 +203,7 @@ pub(crate) fn map_psram(config: PsramConfig) -> Range<usize> {
             .modify(|_, w| w.reg_psram_dqs_0_xpd().set_bit());
 
         psram.sram_drd_cmd().write(|w| w.bits(15 << 28));
-        psram
-            .sram_dwr_cmd()
-            .write(|w| w.bits((15 << 28) | 0x8080));
+        psram.sram_dwr_cmd().write(|w| w.bits((15 << 28) | 0x8080));
         psram.cache_sctrl().write(|w| {
             w.bits(
                 1 | (1 << 3)
@@ -209,9 +225,9 @@ pub(crate) fn map_psram(config: PsramConfig) -> Range<usize> {
         psram
             .spi_smem_ecc_ctrl()
             .modify(|_, w| w.spi_smem_page_size().bits(3));
-        psram.spi_smem_ac().write(|w| {
-            w.bits(1 | (1 << 1) | (3 << 2) | (3 << 7) | (2 << 25) | (1 << 31))
-        });
+        psram
+            .spi_smem_ac()
+            .write(|w| w.bits(1 | (1 << 1) | (3 << 2) | (3 << 7) | (2 << 25) | (1 << 31)));
         psram.ctrl1().modify(|_, w| {
             w.ar_splice_en().set_bit();
             w.aw_splice_en().set_bit()
@@ -234,15 +250,9 @@ pub(crate) fn map_psram(config: PsramConfig) -> Range<usize> {
         CACHE::regs()
             .l1_dcache_ctrl()
             .modify(|_, w| w.l1_dcache_shut_dbus0().clear_bit());
-        CPU_APM::regs()
-            .region0_attr()
-            .write(|w| w.bits(0x7777));
-        HP_MEM_APM::regs()
-            .region0_attr()
-            .write(|w| w.bits(0x7777));
-        HP_APM::regs()
-            .region0_attr()
-            .write(|w| w.bits(0x7777));
+        CPU_APM::regs().region0_attr().write(|w| w.bits(0x7777));
+        HP_MEM_APM::regs().region0_attr().write(|w| w.bits(0x7777));
+        HP_APM::regs().region0_attr().write(|w| w.bits(0x7777));
     }
 
     EXTMEM_ORIGIN..EXTMEM_ORIGIN + size
