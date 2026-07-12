@@ -11,6 +11,28 @@ pub(crate) fn riscv_preinit() {}
 
 pub(crate) fn pre_init() {}
 
+/// Permit cached accesses to the external-memory virtual address aperture.
+///
+/// ESP32-S31 uses one vendor-specific PMA CSR per entry. ESP-IDF reserves
+/// entry 7 for the 64 MiB EXTRAM range and notes that PSRAM is unreachable
+/// without it.
+pub(crate) fn enable_external_memory_pma() {
+    const ADDRESS: u32 = (0x5000_0000 | ((0x0400_0000 / 2) - 1)) >> 2;
+    const CONFIG: u32 = 0xc000_0000 // NAPOT
+        | 0x2000_0000 // locked
+        | 1 // enabled
+        | (1 << 4) // read
+        | (1 << 3) // write
+        | (1 << 2); // execute
+
+    unsafe {
+        core::arch::asm!("csrw 0xbc7, zero", "csrw 0xbd7, zero");
+        core::arch::asm!("csrw 0xbd7, {address}", address = in(reg) ADDRESS);
+        core::arch::asm!("csrw 0xbc7, {config}", config = in(reg) CONFIG);
+        core::arch::asm!("fence rw, rw", "fence.i");
+    }
+}
+
 pub(crate) fn enable_branch_predictor() {
     const MHCR_RS: u32 = 1 << 4;
     const MHCR_BFE: u32 = 1 << 5;

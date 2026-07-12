@@ -733,6 +733,9 @@ With the `unstable` feature enabled, this function accepts both [`ClockConfig`] 
 pub fn init(config: Config) -> Peripherals {
     crate::soc::pre_init();
 
+    #[cfg(esp32s31)]
+    crate::soc::enable_external_memory_pma();
+
     let min_rev = esp_config::esp_config_int!(u16, "ESP_HAL_CONFIG_MIN_CHIP_REVISION");
     assert!(
         crate::efuse::chip_revision() >= crate::efuse::ChipRevision::from_combined(min_rev),
