@@ -92,10 +92,10 @@ macro_rules! property {
         stringify!(0)
     };
     ("gpio.input_signal_max") => {
-        10
+        107
     };
     ("gpio.input_signal_max", str) => {
-        stringify!(10)
+        stringify!(107)
     };
     ("gpio.output_signal_max") => {
         256
@@ -1218,15 +1218,18 @@ macro_rules! define_io_mux_signals {
         #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         #[doc(hidden)]
         pub enum InputSignal {
-            U0RXD = 10,
+            U0RXD    = 10,
+            EMAC_MDI = 107,
         }
         #[allow(non_camel_case_types, clippy::upper_case_acronyms)]
         #[derive(Debug, PartialEq, Copy, Clone)]
         #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         #[doc(hidden)]
         pub enum OutputSignal {
-            U0TXD = 10,
-            GPIO  = 256,
+            U0TXD    = 10,
+            EMAC_MDC = 108,
+            EMAC_MDO = 109,
+            GPIO     = 256,
         }
     };
 }

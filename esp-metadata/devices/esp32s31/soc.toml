@@ -113,9 +113,12 @@ pins = [
 ]
 input_signals = [
     { name = "U0RXD", id = 10 },
+    { name = "EMAC_MDI", id = 107 },
 ]
 output_signals = [
     { name = "U0TXD", id = 10 },
+    { name = "EMAC_MDC", id = 108 },
+    { name = "EMAC_MDO", id = 109 },
     { name = "GPIO",  id = 256 },
 ]
 

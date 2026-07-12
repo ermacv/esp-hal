@@ -5275,7 +5275,7 @@ impl Chip {
                     "gpio_constant_0_input=\"192\"",
                     "gpio_constant_1_input=\"128\"",
                     "gpio_func_in_sel_offset=\"0\"",
-                    "gpio_input_signal_max=\"10\"",
+                    "gpio_input_signal_max=\"107\"",
                     "gpio_output_signal_max=\"256\"",
                     "interrupts_status_registers=\"6\"",
                     "interrupt_controller=\"clic\"",
@@ -5340,7 +5340,7 @@ impl Chip {
                     "cargo:rustc-cfg=gpio_constant_0_input=\"192\"",
                     "cargo:rustc-cfg=gpio_constant_1_input=\"128\"",
                     "cargo:rustc-cfg=gpio_func_in_sel_offset=\"0\"",
-                    "cargo:rustc-cfg=gpio_input_signal_max=\"10\"",
+                    "cargo:rustc-cfg=gpio_input_signal_max=\"107\"",
                     "cargo:rustc-cfg=gpio_output_signal_max=\"256\"",
                     "cargo:rustc-cfg=interrupts_status_registers=\"6\"",
                     "cargo:rustc-cfg=interrupt_controller=\"clic\"",
@@ -7599,7 +7599,7 @@ pub fn emit_check_cfg_directives() {
     println!("cargo:rustc-check-cfg=cfg(gpio_func_in_sel_offset, values(\"0\",\"1\"))");
     println!(
         "cargo:rustc-check-cfg=cfg(gpio_input_signal_max, \
-         values(\"206\",\"100\",\"116\",\"124\",\"203\",\"10\",\"242\",\"255\"))"
+         values(\"206\",\"100\",\"116\",\"124\",\"203\",\"107\",\"242\",\"255\"))"
     );
     println!("cargo:rustc-check-cfg=cfg(gpio_output_signal_max, values(\"256\",\"128\"))");
     println!("cargo:rustc-check-cfg=cfg(i2c_master_version, values(\"1\",\"3\",\"2\"))");

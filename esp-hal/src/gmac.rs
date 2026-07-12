@@ -13,6 +13,10 @@ use embassy_net_driver_02::{Capabilities, Driver, HardwareAddress, LinkState, Rx
 
 use crate::{
     asynch::AtomicWaker,
+    gpio::{
+        DriveStrength, InputConfig, InputSignal, OutputConfig, OutputSignal,
+        interconnect::{self, PeripheralInput, PeripheralOutput},
+    },
     interrupt,
     peripherals::{ETH, HP_SYS_CLKRST, Interrupt},
     system::Cpu,
@@ -257,6 +261,28 @@ impl Gmac {
             ring_generation: AtomicU32::new(0),
             net_waker: AtomicWaker::new(),
         }
+    }
+
+    /// Routes the GMAC management interface through the GPIO matrix.
+    pub fn configure_mdio_pins<'d>(
+        &self,
+        mdc: impl PeripheralOutput<'d>,
+        mdio: impl PeripheralInput<'d> + PeripheralOutput<'d>,
+    ) {
+        let mdc: interconnect::OutputSignal<'_> = mdc.into();
+        mdc.apply_output_config(
+            &OutputConfig::default().with_drive_strength(DriveStrength::_20mA),
+        );
+        OutputSignal::EMAC_MDC.connect_to(&mdc);
+
+        let mdio: interconnect::OutputSignal<'_> = mdio.into();
+        mdio.apply_output_config(
+            &OutputConfig::default().with_drive_strength(DriveStrength::_20mA),
+        );
+        mdio.apply_input_config(&InputConfig::default());
+        InputSignal::EMAC_MDI.connect_to(&mdio);
+        OutputSignal::EMAC_MDO.connect_to(&mdio);
+        mdio.set_input_enable(true);
     }
 
     /// Returns the Synopsys GMAC version register.
