@@ -486,6 +486,8 @@ impl Gmac {
     pub fn enable_interrupts(&'static self) {
         INTERRUPT_GMAC.store(self as *const Self as *mut Self, Ordering::Release);
         unsafe {
+            let pending = ((GMAC_BASE + 0x1014) as *const u32).read_volatile();
+            ((GMAC_BASE + 0x1014) as *mut u32).write_volatile(pending);
             interrupt::bind_handler(Interrupt::SBD, gmac_interrupt);
             ((GMAC_BASE + 0x101c) as *mut u32)
                 .write_volatile((1 << 0) | (1 << 6) | (1 << 15) | (1 << 16));
