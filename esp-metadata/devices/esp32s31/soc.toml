@@ -70,6 +70,43 @@ peripherals = [
 
 [device.systimer]
 
+[device.gpio]
+# ESP32-S31 uses the dual-core GPIO register layout (GPIO v3).  Peripheral
+# signal mappings and native IO_MUX functions will be added separately; this
+# initial table intentionally enables only generic GPIO operation.
+version = 3
+has_input_sync = true
+support_status = "partial"
+gpio_function = 1
+constant_0_input = 0xC0
+constant_1_input = 0x80
+pins = [
+    { pin =  0 }, { pin =  1 }, { pin =  2 }, { pin =  3 },
+    { pin =  4 }, { pin =  5 }, { pin =  6 }, { pin =  7 },
+    { pin =  8 }, { pin =  9 }, { pin = 10 }, { pin = 11 },
+    { pin = 12 }, { pin = 13 }, { pin = 14 }, { pin = 15 },
+    { pin = 16 }, { pin = 17 }, { pin = 18 }, { pin = 19 },
+    { pin = 20 }, { pin = 21 }, { pin = 22 }, { pin = 23 },
+    { pin = 24 }, { pin = 25 }, { pin = 26 }, { pin = 27 },
+    { pin = 28 },
+    # GPIO29 and GPIO41 are not bonded/valid according to SOC_GPIO_VALID_GPIO_MASK.
+    { pin = 30 }, { pin = 31 }, { pin = 32 }, { pin = 33 },
+    { pin = 34 }, { pin = 35 }, { pin = 36 }, { pin = 37 },
+    { pin = 38 }, { pin = 39 }, { pin = 40 },
+    { pin = 42 }, { pin = 43 }, { pin = 44 }, { pin = 45 },
+    { pin = 46 }, { pin = 47 }, { pin = 48 }, { pin = 49 },
+    { pin = 50 }, { pin = 51 }, { pin = 52 }, { pin = 53 },
+    { pin = 54 }, { pin = 55 }, { pin = 56 }, { pin = 57 },
+    { pin = 58 }, { pin = 59 }, { pin = 60 }, { pin = 61 },
+]
+input_signals = [
+    { name = "U0RXD", id = 10 },
+]
+output_signals = [
+    { name = "U0TXD", id = 10 },
+    { name = "GPIO",  id = 256 },
+]
+
 [device.sleep]
 support_status = "not_supported"
 wakeup_sources = { Timer = 13 }

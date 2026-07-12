@@ -5255,9 +5255,18 @@ impl Chip {
                     "soc_has_usb_device",
                     "soc_has_flash",
                     "soc_has_sw_interrupt",
+                    "gpio_driver_supported",
                     "interrupts_driver_supported",
                     "soc_driver_supported",
                     "systimer_driver_supported",
+                    "gpio_version=\"3\"",
+                    "gpio_has_input_sync",
+                    "gpio_gpio_function=\"1\"",
+                    "gpio_constant_0_input=\"192\"",
+                    "gpio_constant_1_input=\"128\"",
+                    "gpio_func_in_sel_offset=\"0\"",
+                    "gpio_input_signal_max=\"10\"",
+                    "gpio_output_signal_max=\"256\"",
                     "interrupts_status_registers=\"6\"",
                     "interrupt_controller=\"clic\"",
                     "soc_cpu_has_branch_predictor",
@@ -5300,9 +5309,18 @@ impl Chip {
                     "cargo:rustc-cfg=soc_has_usb_device",
                     "cargo:rustc-cfg=soc_has_flash",
                     "cargo:rustc-cfg=soc_has_sw_interrupt",
+                    "cargo:rustc-cfg=gpio_driver_supported",
                     "cargo:rustc-cfg=interrupts_driver_supported",
                     "cargo:rustc-cfg=soc_driver_supported",
                     "cargo:rustc-cfg=systimer_driver_supported",
+                    "cargo:rustc-cfg=gpio_version=\"3\"",
+                    "cargo:rustc-cfg=gpio_has_input_sync",
+                    "cargo:rustc-cfg=gpio_gpio_function=\"1\"",
+                    "cargo:rustc-cfg=gpio_constant_0_input=\"192\"",
+                    "cargo:rustc-cfg=gpio_constant_1_input=\"128\"",
+                    "cargo:rustc-cfg=gpio_func_in_sel_offset=\"0\"",
+                    "cargo:rustc-cfg=gpio_input_signal_max=\"10\"",
+                    "cargo:rustc-cfg=gpio_output_signal_max=\"256\"",
                     "cargo:rustc-cfg=interrupts_status_registers=\"6\"",
                     "cargo:rustc-cfg=interrupt_controller=\"clic\"",
                     "cargo:rustc-cfg=soc_cpu_has_branch_predictor",
@@ -5329,7 +5347,248 @@ impl Chip {
                         ),
                     ],
                 },
-                pins: &[],
+                pins: &[
+                    PinInfo {
+                        pin: 0,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 1,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 2,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 3,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 4,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 5,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 6,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 7,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 8,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 9,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 10,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 11,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 12,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 13,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 14,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 15,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 16,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 17,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 18,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 19,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 20,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 21,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 22,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 23,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 24,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 25,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 26,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 27,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 28,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 30,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 31,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 32,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 33,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 34,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 35,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 36,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 37,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 38,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 39,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 40,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 42,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 43,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 44,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 45,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 46,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 47,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 48,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 49,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 50,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 51,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 52,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 53,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 54,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 55,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 56,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 57,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 58,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 59,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 60,
+                        limitations: &[],
+                    },
+                    PinInfo {
+                        pin: 61,
+                        limitations: &[],
+                    },
+                ],
             },
             Self::Esp32s2 => Config {
                 architecture: "xtensa",
@@ -7305,15 +7564,16 @@ pub fn emit_check_cfg_directives() {
     println!("cargo:rustc-check-cfg=cfg(gpio_gpio_function, values(\"2\",\"1\"))");
     println!(
         "cargo:rustc-check-cfg=cfg(gpio_constant_0_input, \
-         values(\"48\",\"31\",\"96\",\"60\",\"62\"))"
+         values(\"48\",\"31\",\"96\",\"60\",\"62\",\"192\"))"
     );
     println!(
-        "cargo:rustc-check-cfg=cfg(gpio_constant_1_input, values(\"56\",\"30\",\"64\",\"63\"))"
+        "cargo:rustc-check-cfg=cfg(gpio_constant_1_input, \
+         values(\"56\",\"30\",\"64\",\"63\",\"128\"))"
     );
     println!("cargo:rustc-check-cfg=cfg(gpio_func_in_sel_offset, values(\"0\",\"1\"))");
     println!(
         "cargo:rustc-check-cfg=cfg(gpio_input_signal_max, \
-         values(\"206\",\"100\",\"116\",\"124\",\"203\",\"242\",\"255\"))"
+         values(\"206\",\"100\",\"116\",\"124\",\"203\",\"10\",\"242\",\"255\"))"
     );
     println!("cargo:rustc-check-cfg=cfg(gpio_output_signal_max, values(\"256\",\"128\"))");
     println!("cargo:rustc-check-cfg=cfg(i2c_master_version, values(\"1\",\"3\",\"2\"))");

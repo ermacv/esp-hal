@@ -52,6 +52,57 @@ macro_rules! property {
     ("trm") => {
         "https://github.com/espressif/esp-idf/tree/e88643bc619dff3c21b51705113bb488c9bc0990/components/soc/esp32s31"
     };
+    ("gpio.version") => {
+        3
+    };
+    ("gpio.version", str) => {
+        stringify!(3)
+    };
+    ("gpio.has_bank_1") => {
+        false
+    };
+    ("gpio.has_input_sync") => {
+        true
+    };
+    ("gpio.gpio_function") => {
+        1
+    };
+    ("gpio.gpio_function", str) => {
+        stringify!(1)
+    };
+    ("gpio.constant_0_input") => {
+        192
+    };
+    ("gpio.constant_0_input", str) => {
+        stringify!(192)
+    };
+    ("gpio.constant_1_input") => {
+        128
+    };
+    ("gpio.constant_1_input", str) => {
+        stringify!(128)
+    };
+    ("gpio.remap_iomux_pin_registers") => {
+        false
+    };
+    ("gpio.func_in_sel_offset") => {
+        0
+    };
+    ("gpio.func_in_sel_offset", str) => {
+        stringify!(0)
+    };
+    ("gpio.input_signal_max") => {
+        10
+    };
+    ("gpio.input_signal_max", str) => {
+        stringify!(10)
+    };
+    ("gpio.output_signal_max") => {
+        256
+    };
+    ("gpio.output_signal_max", str) => {
+        stringify!(256)
+    };
     ("interrupts.status_registers") => {
         6
     };
@@ -564,6 +615,96 @@ macro_rules! for_each_peripheral {
     ($($pattern:tt => $code:tt;)*) => {
         macro_rules! _for_each_inner_peripheral { $(($pattern) => $code;)* ($other : tt)
         => {} } _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO0 peripheral singleton"] GPIO0 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO1 peripheral singleton"]
+        GPIO1 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO2 peripheral singleton"] GPIO2 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO3 peripheral singleton"]
+        GPIO3 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO4 peripheral singleton"] GPIO4 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO5 peripheral singleton"]
+        GPIO5 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO6 peripheral singleton"] GPIO6 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO7 peripheral singleton"]
+        GPIO7 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO8 peripheral singleton"] GPIO8 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO9 peripheral singleton"]
+        GPIO9 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO10 peripheral singleton"] GPIO10 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO11 peripheral singleton"]
+        GPIO11 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO12 peripheral singleton"] GPIO12 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO13 peripheral singleton"]
+        GPIO13 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO14 peripheral singleton"] GPIO14 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO15 peripheral singleton"]
+        GPIO15 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO16 peripheral singleton"] GPIO16 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO17 peripheral singleton"]
+        GPIO17 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO18 peripheral singleton"] GPIO18 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO19 peripheral singleton"]
+        GPIO19 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO20 peripheral singleton"] GPIO20 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO21 peripheral singleton"]
+        GPIO21 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO22 peripheral singleton"] GPIO22 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO23 peripheral singleton"]
+        GPIO23 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO24 peripheral singleton"] GPIO24 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO25 peripheral singleton"]
+        GPIO25 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO26 peripheral singleton"] GPIO26 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO27 peripheral singleton"]
+        GPIO27 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO28 peripheral singleton"] GPIO28 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO30 peripheral singleton"]
+        GPIO30 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO31 peripheral singleton"] GPIO31 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO32 peripheral singleton"]
+        GPIO32 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO33 peripheral singleton"] GPIO33 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO34 peripheral singleton"]
+        GPIO34 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO35 peripheral singleton"] GPIO35 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO36 peripheral singleton"]
+        GPIO36 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO37 peripheral singleton"] GPIO37 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO38 peripheral singleton"]
+        GPIO38 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO39 peripheral singleton"] GPIO39 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO40 peripheral singleton"]
+        GPIO40 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO42 peripheral singleton"] GPIO42 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO43 peripheral singleton"]
+        GPIO43 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO44 peripheral singleton"] GPIO44 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO45 peripheral singleton"]
+        GPIO45 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO46 peripheral singleton"] GPIO46 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO47 peripheral singleton"]
+        GPIO47 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO48 peripheral singleton"] GPIO48 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO49 peripheral singleton"]
+        GPIO49 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO50 peripheral singleton"] GPIO50 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO51 peripheral singleton"]
+        GPIO51 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO52 peripheral singleton"] GPIO52 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO53 peripheral singleton"]
+        GPIO53 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO54 peripheral singleton"] GPIO54 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO55 peripheral singleton"]
+        GPIO55 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO56 peripheral singleton"] GPIO56 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO57 peripheral singleton"]
+        GPIO57 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO58 peripheral singleton"] GPIO58 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO59 peripheral singleton"]
+        GPIO59 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "GPIO60 peripheral singleton"] GPIO60 <= virtual()));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO61 peripheral singleton"]
+        GPIO61 <= virtual())); _for_each_inner_peripheral!((@ peri_type #[doc =
         "EFUSE peripheral singleton"] EFUSE <= EFUSE() (unstable)));
         _for_each_inner_peripheral!((@ peri_type #[doc = "GPIO peripheral singleton"]
         GPIO <= GPIO() (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
@@ -616,6 +757,36 @@ macro_rules! for_each_peripheral {
         "FLASH peripheral singleton"] FLASH <= virtual() (unstable)));
         _for_each_inner_peripheral!((@ peri_type #[doc =
         "SW_INTERRUPT peripheral singleton"] SW_INTERRUPT <= virtual() (unstable)));
+        _for_each_inner_peripheral!((GPIO0)); _for_each_inner_peripheral!((GPIO1));
+        _for_each_inner_peripheral!((GPIO2)); _for_each_inner_peripheral!((GPIO3));
+        _for_each_inner_peripheral!((GPIO4)); _for_each_inner_peripheral!((GPIO5));
+        _for_each_inner_peripheral!((GPIO6)); _for_each_inner_peripheral!((GPIO7));
+        _for_each_inner_peripheral!((GPIO8)); _for_each_inner_peripheral!((GPIO9));
+        _for_each_inner_peripheral!((GPIO10)); _for_each_inner_peripheral!((GPIO11));
+        _for_each_inner_peripheral!((GPIO12)); _for_each_inner_peripheral!((GPIO13));
+        _for_each_inner_peripheral!((GPIO14)); _for_each_inner_peripheral!((GPIO15));
+        _for_each_inner_peripheral!((GPIO16)); _for_each_inner_peripheral!((GPIO17));
+        _for_each_inner_peripheral!((GPIO18)); _for_each_inner_peripheral!((GPIO19));
+        _for_each_inner_peripheral!((GPIO20)); _for_each_inner_peripheral!((GPIO21));
+        _for_each_inner_peripheral!((GPIO22)); _for_each_inner_peripheral!((GPIO23));
+        _for_each_inner_peripheral!((GPIO24)); _for_each_inner_peripheral!((GPIO25));
+        _for_each_inner_peripheral!((GPIO26)); _for_each_inner_peripheral!((GPIO27));
+        _for_each_inner_peripheral!((GPIO28)); _for_each_inner_peripheral!((GPIO30));
+        _for_each_inner_peripheral!((GPIO31)); _for_each_inner_peripheral!((GPIO32));
+        _for_each_inner_peripheral!((GPIO33)); _for_each_inner_peripheral!((GPIO34));
+        _for_each_inner_peripheral!((GPIO35)); _for_each_inner_peripheral!((GPIO36));
+        _for_each_inner_peripheral!((GPIO37)); _for_each_inner_peripheral!((GPIO38));
+        _for_each_inner_peripheral!((GPIO39)); _for_each_inner_peripheral!((GPIO40));
+        _for_each_inner_peripheral!((GPIO42)); _for_each_inner_peripheral!((GPIO43));
+        _for_each_inner_peripheral!((GPIO44)); _for_each_inner_peripheral!((GPIO45));
+        _for_each_inner_peripheral!((GPIO46)); _for_each_inner_peripheral!((GPIO47));
+        _for_each_inner_peripheral!((GPIO48)); _for_each_inner_peripheral!((GPIO49));
+        _for_each_inner_peripheral!((GPIO50)); _for_each_inner_peripheral!((GPIO51));
+        _for_each_inner_peripheral!((GPIO52)); _for_each_inner_peripheral!((GPIO53));
+        _for_each_inner_peripheral!((GPIO54)); _for_each_inner_peripheral!((GPIO55));
+        _for_each_inner_peripheral!((GPIO56)); _for_each_inner_peripheral!((GPIO57));
+        _for_each_inner_peripheral!((GPIO58)); _for_each_inner_peripheral!((GPIO59));
+        _for_each_inner_peripheral!((GPIO60)); _for_each_inner_peripheral!((GPIO61));
         _for_each_inner_peripheral!((GPIO(unstable)));
         _for_each_inner_peripheral!((HP_SYSTEM(unstable)));
         _for_each_inner_peripheral!((HP_SYS_CLKRST(unstable)));
@@ -644,6 +815,66 @@ macro_rules! for_each_peripheral {
         _for_each_inner_peripheral!((FLASH(unstable)));
         _for_each_inner_peripheral!((SW_INTERRUPT(unstable)));
         _for_each_inner_peripheral!((all(@ peri_type #[doc =
+        "GPIO0 peripheral singleton"] GPIO0 <= virtual()), (@ peri_type #[doc =
+        "GPIO1 peripheral singleton"] GPIO1 <= virtual()), (@ peri_type #[doc =
+        "GPIO2 peripheral singleton"] GPIO2 <= virtual()), (@ peri_type #[doc =
+        "GPIO3 peripheral singleton"] GPIO3 <= virtual()), (@ peri_type #[doc =
+        "GPIO4 peripheral singleton"] GPIO4 <= virtual()), (@ peri_type #[doc =
+        "GPIO5 peripheral singleton"] GPIO5 <= virtual()), (@ peri_type #[doc =
+        "GPIO6 peripheral singleton"] GPIO6 <= virtual()), (@ peri_type #[doc =
+        "GPIO7 peripheral singleton"] GPIO7 <= virtual()), (@ peri_type #[doc =
+        "GPIO8 peripheral singleton"] GPIO8 <= virtual()), (@ peri_type #[doc =
+        "GPIO9 peripheral singleton"] GPIO9 <= virtual()), (@ peri_type #[doc =
+        "GPIO10 peripheral singleton"] GPIO10 <= virtual()), (@ peri_type #[doc =
+        "GPIO11 peripheral singleton"] GPIO11 <= virtual()), (@ peri_type #[doc =
+        "GPIO12 peripheral singleton"] GPIO12 <= virtual()), (@ peri_type #[doc =
+        "GPIO13 peripheral singleton"] GPIO13 <= virtual()), (@ peri_type #[doc =
+        "GPIO14 peripheral singleton"] GPIO14 <= virtual()), (@ peri_type #[doc =
+        "GPIO15 peripheral singleton"] GPIO15 <= virtual()), (@ peri_type #[doc =
+        "GPIO16 peripheral singleton"] GPIO16 <= virtual()), (@ peri_type #[doc =
+        "GPIO17 peripheral singleton"] GPIO17 <= virtual()), (@ peri_type #[doc =
+        "GPIO18 peripheral singleton"] GPIO18 <= virtual()), (@ peri_type #[doc =
+        "GPIO19 peripheral singleton"] GPIO19 <= virtual()), (@ peri_type #[doc =
+        "GPIO20 peripheral singleton"] GPIO20 <= virtual()), (@ peri_type #[doc =
+        "GPIO21 peripheral singleton"] GPIO21 <= virtual()), (@ peri_type #[doc =
+        "GPIO22 peripheral singleton"] GPIO22 <= virtual()), (@ peri_type #[doc =
+        "GPIO23 peripheral singleton"] GPIO23 <= virtual()), (@ peri_type #[doc =
+        "GPIO24 peripheral singleton"] GPIO24 <= virtual()), (@ peri_type #[doc =
+        "GPIO25 peripheral singleton"] GPIO25 <= virtual()), (@ peri_type #[doc =
+        "GPIO26 peripheral singleton"] GPIO26 <= virtual()), (@ peri_type #[doc =
+        "GPIO27 peripheral singleton"] GPIO27 <= virtual()), (@ peri_type #[doc =
+        "GPIO28 peripheral singleton"] GPIO28 <= virtual()), (@ peri_type #[doc =
+        "GPIO30 peripheral singleton"] GPIO30 <= virtual()), (@ peri_type #[doc =
+        "GPIO31 peripheral singleton"] GPIO31 <= virtual()), (@ peri_type #[doc =
+        "GPIO32 peripheral singleton"] GPIO32 <= virtual()), (@ peri_type #[doc =
+        "GPIO33 peripheral singleton"] GPIO33 <= virtual()), (@ peri_type #[doc =
+        "GPIO34 peripheral singleton"] GPIO34 <= virtual()), (@ peri_type #[doc =
+        "GPIO35 peripheral singleton"] GPIO35 <= virtual()), (@ peri_type #[doc =
+        "GPIO36 peripheral singleton"] GPIO36 <= virtual()), (@ peri_type #[doc =
+        "GPIO37 peripheral singleton"] GPIO37 <= virtual()), (@ peri_type #[doc =
+        "GPIO38 peripheral singleton"] GPIO38 <= virtual()), (@ peri_type #[doc =
+        "GPIO39 peripheral singleton"] GPIO39 <= virtual()), (@ peri_type #[doc =
+        "GPIO40 peripheral singleton"] GPIO40 <= virtual()), (@ peri_type #[doc =
+        "GPIO42 peripheral singleton"] GPIO42 <= virtual()), (@ peri_type #[doc =
+        "GPIO43 peripheral singleton"] GPIO43 <= virtual()), (@ peri_type #[doc =
+        "GPIO44 peripheral singleton"] GPIO44 <= virtual()), (@ peri_type #[doc =
+        "GPIO45 peripheral singleton"] GPIO45 <= virtual()), (@ peri_type #[doc =
+        "GPIO46 peripheral singleton"] GPIO46 <= virtual()), (@ peri_type #[doc =
+        "GPIO47 peripheral singleton"] GPIO47 <= virtual()), (@ peri_type #[doc =
+        "GPIO48 peripheral singleton"] GPIO48 <= virtual()), (@ peri_type #[doc =
+        "GPIO49 peripheral singleton"] GPIO49 <= virtual()), (@ peri_type #[doc =
+        "GPIO50 peripheral singleton"] GPIO50 <= virtual()), (@ peri_type #[doc =
+        "GPIO51 peripheral singleton"] GPIO51 <= virtual()), (@ peri_type #[doc =
+        "GPIO52 peripheral singleton"] GPIO52 <= virtual()), (@ peri_type #[doc =
+        "GPIO53 peripheral singleton"] GPIO53 <= virtual()), (@ peri_type #[doc =
+        "GPIO54 peripheral singleton"] GPIO54 <= virtual()), (@ peri_type #[doc =
+        "GPIO55 peripheral singleton"] GPIO55 <= virtual()), (@ peri_type #[doc =
+        "GPIO56 peripheral singleton"] GPIO56 <= virtual()), (@ peri_type #[doc =
+        "GPIO57 peripheral singleton"] GPIO57 <= virtual()), (@ peri_type #[doc =
+        "GPIO58 peripheral singleton"] GPIO58 <= virtual()), (@ peri_type #[doc =
+        "GPIO59 peripheral singleton"] GPIO59 <= virtual()), (@ peri_type #[doc =
+        "GPIO60 peripheral singleton"] GPIO60 <= virtual()), (@ peri_type #[doc =
+        "GPIO61 peripheral singleton"] GPIO61 <= virtual()), (@ peri_type #[doc =
         "EFUSE peripheral singleton"] EFUSE <= EFUSE() (unstable)), (@ peri_type #[doc =
         "GPIO peripheral singleton"] GPIO <= GPIO() (unstable)), (@ peri_type #[doc =
         "HP_SYSTEM peripheral singleton"] HP_SYSTEM <= HP_SYS() (unstable)), (@ peri_type
@@ -682,14 +913,300 @@ macro_rules! for_each_peripheral {
         (unstable)), (@ peri_type #[doc = "FLASH peripheral singleton"] FLASH <=
         virtual() (unstable)), (@ peri_type #[doc = "SW_INTERRUPT peripheral singleton"]
         SW_INTERRUPT <= virtual() (unstable))));
-        _for_each_inner_peripheral!((singletons(GPIO(unstable)), (HP_SYSTEM(unstable)),
-        (HP_SYS_CLKRST(unstable)), (SYSTEM(unstable)), (CLIC(unstable)),
-        (IO_MUX(unstable)), (LP_AON(unstable)), (LP_AON_CLKRST(unstable)),
-        (LP_I2C_ANA_MST(unstable)), (PMU(unstable)), (RTC_TIMER(unstable)),
-        (LP_WDT(unstable)), (LPWR(unstable)), (RNG(unstable)), (SYSTIMER(unstable)),
-        (TIMG0(unstable)), (TIMG1(unstable)), (UART0(unstable)), (UART1(unstable)),
-        (UART2(unstable)), (UART3(unstable)), (SPI0(unstable)), (SPI1(unstable)),
-        (SPI2(unstable)), (USB_DEVICE(unstable)), (FLASH(unstable)),
+        _for_each_inner_peripheral!((singletons(GPIO0), (GPIO1), (GPIO2), (GPIO3),
+        (GPIO4), (GPIO5), (GPIO6), (GPIO7), (GPIO8), (GPIO9), (GPIO10), (GPIO11),
+        (GPIO12), (GPIO13), (GPIO14), (GPIO15), (GPIO16), (GPIO17), (GPIO18), (GPIO19),
+        (GPIO20), (GPIO21), (GPIO22), (GPIO23), (GPIO24), (GPIO25), (GPIO26), (GPIO27),
+        (GPIO28), (GPIO30), (GPIO31), (GPIO32), (GPIO33), (GPIO34), (GPIO35), (GPIO36),
+        (GPIO37), (GPIO38), (GPIO39), (GPIO40), (GPIO42), (GPIO43), (GPIO44), (GPIO45),
+        (GPIO46), (GPIO47), (GPIO48), (GPIO49), (GPIO50), (GPIO51), (GPIO52), (GPIO53),
+        (GPIO54), (GPIO55), (GPIO56), (GPIO57), (GPIO58), (GPIO59), (GPIO60), (GPIO61),
+        (GPIO(unstable)), (HP_SYSTEM(unstable)), (HP_SYS_CLKRST(unstable)),
+        (SYSTEM(unstable)), (CLIC(unstable)), (IO_MUX(unstable)), (LP_AON(unstable)),
+        (LP_AON_CLKRST(unstable)), (LP_I2C_ANA_MST(unstable)), (PMU(unstable)),
+        (RTC_TIMER(unstable)), (LP_WDT(unstable)), (LPWR(unstable)), (RNG(unstable)),
+        (SYSTIMER(unstable)), (TIMG0(unstable)), (TIMG1(unstable)), (UART0(unstable)),
+        (UART1(unstable)), (UART2(unstable)), (UART3(unstable)), (SPI0(unstable)),
+        (SPI1(unstable)), (SPI2(unstable)), (USB_DEVICE(unstable)), (FLASH(unstable)),
         (SW_INTERRUPT(unstable)))); _for_each_inner_peripheral!((dma_eligible));
+    };
+}
+/// This macro can be used to generate code for each `GPIOn` instance.
+///
+/// For an explanation on the general syntax, as well as usage of individual/repeated
+/// matchers, refer to [the crate-level documentation][crate#for_each-macros].
+///
+/// This macro has one option for its "Individual matcher" case:
+///
+/// Syntax: `($n:literal, $gpio:ident ($($digital_input_function:ident =>
+/// $digital_input_signal:ident)*) ($($digital_output_function:ident =>
+/// $digital_output_signal:ident)*) ($([$pin_attribute:ident])*))`
+///
+/// Macro fragments:
+///
+/// - `$n`: the number of the GPIO. For `GPIO0`, `$n` is 0.
+/// - `$gpio`: the name of the GPIO.
+/// - `$digital_input_function`: the number of the digital function, as an identifier (i.e. for
+///   function 0 this is `_0`).
+/// - `$digital_input_function`: the name of the digital function, as an identifier.
+/// - `$digital_output_function`: the number of the digital function, as an identifier (i.e. for
+///   function 0 this is `_0`).
+/// - `$digital_output_function`: the name of the digital function, as an identifier.
+/// - `$pin_attribute`: `Input` and/or `Output`, marks the possible directions of the GPIO.
+///   Bracketed so that they can also be matched as optional fragments. Order is always Input first.
+///
+/// Example data: `(0, GPIO0 (_5 => EMAC_TX_CLK) (_1 => CLK_OUT1 _5 => EMAC_TX_CLK) ([Input]
+/// [Output]))`
+#[macro_export]
+#[cfg_attr(docsrs, doc(cfg(feature = "_device-selected")))]
+macro_rules! for_each_gpio {
+    ($($pattern:tt => $code:tt;)*) => {
+        macro_rules! _for_each_inner_gpio { $(($pattern) => $code;)* ($other : tt) => {}
+        } _for_each_inner_gpio!((0, GPIO0() () ([Input] [Output])));
+        _for_each_inner_gpio!((1, GPIO1() () ([Input] [Output])));
+        _for_each_inner_gpio!((2, GPIO2() () ([Input] [Output])));
+        _for_each_inner_gpio!((3, GPIO3() () ([Input] [Output])));
+        _for_each_inner_gpio!((4, GPIO4() () ([Input] [Output])));
+        _for_each_inner_gpio!((5, GPIO5() () ([Input] [Output])));
+        _for_each_inner_gpio!((6, GPIO6() () ([Input] [Output])));
+        _for_each_inner_gpio!((7, GPIO7() () ([Input] [Output])));
+        _for_each_inner_gpio!((8, GPIO8() () ([Input] [Output])));
+        _for_each_inner_gpio!((9, GPIO9() () ([Input] [Output])));
+        _for_each_inner_gpio!((10, GPIO10() () ([Input] [Output])));
+        _for_each_inner_gpio!((11, GPIO11() () ([Input] [Output])));
+        _for_each_inner_gpio!((12, GPIO12() () ([Input] [Output])));
+        _for_each_inner_gpio!((13, GPIO13() () ([Input] [Output])));
+        _for_each_inner_gpio!((14, GPIO14() () ([Input] [Output])));
+        _for_each_inner_gpio!((15, GPIO15() () ([Input] [Output])));
+        _for_each_inner_gpio!((16, GPIO16() () ([Input] [Output])));
+        _for_each_inner_gpio!((17, GPIO17() () ([Input] [Output])));
+        _for_each_inner_gpio!((18, GPIO18() () ([Input] [Output])));
+        _for_each_inner_gpio!((19, GPIO19() () ([Input] [Output])));
+        _for_each_inner_gpio!((20, GPIO20() () ([Input] [Output])));
+        _for_each_inner_gpio!((21, GPIO21() () ([Input] [Output])));
+        _for_each_inner_gpio!((22, GPIO22() () ([Input] [Output])));
+        _for_each_inner_gpio!((23, GPIO23() () ([Input] [Output])));
+        _for_each_inner_gpio!((24, GPIO24() () ([Input] [Output])));
+        _for_each_inner_gpio!((25, GPIO25() () ([Input] [Output])));
+        _for_each_inner_gpio!((26, GPIO26() () ([Input] [Output])));
+        _for_each_inner_gpio!((27, GPIO27() () ([Input] [Output])));
+        _for_each_inner_gpio!((28, GPIO28() () ([Input] [Output])));
+        _for_each_inner_gpio!((30, GPIO30() () ([Input] [Output])));
+        _for_each_inner_gpio!((31, GPIO31() () ([Input] [Output])));
+        _for_each_inner_gpio!((32, GPIO32() () ([Input] [Output])));
+        _for_each_inner_gpio!((33, GPIO33() () ([Input] [Output])));
+        _for_each_inner_gpio!((34, GPIO34() () ([Input] [Output])));
+        _for_each_inner_gpio!((35, GPIO35() () ([Input] [Output])));
+        _for_each_inner_gpio!((36, GPIO36() () ([Input] [Output])));
+        _for_each_inner_gpio!((37, GPIO37() () ([Input] [Output])));
+        _for_each_inner_gpio!((38, GPIO38() () ([Input] [Output])));
+        _for_each_inner_gpio!((39, GPIO39() () ([Input] [Output])));
+        _for_each_inner_gpio!((40, GPIO40() () ([Input] [Output])));
+        _for_each_inner_gpio!((42, GPIO42() () ([Input] [Output])));
+        _for_each_inner_gpio!((43, GPIO43() () ([Input] [Output])));
+        _for_each_inner_gpio!((44, GPIO44() () ([Input] [Output])));
+        _for_each_inner_gpio!((45, GPIO45() () ([Input] [Output])));
+        _for_each_inner_gpio!((46, GPIO46() () ([Input] [Output])));
+        _for_each_inner_gpio!((47, GPIO47() () ([Input] [Output])));
+        _for_each_inner_gpio!((48, GPIO48() () ([Input] [Output])));
+        _for_each_inner_gpio!((49, GPIO49() () ([Input] [Output])));
+        _for_each_inner_gpio!((50, GPIO50() () ([Input] [Output])));
+        _for_each_inner_gpio!((51, GPIO51() () ([Input] [Output])));
+        _for_each_inner_gpio!((52, GPIO52() () ([Input] [Output])));
+        _for_each_inner_gpio!((53, GPIO53() () ([Input] [Output])));
+        _for_each_inner_gpio!((54, GPIO54() () ([Input] [Output])));
+        _for_each_inner_gpio!((55, GPIO55() () ([Input] [Output])));
+        _for_each_inner_gpio!((56, GPIO56() () ([Input] [Output])));
+        _for_each_inner_gpio!((57, GPIO57() () ([Input] [Output])));
+        _for_each_inner_gpio!((58, GPIO58() () ([Input] [Output])));
+        _for_each_inner_gpio!((59, GPIO59() () ([Input] [Output])));
+        _for_each_inner_gpio!((60, GPIO60() () ([Input] [Output])));
+        _for_each_inner_gpio!((61, GPIO61() () ([Input] [Output])));
+        _for_each_inner_gpio!((all(0, GPIO0() () ([Input] [Output])), (1, GPIO1() ()
+        ([Input] [Output])), (2, GPIO2() () ([Input] [Output])), (3, GPIO3() () ([Input]
+        [Output])), (4, GPIO4() () ([Input] [Output])), (5, GPIO5() () ([Input]
+        [Output])), (6, GPIO6() () ([Input] [Output])), (7, GPIO7() () ([Input]
+        [Output])), (8, GPIO8() () ([Input] [Output])), (9, GPIO9() () ([Input]
+        [Output])), (10, GPIO10() () ([Input] [Output])), (11, GPIO11() () ([Input]
+        [Output])), (12, GPIO12() () ([Input] [Output])), (13, GPIO13() () ([Input]
+        [Output])), (14, GPIO14() () ([Input] [Output])), (15, GPIO15() () ([Input]
+        [Output])), (16, GPIO16() () ([Input] [Output])), (17, GPIO17() () ([Input]
+        [Output])), (18, GPIO18() () ([Input] [Output])), (19, GPIO19() () ([Input]
+        [Output])), (20, GPIO20() () ([Input] [Output])), (21, GPIO21() () ([Input]
+        [Output])), (22, GPIO22() () ([Input] [Output])), (23, GPIO23() () ([Input]
+        [Output])), (24, GPIO24() () ([Input] [Output])), (25, GPIO25() () ([Input]
+        [Output])), (26, GPIO26() () ([Input] [Output])), (27, GPIO27() () ([Input]
+        [Output])), (28, GPIO28() () ([Input] [Output])), (30, GPIO30() () ([Input]
+        [Output])), (31, GPIO31() () ([Input] [Output])), (32, GPIO32() () ([Input]
+        [Output])), (33, GPIO33() () ([Input] [Output])), (34, GPIO34() () ([Input]
+        [Output])), (35, GPIO35() () ([Input] [Output])), (36, GPIO36() () ([Input]
+        [Output])), (37, GPIO37() () ([Input] [Output])), (38, GPIO38() () ([Input]
+        [Output])), (39, GPIO39() () ([Input] [Output])), (40, GPIO40() () ([Input]
+        [Output])), (42, GPIO42() () ([Input] [Output])), (43, GPIO43() () ([Input]
+        [Output])), (44, GPIO44() () ([Input] [Output])), (45, GPIO45() () ([Input]
+        [Output])), (46, GPIO46() () ([Input] [Output])), (47, GPIO47() () ([Input]
+        [Output])), (48, GPIO48() () ([Input] [Output])), (49, GPIO49() () ([Input]
+        [Output])), (50, GPIO50() () ([Input] [Output])), (51, GPIO51() () ([Input]
+        [Output])), (52, GPIO52() () ([Input] [Output])), (53, GPIO53() () ([Input]
+        [Output])), (54, GPIO54() () ([Input] [Output])), (55, GPIO55() () ([Input]
+        [Output])), (56, GPIO56() () ([Input] [Output])), (57, GPIO57() () ([Input]
+        [Output])), (58, GPIO58() () ([Input] [Output])), (59, GPIO59() () ([Input]
+        [Output])), (60, GPIO60() () ([Input] [Output])), (61, GPIO61() () ([Input]
+        [Output]))));
+    };
+}
+/// This macro can be used to generate code for each analog function of each GPIO.
+///
+/// For an explanation on the general syntax, as well as usage of individual/repeated
+/// matchers, refer to [the crate-level documentation][crate#for_each-macros].
+///
+/// This macro has two options for its "Individual matcher" case:
+///
+/// - `all`: `($signal:ident, $gpio:ident)` - simple case where you only need identifiers
+/// - `all_expanded`: `(($signal:ident, $group:ident $(, $number:literal)+), $gpio:ident)` -
+///   expanded signal case, where you need the number(s) of a signal, or the general group to which
+///   the signal belongs. For example, in case of `ADC2_CH3` the expanded form looks like
+///   `(ADC2_CH3, ADCn_CHm, 2, 3)`.
+///
+/// Macro fragments:
+///
+/// - `$signal`: the name of the signal.
+/// - `$group`: the name of the signal, with numbers replaced by placeholders. For `ADC2_CH3` this
+///   is `ADCn_CHm`.
+/// - `$number`: the numbers extracted from `$signal`.
+/// - `$gpio`: the name of the GPIO.
+///
+/// Example data:
+/// - `(ADC2_CH5, GPIO12)`
+/// - `((ADC2_CH5, ADCn_CHm, 2, 5), GPIO12)`
+///
+/// The expanded syntax is only available when the signal has at least one numbered component.
+#[macro_export]
+#[cfg_attr(docsrs, doc(cfg(feature = "_device-selected")))]
+macro_rules! for_each_analog_function {
+    ($($pattern:tt => $code:tt;)*) => {
+        macro_rules! _for_each_inner_analog_function { $(($pattern) => $code;)* ($other :
+        tt) => {} } _for_each_inner_analog_function!((all));
+        _for_each_inner_analog_function!((all_expanded));
+    };
+}
+/// This macro can be used to generate code for each LP/RTC function of each GPIO.
+///
+/// For an explanation on the general syntax, as well as usage of individual/repeated
+/// matchers, refer to [the crate-level documentation][crate#for_each-macros].
+///
+/// This macro has two options for its "Individual matcher" case:
+///
+/// - `all`: `($signal:ident, $gpio:ident)` - simple case where you only need identifiers
+/// - `all_expanded`: `(($signal:ident, $group:ident $(, $number:literal)+), $gpio:ident)` -
+///   expanded signal case, where you need the number(s) of a signal, or the general group to which
+///   the signal belongs. For example, in case of `SAR_I2C_SCL_1` the expanded form looks like
+///   `(SAR_I2C_SCL_1, SAR_I2C_SCL_n, 1)`.
+///
+/// Macro fragments:
+///
+/// - `$signal`: the name of the signal.
+/// - `$group`: the name of the signal, with numbers replaced by placeholders. For `ADC2_CH3` this
+///   is `ADCn_CHm`.
+/// - `$number`: the numbers extracted from `$signal`.
+/// - `$gpio`: the name of the GPIO.
+///
+/// Example data:
+/// - `(RTC_GPIO15, GPIO12)`
+/// - `((RTC_GPIO15, RTC_GPIOn, 15), GPIO12)`
+///
+/// The expanded syntax is only available when the signal has at least one numbered component.
+#[macro_export]
+#[cfg_attr(docsrs, doc(cfg(feature = "_device-selected")))]
+macro_rules! for_each_lp_function {
+    ($($pattern:tt => $code:tt;)*) => {
+        macro_rules! _for_each_inner_lp_function { $(($pattern) => $code;)* ($other : tt)
+        => {} } _for_each_inner_lp_function!((all));
+        _for_each_inner_lp_function!((all_expanded));
+    };
+}
+/// This macro can be used to generate code for each IOMUX digital function of each GPIO.
+///
+/// IOMUX functions are the alternate digital functions configured via the IO_MUX registers.
+/// Use this to implement signal-specific traits for peripherals whose pins must bypass the
+/// GPIO matrix (e.g., EMAC, USB).
+///
+/// For an explanation on the general syntax, as well as usage of individual/repeated
+/// matchers, refer to [the crate-level documentation][crate#for_each-macros].
+///
+/// This macro has two options for its "Individual matcher" case:
+///
+/// - `all`: `($signal:ident, $gpio:ident, $af:ident)` - simple case where you only need
+///   identifiers, and maybe the alternate function.
+/// - `all_expanded`: `(($signal:ident, $group:ident $(, $number:literal)+), $gpio:ident,
+///   $af:ident)` - expanded signal case, where you need the number(s) of a signal, or the general
+///   group to which the signal belongs.
+///
+/// Macro fragments:
+///
+/// - `$signal`: the name of the signal.
+/// - `$group`: the name of the signal, with numbers replaced by placeholders.
+/// - `$number`: the numbers extracted from `$signal`.
+/// - `$gpio`: the name of the GPIO.
+/// - `$af`: the alternate function number, as an identifier (e.g. `_5`).
+///
+/// Example data:
+/// - `(EMAC_RXD0, GPIO25, _5)`
+/// - `((EMAC_RXDn, EMAC_RXDn, 0), GPIO25, _5)`
+///
+/// The expanded syntax is only available when the signal has at least one numbered component.
+#[macro_export]
+#[cfg_attr(docsrs, doc(cfg(feature = "_device-selected")))]
+macro_rules! for_each_iomux_function {
+    ($($pattern:tt => $code:tt;)*) => {
+        macro_rules! _for_each_inner_iomux_function { $(($pattern) => $code;)* ($other :
+        tt) => {} } _for_each_inner_iomux_function!((all));
+        _for_each_inner_iomux_function!((all_expanded));
+    };
+}
+/// Defines the `InputSignal` and `OutputSignal` enums.
+///
+/// This macro is intended to be called in esp-hal only.
+#[macro_export]
+#[cfg_attr(docsrs, doc(cfg(feature = "_device-selected")))]
+macro_rules! define_io_mux_signals {
+    () => {
+        #[allow(non_camel_case_types, clippy::upper_case_acronyms)]
+        #[derive(Debug, PartialEq, Copy, Clone)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+        #[doc(hidden)]
+        pub enum InputSignal {
+            U0RXD = 10,
+        }
+        #[allow(non_camel_case_types, clippy::upper_case_acronyms)]
+        #[derive(Debug, PartialEq, Copy, Clone)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+        #[doc(hidden)]
+        pub enum OutputSignal {
+            U0TXD = 10,
+            GPIO  = 256,
+        }
+    };
+}
+/// Defines and implements the `io_mux_reg` function.
+///
+/// The generated function has the following signature:
+///
+/// ```rust,ignore
+/// pub(crate) fn io_mux_reg(gpio_num: u8) -> &'static crate::pac::io_mux::GPIO0 {
+///     // ...
+/// # unimplemented!()
+/// }
+/// ```
+///
+/// This macro is intended to be called in esp-hal only.
+#[macro_export]
+#[expect(clippy::crate_in_macro_def)]
+#[cfg_attr(docsrs, doc(cfg(feature = "_device-selected")))]
+macro_rules! define_io_mux_reg {
+    () => {
+        pub(crate) fn io_mux_reg(gpio_num: u8) -> &'static crate::pac::io_mux::GPIO {
+            crate::peripherals::IO_MUX::regs().gpio(gpio_num as usize)
+        }
     };
 }
