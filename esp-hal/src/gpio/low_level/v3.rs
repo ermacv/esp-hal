@@ -19,9 +19,13 @@ pub(crate) fn read_bank_interrupt_status(bank: GpioBank) -> u32 {
 pub(crate) fn read_interrupt_status_of_current_cpu(bank: GpioBank) -> u32 {
     #[cfg(esp32s31)]
     return match bank {
-        GpioBank::_0 => GPIO::regs().int_0().read().bits(),
+        // The initial ESP32-S31 port runs CPU0 only. Reading the raw status is
+        // required here: the per-CPU INT_0 view does not reflect a latched edge
+        // early enough for the default handler and leaves the shared source
+        // asserted, resulting in an interrupt storm.
+        GpioBank::_0 => GPIO::regs().status().read().bits(),
         #[cfg(gpio_has_bank_1)]
-        GpioBank::_1 => GPIO::regs().int_01().read().bits(),
+        GpioBank::_1 => GPIO::regs().status1().read().bits(),
     };
 
     #[cfg(not(esp32s31))]
