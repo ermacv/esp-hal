@@ -213,7 +213,10 @@ impl InterruptStatus {
         {
             let _ = cpu;
             let base = 0x2058_5000_usize;
-            return unsafe { ((base + 0x2a8 + 4 * word) as *const u32).read_volatile() };
+            // ESP32-S31 interrupt status is active-low: the hardware reports
+            // 0 for a pending source and 1 for an idle source. InterruptStatus
+            // uses the opposite convention on every target.
+            return !unsafe { ((base + 0x2a8 + 4 * word) as *const u32).read_volatile() };
         }
 
         #[cfg(not(esp32s31))]
