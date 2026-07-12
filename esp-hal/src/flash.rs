@@ -24,6 +24,8 @@ pub enum FlashError {
     InvalidJedecId,
     /// The ROM could not configure the flash controller.
     ConfigurationFailed,
+    /// A ROM flash read failed.
+    ReadFailed,
 }
 
 unsafe extern "C" {
@@ -39,6 +41,7 @@ unsafe extern "C" {
         page_size: u32,
         status_mask: u32,
     ) -> i32;
+    fn esp_rom_spiflash_read(address: u32, destination: *mut u32, length: u32) -> i32;
 }
 
 /// An attached external SPI flash device.
@@ -82,5 +85,19 @@ impl Flash {
     /// Returns information detected while attaching the device.
     pub fn info(&self) -> FlashInfo {
         self.info
+    }
+
+    /// Reads aligned words using the ROM flash driver.
+    pub fn read_words(&self, address: u32, destination: &mut [u32]) -> Result<(), FlashError> {
+        let length = destination
+            .len()
+            .checked_mul(size_of::<u32>())
+            .and_then(|length| u32::try_from(length).ok())
+            .ok_or(FlashError::ReadFailed)?;
+        if unsafe { esp_rom_spiflash_read(address, destination.as_mut_ptr(), length) } == 0 {
+            Ok(())
+        } else {
+            Err(FlashError::ReadFailed)
+        }
     }
 }
