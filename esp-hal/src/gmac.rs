@@ -27,7 +27,6 @@ fn gmac_regs() -> &'static crate::pac::gmac::RegisterBlock {
     unsafe { &*crate::pac::GMAC::ptr() }
 }
 
-const GMAC_BASE: usize = 0x2035_0000;
 const CNNT_SYS_BASE: usize = 0x2035_9000;
 const IO_MUX_BASE: usize = 0x2058_2000;
 const CNNT_IO_MUX_BASE: usize = 0x2058_8000;
@@ -349,12 +348,14 @@ impl Gmac {
 
     /// Configures enhanced chained descriptors and their list heads.
     pub fn configure_descriptor_lists(&self, rx_base: u32, tx_base: u32) {
-        unsafe {
-            ((GMAC_BASE + 0x1000) as *mut u32)
-                .write_volatile((1 << 7) | (16 << 8) | (1 << 25) | (1 << 26));
-            ((GMAC_BASE + 0x100c) as *mut u32).write_volatile(rx_base);
-            ((GMAC_BASE + 0x1010) as *mut u32).write_volatile(tx_base);
-        }
+        let regs = gmac_regs();
+        regs.register0_busmoderegister().write(|w| unsafe {
+            w.bits((1 << 7) | (16 << 8) | (1 << 25) | (1 << 26))
+        });
+        regs.register3_receivedescriptorlistaddressregister()
+            .write(|w| unsafe { w.bits(rx_base) });
+        regs.register4_transmitdescriptorlistaddressregister()
+            .write(|w| unsafe { w.bits(tx_base) });
     }
 
     /// Initializes enhanced chained RX and TX descriptor rings.
@@ -481,26 +482,28 @@ impl Gmac {
     /// Starts MAC RX/TX and DMA for the negotiated mode.
     pub fn start(&self, speed: Speed, full_duplex: bool, rx_base: u32) {
         self.set_speed(speed);
-        unsafe {
-            let mac_config = GMAC_BASE as *mut u32;
-            let mut config = mac_config.read_volatile() & !((1 << 15) | (1 << 14) | (1 << 11));
-            match speed {
-                Speed::Mbps1000 => {}
-                Speed::Mbps100 => config |= (1 << 15) | (1 << 14),
-                Speed::Mbps10 => config |= 1 << 15,
-            }
-            if full_duplex {
-                config |= 1 << 11;
-            }
-            ((GMAC_BASE + 0x04) as *mut u32)
-                .write_volatile(((GMAC_BASE + 0x04) as *const u32).read_volatile() | 1);
-            mac_config.write_volatile(config | (1 << 2) | (1 << 3));
-            let operation = (GMAC_BASE + 0x1018) as *mut u32;
-            operation.write_volatile(operation.read_volatile() | (1 << 1) | (1 << 13));
-            ((GMAC_BASE + 0x100c) as *mut u32).write_volatile(rx_base);
-            ((GMAC_BASE + 0x1014) as *mut u32).write_volatile(1 << 7);
-            self.demand_rx_poll();
+        let regs = gmac_regs();
+        let mut config = regs.register0_macconfigurationregister().read().bits()
+            & !((1 << 15) | (1 << 14) | (1 << 11));
+        match speed {
+            Speed::Mbps1000 => {}
+            Speed::Mbps100 => config |= (1 << 15) | (1 << 14),
+            Speed::Mbps10 => config |= 1 << 15,
         }
+        if full_duplex {
+            config |= 1 << 11;
+        }
+        regs.register1_macframefilter()
+            .modify(|r, w| unsafe { w.bits(r.bits() | 1) });
+        regs.register0_macconfigurationregister()
+            .write(|w| unsafe { w.bits(config | (1 << 2) | (1 << 3)) });
+        regs.register6_operationmoderegister()
+            .modify(|r, w| unsafe { w.bits(r.bits() | (1 << 1) | (1 << 13)) });
+        regs.register3_receivedescriptorlistaddressregister()
+            .write(|w| unsafe { w.bits(rx_base) });
+        regs.register5_statusregister()
+            .write(|w| w.ru().set_bit());
+        self.demand_rx_poll();
         self.started.store(true, Ordering::Release);
         self.net_waker.wake();
         self.enable_interrupts();
@@ -508,12 +511,11 @@ impl Gmac {
 
     /// Stops MAC RX/TX and both DMA directions.
     pub fn stop(&self) {
-        unsafe {
-            let operation = (GMAC_BASE + 0x1018) as *mut u32;
-            operation.write_volatile(operation.read_volatile() & !((1 << 1) | (1 << 13)));
-            let config = GMAC_BASE as *mut u32;
-            config.write_volatile(config.read_volatile() & !((1 << 2) | (1 << 3)));
-        }
+        let regs = gmac_regs();
+        regs.register6_operationmoderegister()
+            .modify(|r, w| unsafe { w.bits(r.bits() & !((1 << 1) | (1 << 13))) });
+        regs.register0_macconfigurationregister()
+            .modify(|r, w| unsafe { w.bits(r.bits() & !((1 << 2) | (1 << 3))) });
         self.started.store(false, Ordering::Release);
         self.net_waker.wake();
     }
