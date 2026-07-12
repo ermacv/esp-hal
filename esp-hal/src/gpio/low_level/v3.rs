@@ -7,8 +7,6 @@ use crate::{
     interrupt::{self, InterruptHandler},
     peripherals::Interrupt,
 };
-#[cfg(all(feature = "rt", esp32s31))]
-use crate::interrupt::Priority;
 
 pub(crate) fn read_bank_interrupt_status(bank: GpioBank) -> u32 {
     match bank {
@@ -21,13 +19,9 @@ pub(crate) fn read_bank_interrupt_status(bank: GpioBank) -> u32 {
 pub(crate) fn read_interrupt_status_of_current_cpu(bank: GpioBank) -> u32 {
     #[cfg(esp32s31)]
     return match bank {
-        // The initial ESP32-S31 port runs CPU0 only. Reading the raw status is
-        // required here: the per-CPU INT_0 view does not reflect a latched edge
-        // early enough for the default handler and leaves the shared source
-        // asserted, resulting in an interrupt storm.
-        GpioBank::_0 => GPIO::regs().status().read().bits(),
+        GpioBank::_0 => GPIO::regs().int_0().read().bits(),
         #[cfg(gpio_has_bank_1)]
-        GpioBank::_1 => GPIO::regs().status1().read().bits(),
+        GpioBank::_1 => GPIO::regs().int_01().read().bits(),
     };
 
     #[cfg(not(esp32s31))]
@@ -57,9 +51,6 @@ pub(crate) fn gpio_intr_enable(int_enable: bool) -> u8 {
 
 #[cfg(feature = "rt")]
 pub(crate) fn enable_interrupt(handler: InterruptHandler) {
-    #[cfg(esp32s31)]
-    let handler = InterruptHandler::new(handler.handler().callback(), Priority::max());
-
     interrupt::bind_handler(Interrupt::GPIO, handler);
     #[cfg(multi_core)]
     {

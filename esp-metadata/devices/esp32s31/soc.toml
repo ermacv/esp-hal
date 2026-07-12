@@ -75,6 +75,7 @@ peripherals = [
 # signal mappings and native IO_MUX functions will be added separately; this
 # initial table intentionally enables only generic GPIO operation.
 version = 3
+has_bank_1 = true
 has_input_sync = true
 support_status = "partial"
 gpio_function = 1

@@ -59,7 +59,7 @@ macro_rules! property {
         stringify!(3)
     };
     ("gpio.has_bank_1") => {
-        false
+        true
     };
     ("gpio.has_input_sync") => {
         true
