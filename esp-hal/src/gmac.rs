@@ -42,6 +42,55 @@ fn cnnt_sys_regs() -> &'static crate::pac::cnnt_sys::RegisterBlock {
     unsafe { &*crate::pac::CNNT_SYS::ptr() }
 }
 
+#[inline]
+fn disable_apm_filters() {
+    let lp_apm = unsafe { &*crate::pac::LP_APM::ptr() };
+    lp_apm.func_ctrl().write(|w| {
+        w.m0_func_en()
+            .clear_bit()
+            .m1_func_en()
+            .clear_bit()
+            .m2_func_en()
+            .clear_bit()
+            .m3_func_en()
+            .clear_bit()
+    });
+
+    let hp_apm = unsafe { &*crate::pac::HP_APM::ptr() };
+    hp_apm.func_ctrl().write(|w| {
+        w.m0_func_en()
+            .clear_bit()
+            .m1_func_en()
+            .clear_bit()
+            .m2_func_en()
+            .clear_bit()
+            .m3_func_en()
+            .clear_bit()
+            .m4_func_en()
+            .clear_bit()
+            .m5_func_en()
+            .clear_bit()
+            .m6_func_en()
+            .clear_bit()
+    });
+
+    let hp_mem_apm = unsafe { &*crate::pac::HP_MEM_APM::ptr() };
+    hp_mem_apm.func_ctrl().write(|w| {
+        w.m0_func_en()
+            .clear_bit()
+            .m1_func_en()
+            .clear_bit()
+            .m2_func_en()
+            .clear_bit()
+            .m3_func_en()
+            .clear_bit()
+            .m4_func_en()
+            .clear_bit()
+            .m5_func_en()
+            .clear_bit()
+    });
+}
+
 const BUFFER_SIZE: usize = 1536;
 static INTERRUPT_GMAC: AtomicPtr<Gmac> = AtomicPtr::new(ptr::null_mut());
 
@@ -254,11 +303,7 @@ impl Gmac {
     pub fn new(peri: ETH<'static>, phy_address: u8) -> Self {
         interrupt::disable(Cpu::current(), Interrupt::SBD);
         // Bare-metal startup leaves non-CPU bus masters behind APM filters.
-        unsafe {
-            (0x2070_6cbc as *mut u32).write_volatile(0);
-            (0x2050_44c4 as *mut u32).write_volatile(0);
-            (0x2050_48c4 as *mut u32).write_volatile(0);
-        }
+        disable_apm_filters();
         // Mask every MAC-level source. In particular, an RGMII in-band link
         // transition otherwise keeps the shared SBD line asserted.
         gmac_regs()
