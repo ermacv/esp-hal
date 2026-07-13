@@ -3238,6 +3238,11 @@ ignored."
     }
 
     fn apply_ap_config(&mut self, config: &AccessPointConfig) -> Result<(), WifiError> {
+        // BSS Max Idle uses units of 1000 TUs (1.024 seconds). Keep it aligned
+        // with the vendor driver's inactivity timeout; the default 300 seconds
+        // therefore becomes the ESP-IDF default of 292 BSS idle units.
+        let bss_max_idle_period =
+            ((u32::from(config.beacon_timeout) * 1000) / 1024).max(10) as u16;
         let mut cfg = wifi_config_t {
             ap: wifi_ap_config_t {
                 ssid: [0; 32],
@@ -3266,8 +3271,8 @@ ignored."
                 #[cfg(esp32s31)]
                 _bitfield_1: wifi_ap_config_t::new_bitfield_1(0, 0, 0, 0),
                 bss_max_idle_cfg: include::wifi_bss_max_idle_config_t {
-                    period: 0,
-                    protected_keep_alive: false,
+                    period: bss_max_idle_period,
+                    protected_keep_alive: true,
                 },
                 gtk_rekey_interval: 0,
             },
