@@ -290,8 +290,8 @@ fn configure_mpll(mpll_mhz: u32) -> bool {
     // ESP-IDF does this in rtc_clk_mpll_enable(), before
     // rtc_clk_mpll_configure(). Warm resets preserve these bits, so omitting
     // them only failed after a real power cycle.
-    PMU::regs().imm_hp_ck_power_1().write(|w| unsafe {
-        w.bits((1 << 22) | (1 << 26) | (1 << 30))
+    PMU::regs().imm_hp_ck_power_1().modify(|r, w| unsafe {
+        w.bits(r.bits() | (1 << 22) | (1 << 26) | (1 << 30))
     });
     unsafe {
         let hp_clock_control = 0x2058_9000 as *mut u32;

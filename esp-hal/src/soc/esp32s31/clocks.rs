@@ -58,8 +58,8 @@ fn configure_cpu_320mhz() {
     // The ROM RAM-download path may leave the CPU on XTAL after a true cold
     // boot. Power and calibrate CPLL explicitly, as rtc_clk_cpll_enable() and
     // rtc_clk_cpll_configure() do in ESP-IDF.
-    PMU::regs().imm_hp_ck_power_1().write(|w| unsafe {
-        w.bits((1 << 19) | (1 << 23) | (1 << 27))
+    PMU::regs().imm_hp_ck_power_1().modify(|r, w| unsafe {
+        w.bits(r.bits() | (1 << 19) | (1 << 23) | (1 << 27))
     });
     unsafe {
         // HP_ALIVE_SYS is intentionally hidden from the public peripheral
