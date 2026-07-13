@@ -518,6 +518,7 @@ impl Gmac {
                 core::mem::size_of::<DmaStorage<RX, TX>>() as u32,
             )
         };
+        core::sync::atomic::fence(Ordering::SeqCst);
         self.configure_descriptor_lists(
             storage.rx_descriptors.as_ptr() as u32,
             storage.tx_descriptors.as_ptr() as u32,
@@ -643,10 +644,10 @@ impl Gmac {
                 .te()
                 .set_bit()
         });
-        regs.register6_operationmoderegister()
-            .modify(|_, w| w.sr().set_bit().st().set_bit());
         regs.register3_receivedescriptorlistaddressregister()
             .write(|w| unsafe { w.rdesla().bits(rx_base) });
+        regs.register6_operationmoderegister()
+            .modify(|_, w| w.sr().set_bit().st().set_bit());
         regs.register5_statusregister().write(|w| w.ru().set_bit());
         self.demand_rx_poll();
         self.started.store(true, Ordering::Release);
