@@ -129,25 +129,6 @@ pub enum Error {
     InvalidPhyConfiguration,
 }
 
-/// Raw GMAC state intended for bring-up diagnostics.
-#[derive(Clone, Copy, Debug)]
-pub struct DiagnosticSnapshot {
-    /// Configured Clause-22 PHY address.
-    pub phy_address: u8,
-    /// DMA status register.
-    pub dma_status: u32,
-    /// DMA operation mode register.
-    pub dma_operation_mode: u32,
-    /// Configured TX descriptor-list base.
-    pub tx_descriptor_base: u32,
-    /// Current TX descriptor address observed by DMA.
-    pub current_tx_descriptor: u32,
-    /// First RX descriptor status word.
-    pub rx_descriptor: u32,
-    /// First TX descriptor status word.
-    pub tx_descriptor: u32,
-}
-
 /// Negotiated Ethernet mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LinkMode {
@@ -281,28 +262,6 @@ pub struct Gmac {
 }
 
 impl Gmac {
-
-    /// Captures the minimum raw state needed to diagnose early GMAC bring-up.
-    pub fn diagnostic_snapshot<const RX: usize, const TX: usize>(
-        &self,
-        storage: &DmaStorage<RX, TX>,
-    ) -> DiagnosticSnapshot {
-        DiagnosticSnapshot {
-            phy_address: self.phy_address,
-            dma_status: gmac_regs().register5_statusregister().read().bits(),
-            dma_operation_mode: gmac_regs().register6_operationmoderegister().read().bits(),
-            tx_descriptor_base: gmac_regs()
-                .register4_transmitdescriptorlistaddressregister()
-                .read()
-                .bits(),
-            current_tx_descriptor: gmac_regs()
-                .register18_currenthosttransmitdescriptorregister()
-                .read()
-                .bits(),
-            rx_descriptor: storage.rx_descriptors[0].read_word(0),
-            tx_descriptor: storage.tx_descriptors[0].read_word(0),
-        }
-    }
     /// Enables the GMAC clock/reset path.
     pub fn new(peri: ETH<'static>, phy_address: u8) -> Self {
         interrupt::disable(Cpu::current(), Interrupt::SBD);
@@ -642,10 +601,6 @@ impl Gmac {
     ) -> Result<LinkEvent, Error> {
         match phy.link_mode(self)? {
             Some(mode) if !self.started.load(Ordering::Acquire) => {
-                // The S31 RGMII clock/data path is not immediately usable when
-                // the PHY first reports link-up. Starting DMA in that window
-                // can leave both DMA state machines stopped until reset.
-                crate::rom::ets_delay_us(10_000);
                 self.configure_rings(storage);
                 self.start(mode.speed, mode.full_duplex, self.rx_base(storage));
                 Ok(LinkEvent::Up(mode))
@@ -668,12 +623,7 @@ impl Gmac {
         // sensitive and prevent RX/DHCP. Board initialization validates the
         // PHY address and the Clause-22 driver uses five-bit register numbers.
         regs.register4_gmiiaddressregister().write(|w| unsafe {
-            w.bits(
-                (u32::from(self.phy_address & 0x1f) << 11)
-                    | (u32::from(register & 0x1f) << 6)
-                    | (5 << 2)
-                    | 1,
-            )
+            w.bits((u32::from(self.phy_address) << 11) | (u32::from(register) << 6) | (5 << 2) | 1)
         });
         for _ in 0..1_000_000 {
             if regs
@@ -695,8 +645,8 @@ impl Gmac {
             .write(|w| unsafe { w.gd().bits(value) });
         regs.register4_gmiiaddressregister().write(|w| unsafe {
             w.bits(
-                (u32::from(self.phy_address & 0x1f) << 11)
-                    | (u32::from(register & 0x1f) << 6)
+                (u32::from(self.phy_address) << 11)
+                    | (u32::from(register) << 6)
                     | (5 << 2)
                     | (1 << 1)
                     | 1,
