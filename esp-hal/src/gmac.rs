@@ -43,6 +43,8 @@ fn cnnt_sys_regs() -> &'static crate::pac::cnnt_sys::RegisterBlock {
 }
 
 const BUFFER_SIZE: usize = 1536;
+const DMA_STATUS_TX_UNDERFLOW: u32 = 1 << 5;
+const DMA_DEFERRED_EVENT_MASK: u32 = DMA_STATUS_TX_UNDERFLOW;
 static INTERRUPT_GMAC: AtomicPtr<Gmac> = AtomicPtr::new(ptr::null_mut());
 
 #[crate::handler]
@@ -57,7 +59,10 @@ fn gmac_interrupt() {
     }
     let gmac = INTERRUPT_GMAC.load(Ordering::Acquire);
     if !gmac.is_null() {
-        unsafe { (*gmac).net_waker.wake() };
+        let gmac = unsafe { &*gmac };
+        gmac.deferred_dma_events
+            .fetch_or(status.bits() & DMA_DEFERRED_EVENT_MASK, Ordering::Release);
+        gmac.net_waker.wake();
     }
 }
 
@@ -282,6 +287,8 @@ pub struct Gmac {
     phy_address: u8,
     started: AtomicBool,
     ring_generation: AtomicU32,
+    deferred_dma_events: AtomicU32,
+    tx_underflow_count: AtomicU32,
     net_waker: AtomicWaker,
 }
 
@@ -311,6 +318,8 @@ impl Gmac {
             phy_address,
             started: AtomicBool::new(false),
             ring_generation: AtomicU32::new(0),
+            deferred_dma_events: AtomicU32::new(0),
+            tx_underflow_count: AtomicU32::new(0),
             net_waker: AtomicWaker::new(),
         }
     }
@@ -338,6 +347,11 @@ impl Gmac {
     /// Returns the Synopsys GMAC version register.
     pub fn version(&self) -> u32 {
         gmac_regs().register8_versionregister().read().bits()
+    }
+
+    /// Returns the number of TX FIFO underflows handled since construction.
+    pub fn tx_underflow_count(&self) -> u32 {
+        self.tx_underflow_count.load(Ordering::Relaxed)
     }
 
     /// Configures the Function-CoreBoard RGMII set-1 data plane (GPIO8..19).
@@ -662,8 +676,64 @@ impl Gmac {
             .write(|w| unsafe { w.bits(pending) });
         interrupt::bind_handler(Interrupt::SBD, gmac_interrupt);
         interrupt::enable(Interrupt::SBD, interrupt::Priority::min());
-        regs.register7_interruptenableregister()
-            .write(|w| w.tie().set_bit().rie().set_bit().nie().set_bit());
+        regs.register7_interruptenableregister().write(|w| {
+            w.tie()
+                .set_bit()
+                .une()
+                .set_bit()
+                .rie()
+                .set_bit()
+                .aie()
+                .set_bit()
+                .nie()
+                .set_bit()
+        });
+    }
+
+    /// Handles DMA events captured by the ISR in the network executor context.
+    fn handle_deferred_dma_events(&self) {
+        let events = self.deferred_dma_events.swap(0, Ordering::AcqRel);
+        if events & DMA_STATUS_TX_UNDERFLOW != 0 {
+            self.recover_tx_underflow();
+        }
+    }
+
+    /// Increases the TX FIFO threshold after an underflow, then resumes DMA.
+    ///
+    /// This mirrors the staged DWC GMAC recovery used by Linux stmmac. Register
+    /// 6 may only change its threshold/store-and-forward fields while TX DMA is
+    /// stopped, so none of this work is performed in the interrupt handler.
+    fn recover_tx_underflow(&self) {
+        let regs = gmac_regs();
+        self.tx_underflow_count.fetch_add(1, Ordering::Relaxed);
+
+        regs.register6_operationmoderegister()
+            .modify(|_, w| w.st().clear_bit());
+        let mut stopped = false;
+        for _ in 0..10_000 {
+            if regs.register5_statusregister().read().ts().bits() == 0 {
+                stopped = true;
+                break;
+            }
+        }
+
+        if stopped {
+            regs.register6_operationmoderegister().modify(|r, w| {
+                let threshold = r.ttc().bits();
+                if threshold < 3 {
+                    unsafe { w.ttc().bits(threshold + 1) };
+                } else {
+                    w.tsf().set_bit();
+                }
+                w.osf().set_bit().st().set_bit()
+            });
+        } else {
+            // Preserve service even if the hardware did not report Stopped in
+            // the bounded interval. A later underflow retries the escalation.
+            regs.register6_operationmoderegister()
+                .modify(|_, w| w.st().set_bit());
+        }
+        self.demand_tx_poll();
     }
 
     /// Polls the PHY and applies link transitions to MAC and DMA state.
@@ -774,6 +844,7 @@ impl<const RX: usize, const TX: usize> NetDriver<RX, TX> {
     }
 
     fn synchronize(&mut self) {
+        self.gmac.handle_deferred_dma_events();
         let generation = self.gmac.ring_generation.load(Ordering::Acquire);
         if generation != self.generation {
             self.rx_index = 0;
