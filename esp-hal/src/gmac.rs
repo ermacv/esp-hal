@@ -129,6 +129,19 @@ pub enum Error {
     InvalidPhyConfiguration,
 }
 
+/// Raw GMAC state intended for bring-up diagnostics.
+#[derive(Clone, Copy, Debug)]
+pub struct DiagnosticSnapshot {
+    /// Configured Clause-22 PHY address.
+    pub phy_address: u8,
+    /// DMA status register.
+    pub dma_status: u32,
+    /// First RX descriptor status word.
+    pub rx_descriptor: u32,
+    /// First TX descriptor status word.
+    pub tx_descriptor: u32,
+}
+
 /// Negotiated Ethernet mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LinkMode {
@@ -262,6 +275,19 @@ pub struct Gmac {
 }
 
 impl Gmac {
+
+    /// Captures the minimum raw state needed to diagnose early GMAC bring-up.
+    pub fn diagnostic_snapshot<const RX: usize, const TX: usize>(
+        &self,
+        storage: &DmaStorage<RX, TX>,
+    ) -> DiagnosticSnapshot {
+        DiagnosticSnapshot {
+            phy_address: self.phy_address,
+            dma_status: gmac_regs().register5_statusregister().read().bits(),
+            rx_descriptor: storage.rx_descriptors[0].read_word(0),
+            tx_descriptor: storage.tx_descriptors[0].read_word(0),
+        }
+    }
     /// Enables the GMAC clock/reset path.
     pub fn new(peri: ETH<'static>, phy_address: u8) -> Self {
         interrupt::disable(Cpu::current(), Interrupt::SBD);
