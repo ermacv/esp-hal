@@ -123,33 +123,12 @@ static CACHE_SYNC_LOCK: esp_sync::RawMutex = esp_sync::RawMutex::new();
 
 /// Writes cached CPU data back so a non-coherent DMA master can observe it.
 pub(crate) unsafe fn cache_writeback_addr(addr: u32, size: u32) {
-    const CACHE_LINE_SIZE: u32 = 64;
+    unsafe extern "C" {
+        fn Cache_WriteBack_Addr(cache_map: u32, addr: u32, size: u32);
+    }
     const CACHE_MAP_L1_DCACHE: u32 = 1 << 4;
-    const CACHE_BASE: u32 = 0x2c00_0000;
-    const SYNC_CTRL: *mut u32 = (CACHE_BASE + 0x9c) as *mut u32;
-    const SYNC_MAP: *mut u32 = (CACHE_BASE + 0xa0) as *mut u32;
-    const SYNC_ADDR: *mut u32 = (CACHE_BASE + 0xa4) as *mut u32;
-    const SYNC_SIZE: *mut u32 = (CACHE_BASE + 0xa8) as *mut u32;
-    const WRITEBACK_ENABLE: u32 = 1 << 2;
-    const SYNC_DONE: u32 = 1 << 4;
-
-    // ESP-IDF replaces the S31 ROM routine with this aligned, double-sync
-    // sequence. The second operation is required by the cache hardware patch.
-    let offset = addr & (CACHE_LINE_SIZE - 1);
-    let aligned_addr = addr - offset;
-    let aligned_size = (size + offset + CACHE_LINE_SIZE - 1) & !(CACHE_LINE_SIZE - 1);
     CACHE_SYNC_LOCK.lock(|| unsafe {
-        core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
-        SYNC_MAP.write_volatile(CACHE_MAP_L1_DCACHE);
-        SYNC_ADDR.write_volatile(aligned_addr);
-        SYNC_SIZE.write_volatile(aligned_size);
-        for _ in 0..2 {
-            SYNC_CTRL.write_volatile(WRITEBACK_ENABLE);
-            while SYNC_CTRL.read_volatile() & SYNC_DONE == 0 {
-                core::hint::spin_loop();
-            }
-        }
-        core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+        Cache_WriteBack_Addr(CACHE_MAP_L1_DCACHE, addr, size)
     });
 }
 
