@@ -4,10 +4,9 @@
 //! setup. PHY policy and board reset wiring intentionally remain outside HAL.
 
 use core::{
-    future::poll_fn,
     ptr,
     sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering},
-    task::{Context, Poll},
+    task::Context,
 };
 
 use embassy_net_driver_02::{Capabilities, Driver, HardwareAddress, LinkState, RxToken, TxToken};
@@ -50,24 +49,15 @@ static INTERRUPT_GMAC: AtomicPtr<Gmac> = AtomicPtr::new(ptr::null_mut());
 fn gmac_interrupt() {
     let regs = gmac_regs();
     let status = regs.register5_statusregister().read();
-    let mac_status = regs.register14_interruptstatusregister().read();
-    let link_changed = mac_status.rgsmiiis().bit_is_set();
-    if link_changed {
+    regs.register5_statusregister()
+        .write(|w| unsafe { w.bits(status.bits()) });
+    if status.gli().bit_is_set() {
         regs.register54_sgmii_rgmii_smiicontrolandstatusregister()
             .read();
     }
-    regs.register5_statusregister()
-        .write(|w| unsafe { w.bits(status.bits()) });
     let gmac = INTERRUPT_GMAC.load(Ordering::Acquire);
     if !gmac.is_null() {
-        let gmac = unsafe { &*gmac };
-        if link_changed {
-            gmac.link_generation.fetch_add(1, Ordering::AcqRel);
-            gmac.link_waker.wake();
-        }
-        if status.bits() & 0x0001_e7ff != 0 {
-            gmac.net_waker.wake();
-        }
+        unsafe { (*gmac).net_waker.wake() };
     }
 }
 
@@ -165,6 +155,8 @@ pub struct Yt8531 {
 }
 
 impl Yt8531 {
+    const LINK_INTERRUPT_MASK: u16 = (1 << 14) | (1 << 13) | (1 << 11) | (1 << 10);
+
     /// Creates a PHY policy with TX delay in 150 ps steps.
     pub fn new(rgmii_tx_delay: u8) -> Result<Self, Error> {
         if rgmii_tx_delay > 15 {
@@ -184,6 +176,17 @@ impl Yt8531 {
             0xa003,
             (rgmii & !0x000f) | u16::from(self.rgmii_tx_delay),
         )
+    }
+
+    /// Enables active-low INT_N events for link, speed, and duplex changes.
+    pub fn enable_link_interrupts(&self, gmac: &Gmac) -> Result<(), Error> {
+        self.acknowledge_link_interrupt(gmac)?;
+        gmac.mdio_write(0x12, Self::LINK_INTERRUPT_MASK)
+    }
+
+    /// Reads and clears the PHY interrupt status register.
+    pub fn acknowledge_link_interrupt(&self, gmac: &Gmac) -> Result<u16, Error> {
+        gmac.mdio_read(0x13)
     }
 
     /// Returns the current link status.
@@ -268,9 +271,7 @@ pub struct Gmac {
     phy_address: u8,
     started: AtomicBool,
     ring_generation: AtomicU32,
-    link_generation: AtomicU32,
     net_waker: AtomicWaker,
-    link_waker: AtomicWaker,
 }
 
 impl Gmac {
@@ -299,9 +300,7 @@ impl Gmac {
             phy_address,
             started: AtomicBool::new(false),
             ring_generation: AtomicU32::new(0),
-            link_generation: AtomicU32::new(0),
             net_waker: AtomicWaker::new(),
-            link_waker: AtomicWaker::new(),
         }
     }
 
@@ -419,36 +418,6 @@ impl Gmac {
             }
         }
         Err(Error::DmaResetTimeout)
-    }
-
-    /// Enables the RGMII in-band link-change interrupt.
-    pub fn enable_link_events(&self) {
-        INTERRUPT_GMAC.store(self as *const Self as *mut Self, Ordering::Release);
-        let regs = gmac_regs();
-        regs.register54_sgmii_rgmii_smiicontrolandstatusregister()
-            .read();
-        interrupt::bind_handler(Interrupt::SBD, gmac_interrupt);
-        regs.register15_interruptmaskregister()
-            .write(|w| unsafe { w.bits(u32::MAX & !1) });
-        interrupt::enable(Interrupt::SBD, interrupt::Priority::min());
-    }
-
-    /// Waits until hardware reports an RGMII link-state transition.
-    pub async fn wait_for_link_event(&self, observed_generation: u32) {
-        poll_fn(|cx| {
-            self.link_waker.register(cx.waker());
-            if self.link_generation.load(Ordering::Acquire) != observed_generation {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await
-    }
-
-    /// Returns the current link-event generation for race-free event waiting.
-    pub fn link_event_generation(&self) -> u32 {
-        self.link_generation.load(Ordering::Acquire)
     }
 
     /// Configures enhanced chained descriptors and their list heads.
@@ -633,6 +602,7 @@ impl Gmac {
         regs.register5_statusregister()
             .write(|w| unsafe { w.bits(pending) });
         interrupt::bind_handler(Interrupt::SBD, gmac_interrupt);
+        interrupt::enable(Interrupt::SBD, interrupt::Priority::min());
         regs.register7_interruptenableregister()
             .write(|w| w.rie().set_bit().nie().set_bit());
     }
