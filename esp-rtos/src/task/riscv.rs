@@ -92,6 +92,12 @@ pub struct CpuContext {
     /// Program counter, stores the address of the next instruction to be
     /// executed.
     pub pc: usize,
+    /// Floating-point registers f0..f31 on RISC-V targets with an FPU.
+    #[cfg(any(esp32p4, esp32s31))]
+    pub f: [u32; 32],
+    /// Floating-point control and status register.
+    #[cfg(any(esp32p4, esp32s31))]
+    pub fcsr: u32,
 }
 
 impl CpuContext {
@@ -230,6 +236,43 @@ unsafe extern "C" fn swint_handler_trampoline() {
         sw a6, 14*4(tp)
         sw a7, 15*4(tp)
 
+        .if {has_fpu}
+        fsw f0, 32*4(tp)
+        fsw f1, 33*4(tp)
+        fsw f2, 34*4(tp)
+        fsw f3, 35*4(tp)
+        fsw f4, 36*4(tp)
+        fsw f5, 37*4(tp)
+        fsw f6, 38*4(tp)
+        fsw f7, 39*4(tp)
+        fsw f8, 40*4(tp)
+        fsw f9, 41*4(tp)
+        fsw f10, 42*4(tp)
+        fsw f11, 43*4(tp)
+        fsw f12, 44*4(tp)
+        fsw f13, 45*4(tp)
+        fsw f14, 46*4(tp)
+        fsw f15, 47*4(tp)
+        fsw f16, 48*4(tp)
+        fsw f17, 49*4(tp)
+        fsw f18, 50*4(tp)
+        fsw f19, 51*4(tp)
+        fsw f20, 52*4(tp)
+        fsw f21, 53*4(tp)
+        fsw f22, 54*4(tp)
+        fsw f23, 55*4(tp)
+        fsw f24, 56*4(tp)
+        fsw f25, 57*4(tp)
+        fsw f26, 58*4(tp)
+        fsw f27, 59*4(tp)
+        fsw f28, 60*4(tp)
+        fsw f29, 61*4(tp)
+        fsw f30, 62*4(tp)
+        fsw f31, 63*4(tp)
+        frcsr t1
+        sw t1, 64*4(tp)
+        .endif
+
 1:
         # Let's run the interrupt handler, which runs the scheduler. If the scheduler
         # decides we need to switch context, it will change the thread pointer to the new context.
@@ -287,6 +330,43 @@ unsafe extern "C" fn swint_handler_trampoline() {
         # TP will be restored last.
         lw sp, 30*4(tp)
 
+        .if {has_fpu}
+        flw f0, 32*4(tp)
+        flw f1, 33*4(tp)
+        flw f2, 34*4(tp)
+        flw f3, 35*4(tp)
+        flw f4, 36*4(tp)
+        flw f5, 37*4(tp)
+        flw f6, 38*4(tp)
+        flw f7, 39*4(tp)
+        flw f8, 40*4(tp)
+        flw f9, 41*4(tp)
+        flw f10, 42*4(tp)
+        flw f11, 43*4(tp)
+        flw f12, 44*4(tp)
+        flw f13, 45*4(tp)
+        flw f14, 46*4(tp)
+        flw f15, 47*4(tp)
+        flw f16, 48*4(tp)
+        flw f17, 49*4(tp)
+        flw f18, 50*4(tp)
+        flw f19, 51*4(tp)
+        flw f20, 52*4(tp)
+        flw f21, 53*4(tp)
+        flw f22, 54*4(tp)
+        flw f23, 55*4(tp)
+        flw f24, 56*4(tp)
+        flw f25, 57*4(tp)
+        flw f26, 58*4(tp)
+        flw f27, 59*4(tp)
+        flw f28, 60*4(tp)
+        flw f29, 61*4(tp)
+        flw f30, 62*4(tp)
+        flw f31, 63*4(tp)
+        lw t1, 64*4(tp)
+        fscsr t1
+        .endif
+
         lw t1, 31*4(tp)
         csrw mepc, t1
 
@@ -320,6 +400,7 @@ unsafe extern "C" fn swint_handler_trampoline() {
         .cfi_endproc
         ",
         scheduler_interrupt_handler = sym swint_handler,
+        has_fpu = const cfg!(any(esp32p4, esp32s31)) as usize,
     }
 }
 
