@@ -499,8 +499,11 @@ impl Gmac {
     /// Selects the RGMII reference clock for the negotiated link speed.
     pub fn set_speed(&self, speed: Speed) {
         let divider = match speed {
-            Speed::Mbps10 => 199,
-            Speed::Mbps100 => 19,
+            // ESP32-S31 currently runs MPLL at 400 MHz for 200 MHz PSRAM.
+            // The EMAC reference divider stores (divisor - 1), so generate
+            // exact 2.5 MHz and 25 MHz RGMII transmit clocks from that source.
+            Speed::Mbps10 => 159,
+            Speed::Mbps100 => 15,
             Speed::Mbps1000 => 3,
         };
         cnnt_sys_regs()
