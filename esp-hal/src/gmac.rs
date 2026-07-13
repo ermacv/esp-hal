@@ -45,7 +45,7 @@ fn cnnt_sys_regs() -> &'static crate::pac::cnnt_sys::RegisterBlock {
 #[inline]
 fn disable_apm_filters() {
     let lp_apm = unsafe { &*crate::pac::LP_APM::ptr() };
-    lp_apm.func_ctrl().write(|w| unsafe { w.bits(0b1100) });
+    lp_apm.func_ctrl().write(|w| unsafe { w.bits(0b0011) });
 
     let hp_apm = unsafe { &*crate::pac::HP_APM::ptr() };
     hp_apm.func_ctrl().write(|w| unsafe { w.bits(0) });
