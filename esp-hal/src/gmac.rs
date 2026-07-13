@@ -208,6 +208,20 @@ impl Yt8531 {
         gmac.mdio_write(0, control)
     }
 
+    /// Enables or disables the IEEE 802.3 PHY loopback path.
+    ///
+    /// The negotiated speed and duplex fields are preserved. Loopback should
+    /// only be enabled while operating full-duplex.
+    pub fn set_loopback(&self, gmac: &Gmac, enabled: bool) -> Result<(), Error> {
+        let control = gmac.mdio_read(0)?;
+        let control = if enabled {
+            control | (1 << 14)
+        } else {
+            control & !(1 << 14)
+        };
+        gmac.mdio_write(0, control)
+    }
+
     /// Returns the current link status.
     pub fn link_up(&self, gmac: &Gmac) -> Result<bool, Error> {
         let _ = gmac.mdio_read(1)?;
