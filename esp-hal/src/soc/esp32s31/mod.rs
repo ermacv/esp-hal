@@ -3,6 +3,7 @@
 pub(crate) use esp32s31 as pac;
 
 pub mod clocks;
+pub(crate) mod cpu_control;
 pub(crate) mod regi2c;
 
 #[inline(always)]
@@ -10,6 +11,14 @@ pub(crate) mod regi2c;
 pub(crate) fn riscv_preinit() {}
 
 pub(crate) fn pre_init() {
+    #[cfg(multi_core)]
+    unsafe {
+        // PMU stall state and HP clock/reset state can survive a software
+        // reset. Keep Core 1 quiescent until CpuControl starts it explicitly.
+        cpu_control::internal_park_core(crate::system::Cpu::AppCpu, true);
+        cpu_control::disable_core1();
+    }
+
     // Match ESP-IDF's ESP32-S31 bring-up workaround (IDF-14620). On reset only
     // the HP CPU is in TEE mode, so the default control filters deny access to
     // every other bus master. Full TEE/APM setup is not supported yet.
