@@ -551,6 +551,7 @@ impl Gmac {
         let result = consume(&mut storage.rx_buffers[index].0[..length]);
         core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
         storage.rx_descriptors[index].write_word(0, 1 << 31);
+        core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
         self.demand_rx_poll();
         result
     }
@@ -570,6 +571,7 @@ impl Gmac {
         core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
         storage.tx_descriptors[index]
             .write_word(0, (1 << 31) | (1 << 30) | (1 << 29) | (1 << 28) | (1 << 20));
+        core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
         self.demand_tx_poll();
         result
     }
