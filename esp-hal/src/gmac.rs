@@ -544,14 +544,12 @@ impl Gmac {
     ) -> R {
         let index = index % RX;
         let status = storage.rx_descriptors[index].read_word(0);
-        core::sync::atomic::fence(core::sync::atomic::Ordering::Acquire);
         let length = (((status >> 16) & 0x3fff) as usize)
             .saturating_sub(4)
             .min(BUFFER_SIZE);
         let result = consume(&mut storage.rx_buffers[index].0[..length]);
-        core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
         storage.rx_descriptors[index].write_word(0, 1 << 31);
-        core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+        core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
         self.demand_rx_poll();
         result
     }
@@ -568,10 +566,9 @@ impl Gmac {
         let length = length.min(1514);
         let result = fill(&mut storage.tx_buffers[index].0[..length]);
         storage.tx_descriptors[index].write_word(1, length as u32);
-        core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
         storage.tx_descriptors[index]
             .write_word(0, (1 << 31) | (1 << 30) | (1 << 29) | (1 << 28) | (1 << 20));
-        core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+        core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
         self.demand_tx_poll();
         result
     }
