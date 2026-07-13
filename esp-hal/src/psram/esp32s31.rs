@@ -1,7 +1,8 @@
 use core::ops::Range;
 
 use crate::peripherals::{
-    CACHE, CPU_APM, HP_APM, HP_MEM_APM, HP_SYS_CLKRST, IOMUX_MSPI_PIN, LP_AON_CLKRST, PSRAM_MSPI,
+    CACHE, CPU_APM, HP_ALIVE_SYS, HP_APM, HP_MEM_APM, HP_SYS_CLKRST, IOMUX_MSPI_PIN,
+    LP_AON_CLKRST, PMU, PSRAM_MSPI,
 };
 
 use super::{EXTMEM_ORIGIN, PsramSize};
@@ -264,6 +265,19 @@ fn prepare_psram_phy() {
 
 fn configure_mpll_400mhz() -> bool {
     // MPLL = XTAL * (FB_DIV + 1) / (REF_DIV + 1).
+    // Power up the MPLL and its analog-I2C domain before starting calibration.
+    // ESP-IDF does this in rtc_clk_mpll_enable(), before
+    // rtc_clk_mpll_configure(). Warm resets preserve these bits, so omitting
+    // them only failed after a real power cycle.
+    PMU::regs().imm_hp_ck_power_1().write(|w| unsafe {
+        w.bits((1 << 22) | (1 << 26) | (1 << 30))
+    });
+    HP_ALIVE_SYS::regs()
+        .hp_clk_ctrl()
+        .modify(|_, w| w.hp_mpll_500m_clk_en().set_bit());
+    PMU::regs().hp_active_hp_ck_power().modify(|r, w| unsafe {
+        w.bits(r.bits() | (1 << 26) | (1 << 30))
+    });
     HP_SYS_CLKRST::regs()
         .ana_pll_ctrl0()
         .modify(|_, w| w.reg_mspi_cal_stop().clear_bit());
