@@ -44,7 +44,10 @@ fn cnnt_sys_regs() -> &'static crate::pac::cnnt_sys::RegisterBlock {
 
 const BUFFER_SIZE: usize = 1536;
 const DMA_STATUS_TX_UNDERFLOW: u32 = 1 << 5;
-const DMA_DEFERRED_EVENT_MASK: u32 = DMA_STATUS_TX_UNDERFLOW;
+const DMA_STATUS_FATAL_BUS_ERROR: u32 = 1 << 13;
+const DMA_STATUS_ERROR_BITS: u32 = 0x7 << 23;
+const DMA_DEFERRED_EVENT_MASK: u32 =
+    DMA_STATUS_TX_UNDERFLOW | DMA_STATUS_FATAL_BUS_ERROR | DMA_STATUS_ERROR_BITS;
 static INTERRUPT_GMAC: AtomicPtr<Gmac> = AtomicPtr::new(ptr::null_mut());
 
 #[crate::handler]
@@ -289,6 +292,9 @@ pub struct Gmac {
     ring_generation: AtomicU32,
     deferred_dma_events: AtomicU32,
     tx_underflow_count: AtomicU32,
+    fatal_bus_error_count: AtomicU32,
+    fatal_bus_recovery_failure_count: AtomicU32,
+    last_fatal_bus_error: AtomicU32,
     net_waker: AtomicWaker,
 }
 
@@ -320,6 +326,9 @@ impl Gmac {
             ring_generation: AtomicU32::new(0),
             deferred_dma_events: AtomicU32::new(0),
             tx_underflow_count: AtomicU32::new(0),
+            fatal_bus_error_count: AtomicU32::new(0),
+            fatal_bus_recovery_failure_count: AtomicU32::new(0),
+            last_fatal_bus_error: AtomicU32::new(0),
             net_waker: AtomicWaker::new(),
         }
     }
@@ -352,6 +361,23 @@ impl Gmac {
     /// Returns the number of TX FIFO underflows handled since construction.
     pub fn tx_underflow_count(&self) -> u32 {
         self.tx_underflow_count.load(Ordering::Relaxed)
+    }
+
+    /// Returns the number of fatal DMA bus errors observed by the ISR.
+    pub fn fatal_bus_error_count(&self) -> u32 {
+        self.fatal_bus_error_count.load(Ordering::Relaxed)
+    }
+
+    /// Returns the number of fatal DMA bus errors whose reset timed out.
+    pub fn fatal_bus_recovery_failure_count(&self) -> u32 {
+        self.fatal_bus_recovery_failure_count
+            .load(Ordering::Relaxed)
+    }
+
+    /// Returns the DWC GMAC `EB[2:0]` code from the latest fatal bus error.
+    pub fn last_fatal_bus_error(&self) -> Option<u8> {
+        (self.fatal_bus_error_count() != 0)
+            .then(|| self.last_fatal_bus_error.load(Ordering::Relaxed) as u8)
     }
 
     /// Configures the Function-CoreBoard RGMII set-1 data plane (GPIO8..19).
@@ -683,6 +709,8 @@ impl Gmac {
                 .set_bit()
                 .rie()
                 .set_bit()
+                .fbe()
+                .set_bit()
                 .aie()
                 .set_bit()
                 .nie()
@@ -691,11 +719,52 @@ impl Gmac {
     }
 
     /// Handles DMA events captured by the ISR in the network executor context.
-    fn handle_deferred_dma_events(&self) {
+    fn handle_deferred_dma_events<const RX: usize, const TX: usize>(
+        &self,
+        storage: &mut DmaStorage<RX, TX>,
+    ) {
         let events = self.deferred_dma_events.swap(0, Ordering::AcqRel);
-        if events & DMA_STATUS_TX_UNDERFLOW != 0 {
+        if events & DMA_STATUS_FATAL_BUS_ERROR != 0 {
+            self.fatal_bus_error_count.fetch_add(1, Ordering::Relaxed);
+            self.last_fatal_bus_error
+                .store((events & DMA_STATUS_ERROR_BITS) >> 23, Ordering::Relaxed);
+            if self.recover_dma(storage).is_err() {
+                self.fatal_bus_recovery_failure_count
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+        } else if events & DMA_STATUS_TX_UNDERFLOW != 0 {
             self.recover_tx_underflow();
         }
+    }
+
+    /// Resets DMA, reconstructs both descriptor rings, and restores link mode.
+    ///
+    /// This is the hard-recovery path for a DWC GMAC fatal bus error. It must be
+    /// called from the context that owns `storage`, never from the ISR.
+    pub fn recover_dma<const RX: usize, const TX: usize>(
+        &self,
+        storage: &mut DmaStorage<RX, TX>,
+    ) -> Result<(), Error> {
+        let mac_configuration = gmac_regs().register0_macconfigurationregister().read();
+        let speed = if mac_configuration.ps().bit_is_clear() {
+            Speed::Mbps1000
+        } else if mac_configuration.fes().bit_is_set() {
+            Speed::Mbps100
+        } else {
+            Speed::Mbps10
+        };
+        let full_duplex = mac_configuration.dm().bit_is_set();
+
+        self.stop();
+        self.reset_dma()?;
+        self.configure_rings(storage);
+        self.start(
+            speed,
+            full_duplex,
+            self.rx_base(storage),
+            self.tx_base(storage),
+        );
+        Ok(())
     }
 
     /// Increases the TX FIFO threshold after an underflow, then resumes DMA.
@@ -844,7 +913,8 @@ impl<const RX: usize, const TX: usize> NetDriver<RX, TX> {
     }
 
     fn synchronize(&mut self) {
-        self.gmac.handle_deferred_dma_events();
+        self.gmac
+            .handle_deferred_dma_events(unsafe { &mut *self.storage });
         let generation = self.gmac.ring_generation.load(Ordering::Acquire);
         if generation != self.generation {
             self.rx_index = 0;
