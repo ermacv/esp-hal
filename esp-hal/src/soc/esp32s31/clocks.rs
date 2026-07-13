@@ -20,9 +20,9 @@ pub enum CpuClock {
 impl From<CpuClock> for ClockConfig {
     fn from(_value: CpuClock) -> Self {
         Self {
-            xtal_clk: None,
-            cpu_clk: None,
-            apb_clk: None,
+            xtal_clk: Some(XtalClkConfig::_40),
+            cpu_clk: Some(CpuClkConfig::_320),
+            apb_clk: Some(ApbClkConfig::_80),
         }
     }
 }
