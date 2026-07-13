@@ -47,6 +47,14 @@ pub use self::riscv::*;
 pub use self::xtensa::*;
 use crate::{peripherals::Interrupt, system::Cpu};
 
+#[cfg(esp32s31)]
+#[inline(always)]
+fn interrupt_core_base(cpu: Cpu) -> usize {
+    const CORE0_BASE: usize = 0x2058_5000;
+    const CORE_STRIDE: usize = 0x800;
+    CORE0_BASE + cpu as usize * CORE_STRIDE
+}
+
 cfg_select! {
     esp32 => {
         use crate::peripherals::DPORT as INTERRUPT_CORE0;
@@ -211,8 +219,7 @@ impl InterruptStatus {
     fn interrupt_status_word(cpu: Cpu, word: usize) -> u32 {
         #[cfg(esp32s31)]
         {
-            let _ = cpu;
-            let base = 0x2058_5000_usize;
+            let base = interrupt_core_base(cpu);
             return unsafe { ((base + 0x2a8 + 4 * word) as *const u32).read_volatile() };
         }
 
@@ -406,8 +413,7 @@ pub fn disable(core: Cpu, interrupt: Interrupt) {
 pub(super) fn map_raw(core: Cpu, interrupt: Interrupt, cpu_interrupt: u32) {
     #[cfg(esp32s31)]
     {
-        let _ = core;
-        let base = 0x2058_5000_usize;
+        let base = interrupt_core_base(core);
         unsafe {
             ((base + 4 * interrupt as usize) as *mut u32).write_volatile(cpu_interrupt & 0x3f)
         };
@@ -437,8 +443,7 @@ pub(crate) fn mapped_to(cpu: Cpu, interrupt: Interrupt) -> Option<CpuInterrupt> 
 pub(crate) fn mapped_to_raw(cpu: Cpu, interrupt: u32) -> Option<CpuInterrupt> {
     #[cfg(esp32s31)]
     {
-        let _ = cpu;
-        let base = 0x2058_5000_usize;
+        let base = interrupt_core_base(cpu);
         let cpu_intr = unsafe { ((base + 4 * interrupt as usize) as *const u32).read_volatile() }
             & 0x3f;
         return CpuInterrupt::from_u32(cpu_intr);
