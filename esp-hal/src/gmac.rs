@@ -113,6 +113,18 @@ fn gmac_interrupt() {
 #[repr(C, align(32))]
 struct Descriptor([u32; 8]);
 
+impl Descriptor {
+    #[inline]
+    fn read_word(&self, index: usize) -> u32 {
+        unsafe { self.0.as_ptr().add(index).read_volatile() }
+    }
+
+    #[inline]
+    fn write_word(&mut self, index: usize, value: u32) {
+        unsafe { self.0.as_mut_ptr().add(index).write_volatile(value) };
+    }
+}
+
 #[repr(C, align(64))]
 struct Buffer([u8; BUFFER_SIZE]);
 
@@ -507,12 +519,7 @@ impl Gmac {
         storage: &DmaStorage<RX, TX>,
         index: usize,
     ) -> bool {
-        let status = unsafe {
-            storage.rx_descriptors[index % RX]
-                .0
-                .as_ptr()
-                .read_volatile()
-        };
+        let status = storage.rx_descriptors[index % RX].read_word(0);
         status & (1 << 31) == 0
             && status & (1 << 15) == 0
             && status & (1 << 9) != 0
@@ -525,14 +532,7 @@ impl Gmac {
         storage: &DmaStorage<RX, TX>,
         index: usize,
     ) -> bool {
-        unsafe {
-            storage.tx_descriptors[index % TX]
-                .0
-                .as_ptr()
-                .read_volatile()
-                & (1 << 31)
-                == 0
-        }
+        storage.tx_descriptors[index % TX].read_word(0) & (1 << 31) == 0
     }
 
     /// Gives a received frame to `consume`, then returns its descriptor to DMA.
@@ -543,18 +543,14 @@ impl Gmac {
         consume: impl FnOnce(&mut [u8]) -> R,
     ) -> R {
         let index = index % RX;
-        let status = unsafe { storage.rx_descriptors[index].0.as_ptr().read_volatile() };
+        let status = storage.rx_descriptors[index].read_word(0);
+        core::sync::atomic::fence(core::sync::atomic::Ordering::Acquire);
         let length = (((status >> 16) & 0x3fff) as usize)
             .saturating_sub(4)
             .min(BUFFER_SIZE);
         let result = consume(&mut storage.rx_buffers[index].0[..length]);
-        unsafe {
-            storage.rx_descriptors[index]
-                .0
-                .as_mut_ptr()
-                .write_volatile(1 << 31);
-        }
         core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
+        storage.rx_descriptors[index].write_word(0, 1 << 31);
         self.demand_rx_poll();
         result
     }
@@ -570,18 +566,10 @@ impl Gmac {
         let index = index % TX;
         let length = length.min(1514);
         let result = fill(&mut storage.tx_buffers[index].0[..length]);
-        unsafe {
-            storage.tx_descriptors[index]
-                .0
-                .as_mut_ptr()
-                .add(1)
-                .write_volatile(length as u32);
-            storage.tx_descriptors[index]
-                .0
-                .as_mut_ptr()
-                .write_volatile((1 << 31) | (1 << 30) | (1 << 29) | (1 << 28) | (1 << 20));
-        }
+        storage.tx_descriptors[index].write_word(1, length as u32);
         core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
+        storage.tx_descriptors[index]
+            .write_word(0, (1 << 31) | (1 << 30) | (1 << 29) | (1 << 28) | (1 << 20));
         self.demand_tx_poll();
         result
     }
