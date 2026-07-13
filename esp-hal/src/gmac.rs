@@ -61,7 +61,7 @@ fn gmac_interrupt() {
     }
 }
 
-#[repr(C, align(32))]
+#[repr(C, align(64))]
 struct Descriptor([u32; 8]);
 
 impl Descriptor {
@@ -462,6 +462,12 @@ impl Gmac {
             storage.tx_descriptors[index].0[3] =
                 core::ptr::addr_of!(storage.tx_descriptors[next]) as u32;
         }
+        unsafe {
+            crate::soc::cache_writeback_addr(
+                storage as *mut DmaStorage<RX, TX> as u32,
+                core::mem::size_of::<DmaStorage<RX, TX>>() as u32,
+            )
+        };
         self.configure_descriptor_lists(
             storage.rx_descriptors.as_ptr() as u32,
             storage.tx_descriptors.as_ptr() as u32,
@@ -481,6 +487,12 @@ impl Gmac {
         storage: &DmaStorage<RX, TX>,
         index: usize,
     ) -> bool {
+        unsafe {
+            crate::soc::cache_invalidate_addr(
+                core::ptr::addr_of!(storage.rx_descriptors[index % RX]) as u32,
+                core::mem::size_of::<Descriptor>() as u32,
+            )
+        };
         let status = storage.rx_descriptors[index % RX].read_word(0);
         status & (1 << 31) == 0
             && status & (1 << 15) == 0
@@ -494,6 +506,12 @@ impl Gmac {
         storage: &DmaStorage<RX, TX>,
         index: usize,
     ) -> bool {
+        unsafe {
+            crate::soc::cache_invalidate_addr(
+                core::ptr::addr_of!(storage.tx_descriptors[index % TX]) as u32,
+                core::mem::size_of::<Descriptor>() as u32,
+            )
+        };
         storage.tx_descriptors[index % TX].read_word(0) & (1 << 31) == 0
     }
 
@@ -509,8 +527,20 @@ impl Gmac {
         let length = (((status >> 16) & 0x3fff) as usize)
             .saturating_sub(4)
             .min(BUFFER_SIZE);
+        unsafe {
+            crate::soc::cache_invalidate_addr(
+                storage.rx_buffers[index].0.as_ptr() as u32,
+                BUFFER_SIZE as u32,
+            )
+        };
         let result = consume(&mut storage.rx_buffers[index].0[..length]);
         storage.rx_descriptors[index].write_word(0, 1 << 31);
+        unsafe {
+            crate::soc::cache_writeback_addr(
+                core::ptr::addr_of!(storage.rx_descriptors[index]) as u32,
+                core::mem::size_of::<Descriptor>() as u32,
+            )
+        };
         core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
         self.demand_rx_poll();
         result
@@ -530,6 +560,16 @@ impl Gmac {
         storage.tx_descriptors[index].write_word(1, length as u32);
         storage.tx_descriptors[index]
             .write_word(0, (1 << 31) | (1 << 30) | (1 << 29) | (1 << 28) | (1 << 20));
+        unsafe {
+            crate::soc::cache_writeback_addr(
+                storage.tx_buffers[index].0.as_ptr() as u32,
+                length as u32,
+            );
+            crate::soc::cache_writeback_addr(
+                core::ptr::addr_of!(storage.tx_descriptors[index]) as u32,
+                core::mem::size_of::<Descriptor>() as u32,
+            );
+        }
         core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
         self.demand_tx_poll();
         result

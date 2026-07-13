@@ -106,3 +106,21 @@ pub(crate) fn enable_branch_predictor() {
         core::arch::asm!("csrrs x0, 0x7c1, {0}", in(reg) MHCR_RS | MHCR_BFE | MHCR_BTB);
     }
 }
+
+/// Writes cached CPU data back so a non-coherent DMA master can observe it.
+pub(crate) unsafe fn cache_writeback_addr(addr: u32, size: u32) {
+    unsafe extern "C" {
+        fn Cache_WriteBack_Addr(cache_map: u32, addr: u32, size: u32);
+    }
+    const CACHE_MAP_L1_DCACHE: u32 = 1 << 4;
+    unsafe { Cache_WriteBack_Addr(CACHE_MAP_L1_DCACHE, addr, size) };
+}
+
+/// Invalidates cached CPU data before reading memory written by DMA.
+pub(crate) unsafe fn cache_invalidate_addr(addr: u32, size: u32) {
+    unsafe extern "C" {
+        fn Cache_Invalidate_Addr(cache_map: u32, addr: u32, size: u32);
+    }
+    const CACHE_MAP_L1_DCACHE: u32 = 1 << 4;
+    unsafe { Cache_Invalidate_Addr(CACHE_MAP_L1_DCACHE, addr, size) };
+}
