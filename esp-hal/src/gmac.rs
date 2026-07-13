@@ -136,6 +136,12 @@ pub struct DiagnosticSnapshot {
     pub phy_address: u8,
     /// DMA status register.
     pub dma_status: u32,
+    /// DMA operation mode register.
+    pub dma_operation_mode: u32,
+    /// Configured TX descriptor-list base.
+    pub tx_descriptor_base: u32,
+    /// Current TX descriptor address observed by DMA.
+    pub current_tx_descriptor: u32,
     /// First RX descriptor status word.
     pub rx_descriptor: u32,
     /// First TX descriptor status word.
@@ -284,6 +290,15 @@ impl Gmac {
         DiagnosticSnapshot {
             phy_address: self.phy_address,
             dma_status: gmac_regs().register5_statusregister().read().bits(),
+            dma_operation_mode: gmac_regs().register6_operationmoderegister().read().bits(),
+            tx_descriptor_base: gmac_regs()
+                .register4_transmitdescriptorlistaddressregister()
+                .read()
+                .bits(),
+            current_tx_descriptor: gmac_regs()
+                .register18_currenthosttransmitdescriptorregister()
+                .read()
+                .bits(),
             rx_descriptor: storage.rx_descriptors[0].read_word(0),
             tx_descriptor: storage.tx_descriptors[0].read_word(0),
         }
