@@ -3272,7 +3272,9 @@ ignored."
                 _bitfield_1: wifi_ap_config_t::new_bitfield_1(0, 0, 0, 0),
                 bss_max_idle_cfg: include::wifi_bss_max_idle_config_t {
                     period: bss_max_idle_period,
-                    protected_keep_alive: true,
+                    // An open BSS has no key with which a station could protect
+                    // its keep-alive management frames.
+                    protected_keep_alive: config.auth_method != AuthenticationMethod::None,
                 },
                 gtk_rekey_interval: 0,
             },
