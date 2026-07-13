@@ -644,7 +644,7 @@ impl Gmac {
         interrupt::bind_handler(Interrupt::SBD, gmac_interrupt);
         interrupt::enable(Interrupt::SBD, interrupt::Priority::min());
         regs.register7_interruptenableregister()
-            .write(|w| w.rie().set_bit().nie().set_bit());
+            .write(|w| w.tie().set_bit().rie().set_bit().nie().set_bit());
     }
 
     /// Polls the PHY and applies link transitions to MAC and DMA state.
