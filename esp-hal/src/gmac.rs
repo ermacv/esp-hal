@@ -617,6 +617,11 @@ impl Gmac {
     /// Reads one IEEE 802.3 Clause-22 PHY register.
     pub fn mdio_read(&self, register: u8) -> Result<u16, Error> {
         let regs = gmac_regs();
+        // Keep this as one command-word store. An A/B test on S31 rev 0 showed
+        // that the extra masking instructions emitted by the equivalent PAC
+        // field-writer chain make the subsequent GMAC start path timing
+        // sensitive and prevent RX/DHCP. Board initialization validates the
+        // PHY address and the Clause-22 driver uses five-bit register numbers.
         regs.register4_gmiiaddressregister().write(|w| unsafe {
             w.bits((u32::from(self.phy_address) << 11) | (u32::from(register) << 6) | (5 << 2) | 1)
         });
