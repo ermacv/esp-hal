@@ -109,6 +109,7 @@ unsafe extern "C" {
     fn ROM_Boot_Cache_Init();
 }
 
+#[crate::ram]
 pub(crate) fn init_psram(config: &mut PsramConfig) -> bool {
     let clocks = HP_SYS_CLKRST::regs();
     clocks.psram_ctrl0().modify(|_, w| {
