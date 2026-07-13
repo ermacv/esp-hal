@@ -1,8 +1,8 @@
 use core::ops::Range;
 
 use crate::peripherals::{
-    CACHE, CPU_APM, HP_ALIVE_SYS, HP_APM, HP_MEM_APM, HP_SYS_CLKRST, IOMUX_MSPI_PIN,
-    LP_AON_CLKRST, PMU, PSRAM_MSPI,
+    CACHE, CPU_APM, HP_APM, HP_MEM_APM, HP_SYS_CLKRST, IOMUX_MSPI_PIN, LP_AON_CLKRST, PMU,
+    PSRAM_MSPI,
 };
 
 use super::{EXTMEM_ORIGIN, PsramSize};
@@ -272,9 +272,10 @@ fn configure_mpll_400mhz() -> bool {
     PMU::regs().imm_hp_ck_power_1().write(|w| unsafe {
         w.bits((1 << 22) | (1 << 26) | (1 << 30))
     });
-    HP_ALIVE_SYS::regs()
-        .hp_clk_ctrl()
-        .modify(|_, w| w.hp_mpll_500m_clk_en().set_bit());
+    unsafe {
+        let hp_clock_control = 0x2058_9000 as *mut u32;
+        hp_clock_control.write_volatile(hp_clock_control.read_volatile() | (1 << 31));
+    }
     PMU::regs().hp_active_hp_ck_power().modify(|r, w| unsafe {
         w.bits(r.bits() | (1 << 26) | (1 << 30))
     });
