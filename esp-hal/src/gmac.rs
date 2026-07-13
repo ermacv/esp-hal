@@ -44,14 +44,55 @@ fn cnnt_sys_regs() -> &'static crate::pac::cnnt_sys::RegisterBlock {
 
 #[inline]
 fn disable_apm_filters() {
+    // Match ESP-IDF's ESP32-S31 bring-up workaround (IDF-14620). On reset only
+    // the HP CPU is in TEE mode; the other bus masters are denied by every APM
+    // control filter. Each channel below was also verified independently: if
+    // any one remains enabled, GMAC DMA cannot exchange frames with RAM.
     let lp_apm = unsafe { &*crate::pac::LP_APM::ptr() };
-    lp_apm.func_ctrl().write(|w| unsafe { w.bits(0b0100) });
+    lp_apm.func_ctrl().write(|w| {
+        w.m0_func_en()
+            .clear_bit()
+            .m1_func_en()
+            .clear_bit()
+            .m2_func_en()
+            .clear_bit()
+            .m3_func_en()
+            .clear_bit()
+    });
 
     let hp_apm = unsafe { &*crate::pac::HP_APM::ptr() };
-    hp_apm.func_ctrl().write(|w| unsafe { w.bits(0) });
+    hp_apm.func_ctrl().write(|w| {
+        w.m0_func_en()
+            .clear_bit()
+            .m1_func_en()
+            .clear_bit()
+            .m2_func_en()
+            .clear_bit()
+            .m3_func_en()
+            .clear_bit()
+            .m4_func_en()
+            .clear_bit()
+            .m5_func_en()
+            .clear_bit()
+            .m6_func_en()
+            .clear_bit()
+    });
 
     let hp_mem_apm = unsafe { &*crate::pac::HP_MEM_APM::ptr() };
-    hp_mem_apm.func_ctrl().write(|w| unsafe { w.bits(0) });
+    hp_mem_apm.func_ctrl().write(|w| {
+        w.m0_func_en()
+            .clear_bit()
+            .m1_func_en()
+            .clear_bit()
+            .m2_func_en()
+            .clear_bit()
+            .m3_func_en()
+            .clear_bit()
+            .m4_func_en()
+            .clear_bit()
+            .m5_func_en()
+            .clear_bit()
+    });
 }
 
 const BUFFER_SIZE: usize = 1536;
