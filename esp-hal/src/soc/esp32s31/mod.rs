@@ -127,9 +127,7 @@ pub(crate) unsafe fn cache_writeback_addr(addr: u32, size: u32) {
         fn Cache_WriteBack_Addr(cache_map: u32, addr: u32, size: u32);
     }
     const CACHE_MAP_L1_DCACHE: u32 = 1 << 4;
-    CACHE_SYNC_LOCK.lock(|| unsafe {
-        Cache_WriteBack_Addr(CACHE_MAP_L1_DCACHE, addr, size)
-    });
+    CACHE_SYNC_LOCK.lock(|| unsafe { Cache_WriteBack_Addr(CACHE_MAP_L1_DCACHE, addr, size) });
 }
 
 /// Invalidates cached CPU data before reading memory written by DMA.
@@ -138,7 +136,21 @@ pub(crate) unsafe fn cache_invalidate_addr(addr: u32, size: u32) {
         fn Cache_Invalidate_Addr(cache_map: u32, addr: u32, size: u32);
     }
     const CACHE_MAP_L1_DCACHE: u32 = 1 << 4;
+    CACHE_SYNC_LOCK.lock(|| unsafe { Cache_Invalidate_Addr(CACHE_MAP_L1_DCACHE, addr, size) });
+}
+
+/// Writes data bytes through to PSRAM and invalidates both instruction caches
+/// before code at the same external-memory address is executed.
+pub(crate) unsafe fn cache_prepare_code_addr(addr: u32, size: u32) {
+    unsafe extern "C" {
+        fn Cache_WriteBack_Addr(cache_map: u32, addr: u32, size: u32);
+        fn Cache_Invalidate_Addr(cache_map: u32, addr: u32, size: u32);
+    }
+    const CACHE_MAP_L1_ICACHE_0: u32 = 1 << 0;
+    const CACHE_MAP_L1_ICACHE_1: u32 = 1 << 1;
+    const CACHE_MAP_L1_DCACHE: u32 = 1 << 4;
     CACHE_SYNC_LOCK.lock(|| unsafe {
-        Cache_Invalidate_Addr(CACHE_MAP_L1_DCACHE, addr, size)
+        Cache_WriteBack_Addr(CACHE_MAP_L1_DCACHE, addr, size);
+        Cache_Invalidate_Addr(CACHE_MAP_L1_ICACHE_0 | CACHE_MAP_L1_ICACHE_1, addr, size);
     });
 }

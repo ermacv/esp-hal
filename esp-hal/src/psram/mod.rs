@@ -94,6 +94,21 @@ pub(crate) fn psram_range() -> Range<usize> {
     if end < start { 0..0 } else { start..end }
 }
 
+/// Makes bytes written through the data cache visible to instruction fetches.
+///
+/// Call this after copying code into PSRAM and before executing that code.
+///
+/// # Safety
+///
+/// `address..address + size` must be a valid mapped PSRAM range, and no core
+/// may execute from the range while it is being modified.
+#[cfg(esp32s31)]
+#[instability::unstable]
+pub unsafe fn prepare_code(address: *const u8, size: usize) {
+    unsafe { crate::soc::cache_prepare_code_addr(address as u32, size as u32) };
+    unsafe { core::arch::asm!("fence.i", options(nostack)) };
+}
+
 /// # Safety
 ///
 /// This function must only be called once.
