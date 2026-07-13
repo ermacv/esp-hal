@@ -3,7 +3,7 @@
 
 use esp_rom_sys::rom::ets_update_cpu_frequency_rom;
 
-use crate::peripherals::HP_SYS_CLKRST;
+use crate::peripherals::{HP_SYS_CLKRST, LP_AON_CLKRST, PMU};
 
 define_clock_tree_types!();
 
@@ -55,6 +55,36 @@ impl ClockConfig {
 fn configure_cpu_320mhz() {
     let regs = HP_SYS_CLKRST::regs();
 
+    // The ROM RAM-download path may leave the CPU on XTAL after a true cold
+    // boot. Power and calibrate CPLL explicitly, as rtc_clk_cpll_enable() and
+    // rtc_clk_cpll_configure() do in ESP-IDF.
+    PMU::regs().imm_hp_ck_power_1().write(|w| unsafe {
+        w.bits((1 << 19) | (1 << 23) | (1 << 27))
+    });
+    unsafe {
+        // HP_ALIVE_SYS is intentionally hidden from the public peripheral
+        // list, but this clock gate is part of the documented CPLL sequence.
+        let hp_clock_control = 0x2058_9000 as *mut u32;
+        hp_clock_control.write_volatile(hp_clock_control.read_volatile() | (1 << 29));
+    }
+    LP_AON_CLKRST::regs()
+        .lp_aonclkrst_cpll_div()
+        .modify(|_, w| unsafe {
+            w.lp_aonclkrst_cpll_ref_div().bits(1);
+            w.lp_aonclkrst_cpll_fb_div().bits(8)
+        });
+    regs.ana_pll_ctrl0()
+        .modify(|_, w| w.reg_cpu_pll_cal_stop().clear_bit());
+    while !regs
+        .ana_pll_ctrl0()
+        .read()
+        .reg_cpu_pll_cal_end()
+        .bit()
+    {}
+    crate::rom::ets_delay_us(10);
+    regs.ana_pll_ctrl0()
+        .modify(|_, w| w.reg_cpu_pll_cal_stop().set_bit());
+
     // A value of N-1 encodes the integer divider N. Fractional fields remain
     // zero for all clocks in this plan.
     regs.cpu_freq_ctrl0().write(|w| unsafe { w.bits(0) }); // /1
@@ -62,9 +92,10 @@ fn configure_cpu_320mhz() {
     regs.sys_freq_ctrl0().write(|w| unsafe { w.bits(2) }); // /3
     regs.apb_freq_ctrl0().write(|w| unsafe { w.bits(1) }); // /2
 
-    // Apply all staged dividers atomically. The bootloader-selected source is
-    // CPLL (SOC_CLK_SEL=1), so no PLL or MSPI source transition is required.
-    debug_assert_eq!(regs.soc_clk_sel().read().bits() & 0x3, 1);
+    // Select CPLL and apply all staged clock changes atomically.
+    regs.soc_clk_sel().modify(|_, w| unsafe {
+        w.reg_soc_clk_sel().bits(1)
+    });
     regs.root_clk_ctrl0()
         .write(|w| w.reg_soc_clk_update().set_bit());
     while regs
