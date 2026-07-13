@@ -116,6 +116,11 @@ pub(crate) fn enable_branch_predictor() {
     }
 }
 
+// The sync engine is shared by both cores and by every cache operation.  ROM
+// cache functions don't serialize callers, so protect direct writeback and ROM
+// invalidation with the same cross-core, interrupt-safe lock.
+static CACHE_SYNC_LOCK: esp_sync::RawMutex = esp_sync::RawMutex::new();
+
 /// Writes cached CPU data back so a non-coherent DMA master can observe it.
 pub(crate) unsafe fn cache_writeback_addr(addr: u32, size: u32) {
     const CACHE_LINE_SIZE: u32 = 64;
@@ -133,7 +138,7 @@ pub(crate) unsafe fn cache_writeback_addr(addr: u32, size: u32) {
     let offset = addr & (CACHE_LINE_SIZE - 1);
     let aligned_addr = addr - offset;
     let aligned_size = (size + offset + CACHE_LINE_SIZE - 1) & !(CACHE_LINE_SIZE - 1);
-    unsafe {
+    CACHE_SYNC_LOCK.lock(|| unsafe {
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
         SYNC_MAP.write_volatile(CACHE_MAP_L1_DCACHE);
         SYNC_ADDR.write_volatile(aligned_addr);
@@ -145,7 +150,7 @@ pub(crate) unsafe fn cache_writeback_addr(addr: u32, size: u32) {
             }
         }
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
-    }
+    });
 }
 
 /// Invalidates cached CPU data before reading memory written by DMA.
@@ -154,5 +159,7 @@ pub(crate) unsafe fn cache_invalidate_addr(addr: u32, size: u32) {
         fn Cache_Invalidate_Addr(cache_map: u32, addr: u32, size: u32);
     }
     const CACHE_MAP_L1_DCACHE: u32 = 1 << 4;
-    unsafe { Cache_Invalidate_Addr(CACHE_MAP_L1_DCACHE, addr, size) };
+    CACHE_SYNC_LOCK.lock(|| unsafe {
+        Cache_Invalidate_Addr(CACHE_MAP_L1_DCACHE, addr, size)
+    });
 }
