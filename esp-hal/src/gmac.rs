@@ -623,7 +623,12 @@ impl Gmac {
         // sensitive and prevent RX/DHCP. Board initialization validates the
         // PHY address and the Clause-22 driver uses five-bit register numbers.
         regs.register4_gmiiaddressregister().write(|w| unsafe {
-            w.bits((u32::from(self.phy_address) << 11) | (u32::from(register) << 6) | (5 << 2) | 1)
+            w.bits(
+                (u32::from(self.phy_address & 0x1f) << 11)
+                    | (u32::from(register & 0x1f) << 6)
+                    | (5 << 2)
+                    | 1,
+            )
         });
         for _ in 0..1_000_000 {
             if regs
@@ -645,8 +650,8 @@ impl Gmac {
             .write(|w| unsafe { w.gd().bits(value) });
         regs.register4_gmiiaddressregister().write(|w| unsafe {
             w.bits(
-                (u32::from(self.phy_address) << 11)
-                    | (u32::from(register) << 6)
+                (u32::from(self.phy_address & 0x1f) << 11)
+                    | (u32::from(register & 0x1f) << 6)
                     | (5 << 2)
                     | (1 << 1)
                     | 1,
