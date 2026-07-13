@@ -129,6 +129,27 @@ pub enum Error {
     InvalidPhyConfiguration,
 }
 
+/// Raw state used while validating ESP32-S31 GMAC bring-up.
+#[derive(Clone, Copy, Debug)]
+pub struct DiagnosticSnapshot {
+    /// DMA status register.
+    pub dma_status: u32,
+    /// DMA interrupt-enable register.
+    pub dma_interrupt_enable: u32,
+    /// DMA operation-mode register.
+    pub dma_operation_mode: u32,
+    /// MAC interrupt-status register.
+    pub mac_interrupt_status: u32,
+    /// Current RX descriptor address seen by DMA.
+    pub current_rx_descriptor: u32,
+    /// Current TX descriptor address seen by DMA.
+    pub current_tx_descriptor: u32,
+    /// First RX descriptor status word.
+    pub rx_descriptor: u32,
+    /// First TX descriptor status word.
+    pub tx_descriptor: u32,
+}
+
 /// Negotiated Ethernet mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LinkMode {
@@ -275,6 +296,35 @@ pub struct Gmac {
 }
 
 impl Gmac {
+    /// Captures DMA and descriptor state without changing ownership.
+    pub fn diagnostic_snapshot<const RX: usize, const TX: usize>(
+        &self,
+        storage: &DmaStorage<RX, TX>,
+    ) -> DiagnosticSnapshot {
+        unsafe {
+            crate::soc::cache_invalidate_addr(
+                storage as *const DmaStorage<RX, TX> as u32,
+                core::mem::size_of::<Descriptor>() as u32,
+            )
+        };
+        let regs = gmac_regs();
+        DiagnosticSnapshot {
+            dma_status: regs.register5_statusregister().read().bits(),
+            dma_interrupt_enable: regs.register7_interruptenableregister().read().bits(),
+            dma_operation_mode: regs.register6_operationmoderegister().read().bits(),
+            mac_interrupt_status: regs.register14_interruptstatusregister().read().bits(),
+            current_rx_descriptor: regs
+                .register19_currenthostreceivedescriptorregister()
+                .read()
+                .bits(),
+            current_tx_descriptor: regs
+                .register18_currenthosttransmitdescriptorregister()
+                .read()
+                .bits(),
+            rx_descriptor: storage.rx_descriptors[0].read_word(0),
+            tx_descriptor: storage.tx_descriptors[0].read_word(0),
+        }
+    }
     /// Enables the GMAC clock/reset path.
     pub fn new(peri: ETH<'static>, phy_address: u8) -> Self {
         interrupt::disable(Cpu::current(), Interrupt::SBD);
