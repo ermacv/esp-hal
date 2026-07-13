@@ -58,10 +58,13 @@ fn configure_cpu_320mhz() {
     // The ROM RAM-download path may leave the CPU on XTAL after a true cold
     // boot. Power and calibrate CPLL explicitly, as rtc_clk_cpll_enable() and
     // rtc_clk_cpll_configure() do in ESP-IDF.
-    PMU::regs().imm_hp_ck_power_1().modify(|r, w| unsafe {
-        w.bits(r.bits() | (1 << 19) | (1 << 23) | (1 << 27))
-    });
     unsafe {
+        // The PAC follows the write-only SVD access, while ESP-IDF's
+        // SET_PERI_REG_MASK reads this hardware register before writing it.
+        let immediate_power = (0x200b_0000 + 0xf4) as *mut u32;
+        immediate_power.write_volatile(
+            immediate_power.read_volatile() | (1 << 19) | (1 << 23) | (1 << 27),
+        );
         // HP_ALIVE_SYS is intentionally hidden from the public peripheral
         // list, but this clock gate is part of the documented CPLL sequence.
         let hp_clock_control = 0x2058_9000 as *mut u32;
