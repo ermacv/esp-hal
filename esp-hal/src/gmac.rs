@@ -37,7 +37,11 @@ fn cnnt_io_mux_regs() -> &'static crate::pac::cnnt_io_mux::RegisterBlock {
     unsafe { &*crate::pac::CNNT_IO_MUX::ptr() }
 }
 
-const CNNT_SYS_BASE: usize = 0x2035_9000;
+#[inline]
+fn cnnt_sys_regs() -> &'static crate::pac::cnnt_sys::RegisterBlock {
+    unsafe { &*crate::pac::CNNT_SYS::ptr() }
+}
+
 const BUFFER_SIZE: usize = 1536;
 static INTERRUPT_GMAC: AtomicPtr<Gmac> = AtomicPtr::new(ptr::null_mut());
 
@@ -266,10 +270,12 @@ impl Gmac {
         HP_SYS_CLKRST::regs()
             .emac_ctrl0()
             .modify(|_, w| w.reg_emac_sys_clk_en().set_bit());
-        unsafe {
-            modify(CNNT_SYS_BASE + 0x3c, 0, 1 << 1);
-            modify(CNNT_SYS_BASE + 0x3c, 1 << 1, 0);
-        }
+        cnnt_sys_regs()
+            .hp_emac_ctrl()
+            .modify(|_, w| w.emac_rst_en().set_bit());
+        cnnt_sys_regs()
+            .hp_emac_ctrl()
+            .modify(|_, w| w.emac_rst_en().clear_bit());
         Self {
             _peri: peri,
             phy_address,
@@ -286,9 +292,7 @@ impl Gmac {
         mdio: impl PeripheralInput<'d> + PeripheralOutput<'d>,
     ) {
         let mdc: interconnect::OutputSignal<'_> = mdc.into();
-        mdc.apply_output_config(
-            &OutputConfig::default().with_drive_strength(DriveStrength::_20mA),
-        );
+        mdc.apply_output_config(&OutputConfig::default().with_drive_strength(DriveStrength::_20mA));
         OutputSignal::EMAC_MDC.connect_to(&mdc);
 
         let mdio: interconnect::OutputSignal<'_> = mdio.into();
@@ -321,14 +325,51 @@ impl Gmac {
         cnnt_io_mux_regs()
             .ctrl()
             .modify(|_, w| w.gmac_pad_pin_ctrl_ded_sel().set_bit());
-        unsafe {
-            modify(CNNT_SYS_BASE + 0x40, 0x0000_ff07, (3 << 8) | (1 << 2));
-            modify(CNNT_SYS_BASE + 0x44, (1 << 1) | (1 << 2), 0);
-            modify(CNNT_SYS_BASE + 0x48, (1 << 0) | (1 << 1), 1 << 2);
-            modify(CNNT_SYS_BASE + 0x4c, 0x0f, (1 << 0) | (1 << 2) | (1 << 3));
-            modify(CNNT_SYS_BASE + 0x50, 0x0f, 1 << 3);
-            modify(CNNT_SYS_BASE + 0x60, 0x7 << 2, 1 << 2);
-        }
+        let regs = cnnt_sys_regs();
+        regs.hp_emac_ref_ctrl().modify(|_, w| unsafe {
+            w.emac_ref_clk_sel()
+                .bits(3)
+                .emac_ref_clk_en()
+                .set_bit()
+                .emac_ref_clk_div_num()
+                .bits(3)
+        });
+        regs.hp_emac_rmii_pad_ctrl().modify(|_, w| {
+            w.emac_rmii_pad_clk_en()
+                .clear_bit()
+                .emac_rmii_pad_clk_inv_en()
+                .clear_bit()
+        });
+        regs.hp_emac_rmii_ctrl().modify(|_, w| {
+            w.emac_rmii_clk_sel()
+                .clear_bit()
+                .emac_rmii_clk_en()
+                .clear_bit()
+                .emac_rmii_pad_out_clk_en()
+                .set_bit()
+        });
+        regs.hp_emac_rx_ctrl().modify(|_, w| {
+            w.emac_rx_pad_clk_en()
+                .set_bit()
+                .emac_rx_pad_clk_inv_en()
+                .clear_bit()
+                .emac_rx_clk_sel()
+                .set_bit()
+                .emac_rx_180_clk_en()
+                .set_bit()
+        });
+        regs.hp_emac_tx_ctrl().modify(|_, w| {
+            w.emac_tx_pad_clk_en()
+                .clear_bit()
+                .emac_tx_pad_clk_inv_en()
+                .clear_bit()
+                .emac_tx_clk_sel()
+                .clear_bit()
+                .emac_tx_180_clk_en()
+                .set_bit()
+        });
+        regs.gmac_ctrl0()
+            .modify(|_, w| unsafe { w.phy_intf_sel().bits(1) });
     }
 
     /// Selects the RGMII reference clock for the negotiated link speed.
@@ -338,7 +379,9 @@ impl Gmac {
             Speed::Mbps100 => 19,
             Speed::Mbps1000 => 3,
         };
-        unsafe { modify(CNNT_SYS_BASE + 0x40, 0xff << 8, divider << 8) };
+        cnnt_sys_regs()
+            .hp_emac_ref_ctrl()
+            .modify(|_, w| unsafe { w.emac_ref_clk_div_num().bits(divider) });
     }
 
     /// Resets the DMA engine and returns its hardware feature register.
@@ -361,9 +404,8 @@ impl Gmac {
     /// Configures enhanced chained descriptors and their list heads.
     pub fn configure_descriptor_lists(&self, rx_base: u32, tx_base: u32) {
         let regs = gmac_regs();
-        regs.register0_busmoderegister().write(|w| unsafe {
-            w.bits((1 << 7) | (16 << 8) | (1 << 25) | (1 << 26))
-        });
+        regs.register0_busmoderegister()
+            .write(|w| unsafe { w.bits((1 << 7) | (16 << 8) | (1 << 25) | (1 << 26)) });
         regs.register3_receivedescriptorlistaddressregister()
             .write(|w| unsafe { w.bits(rx_base) });
         regs.register4_transmitdescriptorlistaddressregister()
@@ -513,8 +555,7 @@ impl Gmac {
             .modify(|r, w| unsafe { w.bits(r.bits() | (1 << 1) | (1 << 13)) });
         regs.register3_receivedescriptorlistaddressregister()
             .write(|w| unsafe { w.bits(rx_base) });
-        regs.register5_statusregister()
-            .write(|w| w.ru().set_bit());
+        regs.register5_statusregister().write(|w| w.ru().set_bit());
         self.demand_rx_poll();
         self.started.store(true, Ordering::Release);
         self.net_waker.wake();
@@ -588,9 +629,7 @@ impl Gmac {
     pub fn mdio_read(&self, register: u8) -> Result<u16, Error> {
         let regs = gmac_regs();
         regs.register4_gmiiaddressregister().write(|w| unsafe {
-            w.bits(
-                (u32::from(self.phy_address) << 11) | (u32::from(register) << 6) | (5 << 2) | 1,
-            )
+            w.bits((u32::from(self.phy_address) << 11) | (u32::from(register) << 6) | (5 << 2) | 1)
         });
         for _ in 0..1_000_000 {
             if regs
@@ -774,9 +813,4 @@ impl<const RX: usize, const TX: usize> Driver for NetDriver<RX, TX> {
     fn hardware_address(&self) -> HardwareAddress {
         HardwareAddress::Ethernet(self.mac)
     }
-}
-
-unsafe fn modify(address: usize, clear: u32, set: u32) {
-    let register = address as *mut u32;
-    unsafe { register.write_volatile((register.read_volatile() & !clear) | set) };
 }
