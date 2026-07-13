@@ -26,7 +26,7 @@ pub struct PsramConfig {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[instability::unstable]
 pub struct PsramTiming {
-    /// PSRAM bus clock in MHz. The current presets use the 400 MHz MPLL.
+    /// PSRAM bus clock in MHz.
     pub clock_mhz: u32,
     mr0_read_latency: u8,
     mr4_write_latency: u8,
@@ -64,6 +64,16 @@ impl PsramTiming {
         read_dummy_bits: 26,
         write_dummy_bits: 12,
         register_dummy_bits: 12,
+    };
+
+    /// Maximum 250 MHz OPI-DTR mode (500 MHz MPLL / 2).
+    pub const MHZ_250: Self = Self {
+        clock_mhz: 250,
+        mr0_read_latency: 6,
+        mr4_write_latency: 3,
+        read_dummy_bits: 34,
+        write_dummy_bits: 16,
+        register_dummy_bits: 16,
     };
 }
 
@@ -111,7 +121,13 @@ pub(crate) fn init_psram(config: &mut PsramConfig) -> bool {
         }
         w
     });
-    if matches!(config.timing.clock_mhz, 100 | 200) && !configure_mpll_400mhz() {
+    let mpll_mhz = match config.timing.clock_mhz {
+        100 | 200 => 400,
+        250 => 500,
+        20 => 0,
+        _ => return false,
+    };
+    if mpll_mhz != 0 && !configure_mpll(mpll_mhz) {
         return false;
     }
     clocks.psram_ctrl0().modify(|_, w| {
@@ -123,15 +139,13 @@ pub(crate) fn init_psram(config: &mut PsramConfig) -> bool {
         w.reg_psram_apb_rst_en().clear_bit()
     });
 
-    if matches!(config.timing.clock_mhz, 100 | 200) {
+    if mpll_mhz != 0 {
         // DQS, pad drive, DLL and the MSPI2/MSPI3 clocks are prerequisites
         // for direct commands as well as cached accesses. Warm resets used
         // during bring-up preserved this state and hid the cold-boot ordering
         // requirement. This matches ESP-IDF's esp_psram_impl_enable order.
         prepare_psram_phy();
-        configure_psram_clock(400 / config.timing.clock_mhz);
-    } else if config.timing.clock_mhz != 20 {
-        return false;
+        configure_psram_clock(mpll_mhz / config.timing.clock_mhz);
     }
 
     let mut address = 0u32;
@@ -235,9 +249,9 @@ pub(crate) fn init_psram(config: &mut PsramConfig) -> bool {
         esp_rom_spi_cmd_start(3, core::ptr::null_mut(), 0, 1 << 1, false);
     }
 
-    if matches!(config.timing.clock_mhz, 100 | 200) {
-        let divider = 400 / config.timing.clock_mhz;
-        if !tune_psram(&config.timing, divider) {
+    if mpll_mhz != 0 {
+        let divider = mpll_mhz / config.timing.clock_mhz;
+        if !tune_psram(&config.timing, mpll_mhz, divider) {
             return false;
         }
     }
@@ -263,7 +277,7 @@ fn prepare_psram_phy() {
     }
 }
 
-fn configure_mpll_400mhz() -> bool {
+fn configure_mpll(mpll_mhz: u32) -> bool {
     // ESP32-S31 powers the PSRAM PHY and its MPLL from adjustable LDO
     // channel 1. ESP-IDF reserves that channel at 1.8 V and waits 1 ms for
     // it to settle before enabling the MPLL. A warm reset leaves the rail
@@ -296,7 +310,8 @@ fn configure_mpll_400mhz() -> bool {
         .lp_aonclkrst_mspi_div()
         .modify(|_, w| unsafe {
             w.lp_aonclkrst_mspi_ref_div().bits(1);
-            w.lp_aonclkrst_mspi_fb_div().bits(19)
+            w.lp_aonclkrst_mspi_fb_div()
+                .bits((mpll_mhz * 2 / 40 - 1) as u8)
         });
     let mut timeout = 1_000_000;
     while !HP_SYS_CLKRST::regs()
@@ -461,10 +476,10 @@ fn write_tuning_reference(timing: &PsramTiming) {
     }
 }
 
-fn tune_psram(timing: &PsramTiming, target_divider: u32) -> bool {
+fn tune_psram(timing: &PsramTiming, mpll_mhz: u32, target_divider: u32) -> bool {
     // The reference survives the clock switch and is read through MSPI3,
     // bypassing the cache/MMU entirely.
-    configure_psram_clock(20);
+    configure_psram_clock(mpll_mhz / 20);
     write_tuning_reference(timing);
     configure_psram_clock(target_divider);
 
@@ -545,7 +560,12 @@ pub(crate) fn map_psram(config: PsramConfig) -> Range<usize> {
         });
 
         let psram = PSRAM_MSPI::regs();
-        let divider = 400 / config.timing.clock_mhz;
+        let mpll_mhz = if config.timing.clock_mhz == 250 {
+            500
+        } else {
+            400
+        };
+        let divider = mpll_mhz / config.timing.clock_mhz;
         let clock_value = if divider == 1 {
             1 << 31
         } else {
