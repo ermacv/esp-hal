@@ -449,12 +449,20 @@ impl Gmac {
     /// Configures enhanced chained descriptors and their list heads.
     pub fn configure_descriptor_lists(&self, rx_base: u32, tx_base: u32) {
         let regs = gmac_regs();
-        regs.register0_busmoderegister()
-            .write(|w| unsafe { w.bits((1 << 7) | (16 << 8) | (1 << 25) | (1 << 26)) });
+        regs.register0_busmoderegister().write(|w| unsafe {
+            w.atds()
+                .set_bit()
+                .pbl()
+                .bits(16)
+                .aal()
+                .set_bit()
+                .mb()
+                .set_bit()
+        });
         regs.register3_receivedescriptorlistaddressregister()
-            .write(|w| unsafe { w.bits(rx_base) });
+            .write(|w| unsafe { w.rdesla().bits(rx_base) });
         regs.register4_transmitdescriptorlistaddressregister()
-            .write(|w| unsafe { w.bits(tx_base) });
+            .write(|w| unsafe { w.tdesla().bits(tx_base) });
     }
 
     /// Initializes enhanced chained RX and TX descriptor rings.
@@ -582,24 +590,24 @@ impl Gmac {
     pub fn start(&self, speed: Speed, full_duplex: bool, rx_base: u32) {
         self.set_speed(speed);
         let regs = gmac_regs();
-        let mut config = regs.register0_macconfigurationregister().read().bits()
-            & !((1 << 15) | (1 << 14) | (1 << 11));
-        match speed {
-            Speed::Mbps1000 => {}
-            Speed::Mbps100 => config |= (1 << 15) | (1 << 14),
-            Speed::Mbps10 => config |= 1 << 15,
-        }
-        if full_duplex {
-            config |= 1 << 11;
-        }
         regs.register1_macframefilter()
-            .modify(|r, w| unsafe { w.bits(r.bits() | 1) });
-        regs.register0_macconfigurationregister()
-            .write(|w| unsafe { w.bits(config | (1 << 2) | (1 << 3)) });
+            .modify(|_, w| w.ra().set_bit());
+        regs.register0_macconfigurationregister().modify(|_, w| {
+            w.ps()
+                .bit(speed != Speed::Mbps1000)
+                .fes()
+                .bit(speed == Speed::Mbps100)
+                .dm()
+                .bit(full_duplex)
+                .re()
+                .set_bit()
+                .te()
+                .set_bit()
+        });
         regs.register6_operationmoderegister()
-            .modify(|r, w| unsafe { w.bits(r.bits() | (1 << 1) | (1 << 13)) });
+            .modify(|_, w| w.sr().set_bit().st().set_bit());
         regs.register3_receivedescriptorlistaddressregister()
-            .write(|w| unsafe { w.bits(rx_base) });
+            .write(|w| unsafe { w.rdesla().bits(rx_base) });
         regs.register5_statusregister().write(|w| w.ru().set_bit());
         self.demand_rx_poll();
         self.started.store(true, Ordering::Release);
@@ -611,9 +619,9 @@ impl Gmac {
     pub fn stop(&self) {
         let regs = gmac_regs();
         regs.register6_operationmoderegister()
-            .modify(|r, w| unsafe { w.bits(r.bits() & !((1 << 1) | (1 << 13))) });
+            .modify(|_, w| w.sr().clear_bit().st().clear_bit());
         regs.register0_macconfigurationregister()
-            .modify(|r, w| unsafe { w.bits(r.bits() & !((1 << 2) | (1 << 3))) });
+            .modify(|_, w| w.re().clear_bit().te().clear_bit());
         self.started.store(false, Ordering::Release);
         self.net_waker.wake();
     }
