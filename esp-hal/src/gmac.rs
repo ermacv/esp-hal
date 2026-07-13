@@ -305,6 +305,8 @@ pub struct Gmac {
     started: AtomicBool,
     ring_generation: AtomicU32,
     deferred_dma_events: AtomicU32,
+    rx_frame_count: AtomicU32,
+    tx_frame_count: AtomicU32,
     tx_underflow_count: AtomicU32,
     fatal_bus_error_count: AtomicU32,
     fatal_bus_recovery_failure_count: AtomicU32,
@@ -339,6 +341,8 @@ impl Gmac {
             started: AtomicBool::new(false),
             ring_generation: AtomicU32::new(0),
             deferred_dma_events: AtomicU32::new(0),
+            rx_frame_count: AtomicU32::new(0),
+            tx_frame_count: AtomicU32::new(0),
             tx_underflow_count: AtomicU32::new(0),
             fatal_bus_error_count: AtomicU32::new(0),
             fatal_bus_recovery_failure_count: AtomicU32::new(0),
@@ -382,6 +386,16 @@ impl Gmac {
     /// Returns the raw DWC DMA status register for diagnostics.
     pub fn dma_status(&self) -> u32 {
         gmac_regs().register5_statusregister().read().bits()
+    }
+
+    /// Returns the number of RX frames handed to the network stack.
+    pub fn rx_frame_count(&self) -> u32 {
+        self.rx_frame_count.load(Ordering::Relaxed)
+    }
+
+    /// Returns the number of TX frames handed to DMA.
+    pub fn tx_frame_count(&self) -> u32 {
+        self.tx_frame_count.load(Ordering::Relaxed)
     }
 
     /// Returns the number of TX FIFO underflows handled since construction.
@@ -633,6 +647,7 @@ impl Gmac {
             )
         };
         let result = consume(&mut storage.rx_buffers[index].0[..length]);
+        self.rx_frame_count.fetch_add(1, Ordering::Relaxed);
         storage.rx_descriptors[index].write_word(0, 1 << 31);
         unsafe {
             crate::soc::cache_writeback_addr(
@@ -656,6 +671,7 @@ impl Gmac {
         let index = index % TX;
         let length = length.min(1514);
         let result = fill(&mut storage.tx_buffers[index].0[..length]);
+        self.tx_frame_count.fetch_add(1, Ordering::Relaxed);
         storage.tx_descriptors[index].write_word(1, length as u32);
         storage.tx_descriptors[index]
             .write_word(0, (1 << 31) | (1 << 30) | (1 << 29) | (1 << 28) | (1 << 20));
