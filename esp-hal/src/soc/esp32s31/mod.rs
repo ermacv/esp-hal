@@ -56,6 +56,24 @@ pub(crate) fn pre_init() {
             .m5_func_en()
             .clear_bit()
     });
+
+    // ESP-IDF uses the same temporary bring-up policy for peripheral PMS:
+    // grant read/write access from TEE and all three REE modes. These control
+    // registers are contiguous u32 words from offset zero in each block.
+    unsafe fn open_peripheral_pms(base: *mut u32, register_count: usize) {
+        for offset in 0..register_count {
+            unsafe { base.add(offset).write_volatile(0xff) };
+        }
+    }
+
+    unsafe {
+        // LP_SYSREG_CTRL .. LP_DAC_CTRL (offsets 0x00..=0x70).
+        open_peripheral_pms(pac::LP_PERI_PMS::ptr().cast_mut().cast(), 29);
+        // TRACE0_CTRL .. AXI_PERF_MON_CTRL (offsets 0x00..=0x78).
+        open_peripheral_pms(pac::HP_PERI0_PMS::ptr().cast_mut().cast(), 31);
+        // HP_USBOTG_PHY_CTRL .. HP_PERI1_PMS_CTRL (offsets 0x00..=0x98).
+        open_peripheral_pms(pac::HP_PERI1_PMS::ptr().cast_mut().cast(), 39);
+    }
 }
 
 /// Permit cached accesses to the external-memory virtual address aperture.
