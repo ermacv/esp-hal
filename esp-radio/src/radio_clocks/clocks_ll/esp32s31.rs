@@ -2,9 +2,11 @@ use core::ptr::{read_volatile, write_volatile};
 
 const HP_MODEM_CTRL0: *mut u32 = (0x2058_7000 + 0x40) as *mut u32;
 const HP_MODEM_CONF: *mut u32 = (0x2058_7000 + 0x1e0) as *mut u32;
+const MODEM_SYSCON_CLK_CONF_POWER_ST: *mut u32 = (0x2010_9c00 + 0x0c) as *mut u32;
 const MODEM_SYSCON_RST_CONF: *mut u32 = (0x2010_9c00 + 0x10) as *mut u32;
 const MODEM_SYSCON_CLK_CONF1: *mut u32 = (0x2010_9c00 + 0x14) as *mut u32;
 const MODEM_LPCON_CLK_CONF: *mut u32 = (0x2010_f000 + 0x18) as *mut u32;
+const MODEM_LPCON_CLK_CONF_POWER_ST: *mut u32 = (0x2010_f000 + 0x20) as *mut u32;
 
 const WIFI_CLOCKS: u32 = 0x7ff;
 const COEX_CLOCK: u32 = 1 << 1;
@@ -47,7 +49,11 @@ unsafe fn reset_mask(mask: u32) {
 }
 
 pub(crate) fn init_clocks() {
-    unsafe { update_bits(HP_MODEM_CTRL0, 1, true) }
+    unsafe {
+        update_bits(HP_MODEM_CTRL0, 1, true);
+        update_bits(MODEM_SYSCON_CLK_CONF_POWER_ST, 0x6464_6400, true);
+        update_bits(MODEM_LPCON_CLK_CONF_POWER_ST, 0x6666_0000, true);
+    }
 }
 
 pub(crate) fn enable_bt(_enable: bool) {}
