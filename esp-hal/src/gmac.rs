@@ -45,13 +45,13 @@ fn cnnt_sys_regs() -> &'static crate::pac::cnnt_sys::RegisterBlock {
 #[inline]
 fn disable_apm_filters() {
     let lp_apm = unsafe { &*crate::pac::LP_APM::ptr() };
-    lp_apm.func_ctrl().write(|w| unsafe { w.bits(0) });
+    lp_apm.func_ctrl().write(|w| unsafe { w.bits(0b1100) });
 
     let hp_apm = unsafe { &*crate::pac::HP_APM::ptr() };
     hp_apm.func_ctrl().write(|w| unsafe { w.bits(0) });
 
     let hp_mem_apm = unsafe { &*crate::pac::HP_MEM_APM::ptr() };
-    hp_mem_apm.func_ctrl().reset();
+    hp_mem_apm.func_ctrl().write(|w| unsafe { w.bits(0) });
 }
 
 const BUFFER_SIZE: usize = 1536;
