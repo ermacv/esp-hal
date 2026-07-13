@@ -618,16 +618,7 @@ impl Gmac {
     pub fn mdio_read(&self, register: u8) -> Result<u16, Error> {
         let regs = gmac_regs();
         regs.register4_gmiiaddressregister().write(|w| unsafe {
-            w.pa()
-                .bits(self.phy_address)
-                .gr()
-                .bits(register)
-                .cr()
-                .bits(5)
-                .gw()
-                .clear_bit()
-                .gb()
-                .set_bit()
+            w.bits((u32::from(self.phy_address) << 11) | (u32::from(register) << 6) | (5 << 2) | 1)
         });
         for _ in 0..1_000_000 {
             if regs
@@ -648,16 +639,13 @@ impl Gmac {
         regs.register5_gmiidataregister()
             .write(|w| unsafe { w.gd().bits(value) });
         regs.register4_gmiiaddressregister().write(|w| unsafe {
-            w.pa()
-                .bits(self.phy_address)
-                .gr()
-                .bits(register)
-                .cr()
-                .bits(5)
-                .gw()
-                .set_bit()
-                .gb()
-                .set_bit()
+            w.bits(
+                (u32::from(self.phy_address) << 11)
+                    | (u32::from(register) << 6)
+                    | (5 << 2)
+                    | (1 << 1)
+                    | 1,
+            )
         });
         for _ in 0..1_000_000 {
             if regs
