@@ -26,6 +26,14 @@ pub enum FlashError {
     ConfigurationFailed,
     /// A ROM flash read failed.
     ReadFailed,
+    /// The requested address range is outside the detected flash device.
+    InvalidAddress,
+    /// The ROM could not clear the flash protection bits before a mutation.
+    UnlockFailed,
+    /// A ROM flash sector erase failed.
+    EraseFailed,
+    /// A ROM flash program operation failed.
+    WriteFailed,
     /// No stable 120 MHz flash timing window was found.
     TimingTuningFailed,
 }
@@ -87,6 +95,9 @@ unsafe extern "C" {
         status_mask: u32,
     ) -> i32;
     fn esp_rom_spiflash_read(address: u32, destination: *mut u32, length: u32) -> i32;
+    fn esp_rom_spiflash_unlock() -> i32;
+    fn esp_rom_spiflash_erase_sector(sector_number: u32) -> i32;
+    fn esp_rom_spiflash_write(address: u32, source: *const u32, length: u32) -> i32;
     fn Cache_Suspend_L1_CORE0_ICache() -> u32;
     fn Cache_Resume_L1_CORE0_ICache(autoload: u32);
 }
@@ -165,6 +176,11 @@ pub struct Flash {
 }
 
 impl Flash {
+    /// Erase size of the ROM SPI flash driver.
+    pub const SECTOR_SIZE: u32 = 0x1000;
+    /// Program and read alignment of the ROM SPI flash driver.
+    pub const WORD_SIZE: u32 = 4;
+
     /// Uses the flash configuration established by the normal bootloader.
     pub fn from_bootloader(peri: FLASH<'static>) -> Result<Self, FlashError> {
         let jedec_id = unsafe {
@@ -434,10 +450,119 @@ impl Flash {
             .checked_mul(size_of::<u32>())
             .and_then(|length| u32::try_from(length).ok())
             .ok_or(FlashError::ReadFailed)?;
+        if !address.is_multiple_of(Self::WORD_SIZE)
+            || address
+                .checked_add(length)
+                .is_none_or(|end| end > self.info.size)
+        {
+            return Err(FlashError::InvalidAddress);
+        }
         if unsafe { esp_rom_spiflash_read(address, destination.as_mut_ptr(), length) } == 0 {
             Ok(())
         } else {
             Err(FlashError::ReadFailed)
+        }
+    }
+
+    /// Erases one 4 KiB sector before the second CPU and interrupt-driven
+    /// flash users have been started.
+    ///
+    /// # Safety
+    ///
+    /// CPU1 must be stopped, no DMA operation may access flash, and the caller
+    /// must ensure that no interrupt handler needs flash. This function masks
+    /// CPU0 interrupts and runs from internal RAM while the ROM mutates flash.
+    #[inline(never)]
+    #[unsafe(link_section = ".rwtext")]
+    pub unsafe fn erase_sector_boot(&mut self, address: u32) -> Result<(), FlashError> {
+        if !address.is_multiple_of(Self::SECTOR_SIZE)
+            || address
+                .checked_add(Self::SECTOR_SIZE)
+                .is_none_or(|end| end > self.info.size)
+        {
+            return Err(FlashError::InvalidAddress);
+        }
+
+        let previous_mstatus: usize;
+        unsafe {
+            core::arch::asm!(
+                "csrrc {previous}, mstatus, {mie}",
+                previous = out(reg) previous_mstatus,
+                mie = in(reg) 8usize,
+            );
+        }
+        let unlock = unsafe { esp_rom_spiflash_unlock() };
+        let erased = if unlock == 0 {
+            unsafe { esp_rom_spiflash_erase_sector(address / Self::SECTOR_SIZE) }
+        } else {
+            -1
+        };
+        unsafe {
+            if previous_mstatus & 8 != 0 {
+                core::arch::asm!("csrs mstatus, {mie}", mie = in(reg) 8usize);
+            }
+        }
+        if unlock != 0 {
+            Err(FlashError::UnlockFailed)
+        } else if erased != 0 {
+            Err(FlashError::EraseFailed)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Programs aligned words before the second CPU and interrupt-driven flash
+    /// users have been started. The destination must already be erased.
+    ///
+    /// # Safety
+    ///
+    /// The same boot-time exclusion requirements as
+    /// [`Flash::erase_sector_boot`] apply.
+    #[inline(never)]
+    #[unsafe(link_section = ".rwtext")]
+    pub unsafe fn write_words_boot(
+        &mut self,
+        address: u32,
+        source: &[u32],
+    ) -> Result<(), FlashError> {
+        let length = source
+            .len()
+            .checked_mul(size_of::<u32>())
+            .and_then(|length| u32::try_from(length).ok())
+            .ok_or(FlashError::InvalidAddress)?;
+        if !address.is_multiple_of(Self::WORD_SIZE)
+            || address
+                .checked_add(length)
+                .is_none_or(|end| end > self.info.size)
+        {
+            return Err(FlashError::InvalidAddress);
+        }
+
+        let previous_mstatus: usize;
+        unsafe {
+            core::arch::asm!(
+                "csrrc {previous}, mstatus, {mie}",
+                previous = out(reg) previous_mstatus,
+                mie = in(reg) 8usize,
+            );
+        }
+        let unlock = unsafe { esp_rom_spiflash_unlock() };
+        let written = if unlock == 0 {
+            unsafe { esp_rom_spiflash_write(address, source.as_ptr(), length) }
+        } else {
+            -1
+        };
+        unsafe {
+            if previous_mstatus & 8 != 0 {
+                core::arch::asm!("csrs mstatus, {mie}", mie = in(reg) 8usize);
+            }
+        }
+        if unlock != 0 {
+            Err(FlashError::UnlockFailed)
+        } else if written == 0 {
+            Ok(())
+        } else {
+            Err(FlashError::WriteFailed)
         }
     }
 }
