@@ -45,50 +45,13 @@ fn cnnt_sys_regs() -> &'static crate::pac::cnnt_sys::RegisterBlock {
 #[inline]
 fn disable_apm_filters() {
     let lp_apm = unsafe { &*crate::pac::LP_APM::ptr() };
-    lp_apm.func_ctrl().write(|w| {
-        w.m0_func_en()
-            .clear_bit()
-            .m1_func_en()
-            .clear_bit()
-            .m2_func_en()
-            .clear_bit()
-            .m3_func_en()
-            .clear_bit()
-    });
+    lp_apm.func_ctrl().reset();
 
     let hp_apm = unsafe { &*crate::pac::HP_APM::ptr() };
-    hp_apm.func_ctrl().write(|w| {
-        w.m0_func_en()
-            .clear_bit()
-            .m1_func_en()
-            .clear_bit()
-            .m2_func_en()
-            .clear_bit()
-            .m3_func_en()
-            .clear_bit()
-            .m4_func_en()
-            .clear_bit()
-            .m5_func_en()
-            .clear_bit()
-            .m6_func_en()
-            .clear_bit()
-    });
+    hp_apm.func_ctrl().reset();
 
     let hp_mem_apm = unsafe { &*crate::pac::HP_MEM_APM::ptr() };
-    hp_mem_apm.func_ctrl().write(|w| {
-        w.m0_func_en()
-            .clear_bit()
-            .m1_func_en()
-            .clear_bit()
-            .m2_func_en()
-            .clear_bit()
-            .m3_func_en()
-            .clear_bit()
-            .m4_func_en()
-            .clear_bit()
-            .m5_func_en()
-            .clear_bit()
-    });
+    hp_mem_apm.func_ctrl().reset();
 }
 
 const BUFFER_SIZE: usize = 1536;
