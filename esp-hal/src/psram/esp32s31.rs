@@ -264,6 +264,12 @@ fn prepare_psram_phy() {
 }
 
 fn configure_mpll_400mhz() -> bool {
+    // ESP32-S31 powers the PSRAM PHY and its MPLL from adjustable LDO
+    // channel 1. ESP-IDF reserves that channel at 1.8 V and waits 1 ms for
+    // it to settle before enabling the MPLL. A warm reset leaves the rail
+    // powered, which made this prerequisite easy to miss during bring-up.
+    enable_psram_ldo();
+
     // MPLL = XTAL * (FB_DIV + 1) / (REF_DIV + 1).
     // Power up the MPLL and its analog-I2C domain before starting calibration.
     // ESP-IDF does this in rtc_clk_mpll_enable(), before
@@ -309,6 +315,26 @@ fn configure_mpll_400mhz() -> bool {
         .ana_pll_ctrl0()
         .modify(|_, w| w.reg_mspi_cal_stop().set_bit());
     true
+}
+
+fn enable_psram_ldo() {
+    let pmu = PMU::regs();
+
+    // 1.8 V maps exactly to DREF=8 and MUL=4 according to
+    // ldo_ll_voltage_to_dref_mul(). Limit inrush while the rail starts.
+    pmu.ext_ldo_ctrl()
+        .modify(|_, w| w.ext_cur_lim().set_bit());
+    pmu.ext_ldo_ctrl().modify(|_, w| unsafe {
+        w.ext_ldo_tie_high().clear_bit();
+        w.ext_ldo_dref().bits(8);
+        w.ext_ldo_mul().bits(4);
+        w.ext_ldo_en_vdet().set_bit()
+    });
+    pmu.psram_cfg().modify(|_, w| w.psram_xpd().set_bit());
+    pmu.ext_ldo_ctrl()
+        .modify(|_, w| w.ext_cur_lim().clear_bit());
+
+    crate::rom::ets_delay_us(1_000);
 }
 
 fn configure_psram_clock(divider: u32) {
