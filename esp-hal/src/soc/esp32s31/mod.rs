@@ -9,7 +9,54 @@ pub(crate) mod regi2c;
 #[cfg(feature = "rt")]
 pub(crate) fn riscv_preinit() {}
 
-pub(crate) fn pre_init() {}
+pub(crate) fn pre_init() {
+    // Match ESP-IDF's ESP32-S31 bring-up workaround (IDF-14620). On reset only
+    // the HP CPU is in TEE mode, so the default control filters deny access to
+    // every other bus master. Full TEE/APM setup is not supported yet.
+    let lp_apm = unsafe { &*pac::LP_APM::ptr() };
+    lp_apm.func_ctrl().write(|w| {
+        w.m0_func_en()
+            .clear_bit()
+            .m1_func_en()
+            .clear_bit()
+            .m2_func_en()
+            .clear_bit()
+            .m3_func_en()
+            .clear_bit()
+    });
+    let hp_apm = unsafe { &*pac::HP_APM::ptr() };
+    hp_apm.func_ctrl().write(|w| {
+        w.m0_func_en()
+            .clear_bit()
+            .m1_func_en()
+            .clear_bit()
+            .m2_func_en()
+            .clear_bit()
+            .m3_func_en()
+            .clear_bit()
+            .m4_func_en()
+            .clear_bit()
+            .m5_func_en()
+            .clear_bit()
+            .m6_func_en()
+            .clear_bit()
+    });
+    let hp_mem_apm = unsafe { &*pac::HP_MEM_APM::ptr() };
+    hp_mem_apm.func_ctrl().write(|w| {
+        w.m0_func_en()
+            .clear_bit()
+            .m1_func_en()
+            .clear_bit()
+            .m2_func_en()
+            .clear_bit()
+            .m3_func_en()
+            .clear_bit()
+            .m4_func_en()
+            .clear_bit()
+            .m5_func_en()
+            .clear_bit()
+    });
+}
 
 /// Permit cached accesses to the external-memory virtual address aperture.
 ///
