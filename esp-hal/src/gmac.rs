@@ -18,7 +18,7 @@ use crate::{
         interconnect::{self, PeripheralInput, PeripheralOutput},
     },
     interrupt,
-    peripherals::{ETH, HP_SYS_CLKRST, Interrupt},
+    peripherals::{ETH, HP_SYS_CLKRST, Interrupt, LP_AON_CLKRST},
     system::Cpu,
 };
 
@@ -498,14 +498,21 @@ impl Gmac {
 
     /// Selects the RGMII reference clock for the negotiated link speed.
     pub fn set_speed(&self, speed: Speed) {
-        let divider = match speed {
-            // ESP32-S31 currently runs MPLL at 400 MHz for 200 MHz PSRAM.
-            // The EMAC reference divider stores (divisor - 1), so generate
-            // exact 2.5 MHz and 25 MHz RGMII transmit clocks from that source.
-            Speed::Mbps10 => 159,
-            Speed::Mbps100 => 15,
-            Speed::Mbps1000 => 3,
+        let target_khz = match speed {
+            Speed::Mbps10 => 2_500,
+            Speed::Mbps100 => 25_000,
+            Speed::Mbps1000 => 125_000,
         };
+        let fb_div = LP_AON_CLKRST::regs()
+            .lp_aonclkrst_mspi_div()
+            .read()
+            .lp_aonclkrst_mspi_fb_div()
+            .bits() as u32;
+        let mpll_khz = 40_000 * (fb_div + 1) / 2;
+        assert!(mpll_khz.is_multiple_of(target_khz));
+        // The register stores divisor - 1. Both the 400 MHz PSRAM clock plan
+        // (10/100) and the 500 MHz plan (10/100/1000) are exact.
+        let divider = (mpll_khz / target_khz - 1) as u8;
         cnnt_sys_regs()
             .hp_emac_ref_ctrl()
             .modify(|_, w| unsafe { w.emac_ref_clk_div_num().bits(divider) });
