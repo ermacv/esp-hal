@@ -279,6 +279,10 @@ fn configure_mpll_400mhz() -> bool {
     PMU::regs().hp_active_hp_ck_power().modify(|r, w| unsafe {
         w.bits(r.bits() | (1 << 26) | (1 << 30))
     });
+    unsafe {
+        let analog_i2c_clock = (0x2010_f000 + 0x18) as *mut u32;
+        analog_i2c_clock.write_volatile(analog_i2c_clock.read_volatile() | (1 << 2));
+    }
     HP_SYS_CLKRST::regs()
         .ana_pll_ctrl0()
         .modify(|_, w| w.reg_mspi_cal_stop().clear_bit());
