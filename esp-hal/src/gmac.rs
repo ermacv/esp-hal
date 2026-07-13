@@ -48,10 +48,10 @@ fn disable_apm_filters() {
     lp_apm.func_ctrl().write(|w| unsafe { w.bits(0) });
 
     let hp_apm = unsafe { &*crate::pac::HP_APM::ptr() };
-    hp_apm.func_ctrl().reset();
+    hp_apm.func_ctrl().write(|w| unsafe { w.bits(0) });
 
     let hp_mem_apm = unsafe { &*crate::pac::HP_MEM_APM::ptr() };
-    hp_mem_apm.func_ctrl().write(|w| unsafe { w.bits(0) });
+    hp_mem_apm.func_ctrl().reset();
 }
 
 const BUFFER_SIZE: usize = 1536;
