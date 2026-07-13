@@ -2,6 +2,9 @@ use core::ptr::{read_volatile, write_volatile};
 
 const HP_MODEM_CTRL0: *mut u32 = (0x2058_7000 + 0x40) as *mut u32;
 const HP_MODEM_CONF: *mut u32 = (0x2058_7000 + 0x1e0) as *mut u32;
+const PMU_HP_ACTIVE_ICG_MODEM: *mut u32 = (0x2070_4000 + 0x14) as *mut u32;
+const PMU_IMM_SLEEP_SYSCLK: *mut u32 = (0x2070_4000 + 0xf8) as *mut u32;
+const PMU_IMM_MODEM_ICG: *mut u32 = (0x2070_4000 + 0x104) as *mut u32;
 const MODEM_SYSCON_CLK_CONF_POWER_ST: *mut u32 = (0x2010_9c00 + 0x0c) as *mut u32;
 const MODEM_SYSCON_RST_CONF: *mut u32 = (0x2010_9c00 + 0x10) as *mut u32;
 const MODEM_SYSCON_CLK_CONF1: *mut u32 = (0x2010_9c00 + 0x14) as *mut u32;
@@ -50,6 +53,13 @@ unsafe fn reset_mask(mask: u32) {
 
 pub(crate) fn init_clocks() {
     unsafe {
+        // A bare-metal cold boot does not run IDF's pmu_init(). Select the HP_ACTIVE modem ICG
+        // code and apply it before opening the per-domain bitmap gates. Without this update the
+        // first Wi-Fi-BB access in phy_open_fe_bb_clk stalls the system bus indefinitely.
+        write_volatile(PMU_HP_ACTIVE_ICG_MODEM, 2 << 30);
+        write_volatile(PMU_IMM_MODEM_ICG, 1 << 31);
+        write_volatile(PMU_IMM_SLEEP_SYSCLK, 1 << 28);
+
         update_bits(HP_MODEM_CTRL0, 1, true);
         update_bits(MODEM_SYSCON_CLK_CONF_POWER_ST, 0x6464_6400, true);
         update_bits(MODEM_LPCON_CLK_CONF_POWER_ST, 0x6666_0000, true);
