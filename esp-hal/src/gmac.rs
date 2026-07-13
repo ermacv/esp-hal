@@ -372,6 +372,18 @@ impl Gmac {
         gmac_regs().register8_versionregister().read().bits()
     }
 
+    /// Enables or disables the DWC GMAC-local MII/GMII loopback path.
+    pub fn set_mac_loopback(&self, enabled: bool) {
+        gmac_regs()
+            .register0_macconfigurationregister()
+            .modify(|_, w| w.lm().bit(enabled));
+    }
+
+    /// Returns the raw DWC DMA status register for diagnostics.
+    pub fn dma_status(&self) -> u32 {
+        gmac_regs().register5_statusregister().read().bits()
+    }
+
     /// Returns the number of TX FIFO underflows handled since construction.
     pub fn tx_underflow_count(&self) -> u32 {
         self.tx_underflow_count.load(Ordering::Relaxed)
@@ -569,6 +581,22 @@ impl Gmac {
             && status & (1 << 15) == 0
             && status & (1 << 9) != 0
             && status & (1 << 8) != 0
+    }
+
+    /// Returns one raw RX descriptor status word after cache invalidation.
+    pub fn rx_descriptor_status<const RX: usize, const TX: usize>(
+        &self,
+        storage: &DmaStorage<RX, TX>,
+        index: usize,
+    ) -> u32 {
+        let index = index % RX;
+        unsafe {
+            crate::soc::cache_invalidate_addr(
+                core::ptr::addr_of!(storage.rx_descriptors[index]) as u32,
+                core::mem::size_of::<Descriptor>() as u32,
+            )
+        };
+        storage.rx_descriptors[index].read_word(0)
     }
 
     /// Returns whether a TX descriptor is owned by the CPU.
