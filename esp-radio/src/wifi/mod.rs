@@ -2746,6 +2746,52 @@ impl WifiController<'_> {
             esp_wifi_result!(unsafe { esp_wifi_start() })?;
         }
 
+        // `esp_wifi_set_inactive_time` requires the corresponding interface to
+        // be started, so apply the configuration only after `esp_wifi_start`.
+        // This timeout is independent of `esp_wifi_set_config` and is not
+        // persisted by the vendor driver.
+        match conf {
+            Config::Station(config) => {
+                esp_wifi_result!(unsafe {
+                    esp_wifi_set_inactive_time(
+                        wifi_interface_t_WIFI_IF_STA,
+                        config.beacon_timeout,
+                    )
+                })?;
+            }
+            Config::AccessPoint(config) => {
+                esp_wifi_result!(unsafe {
+                    esp_wifi_set_inactive_time(
+                        wifi_interface_t_WIFI_IF_AP,
+                        config.beacon_timeout,
+                    )
+                })?;
+            }
+            Config::AccessPointStation(sta_config, ap_config) => {
+                esp_wifi_result!(unsafe {
+                    esp_wifi_set_inactive_time(
+                        wifi_interface_t_WIFI_IF_STA,
+                        sta_config.beacon_timeout,
+                    )
+                })?;
+                esp_wifi_result!(unsafe {
+                    esp_wifi_set_inactive_time(
+                        wifi_interface_t_WIFI_IF_AP,
+                        ap_config.beacon_timeout,
+                    )
+                })?;
+            }
+            #[cfg(feature = "wifi-eap")]
+            Config::EapStation(config) => {
+                esp_wifi_result!(unsafe {
+                    esp_wifi_set_inactive_time(
+                        wifi_interface_t_WIFI_IF_STA,
+                        config.beacon_timeout,
+                    )
+                })?;
+            }
+        }
+
         reset_mode_on_error.defuse();
 
         Ok(())

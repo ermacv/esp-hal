@@ -83,6 +83,10 @@ impl AccessPointConfig {
             return Err(WifiError::InvalidArguments);
         }
 
+        if self.beacon_timeout < 10 {
+            return Err(WifiError::InvalidArguments);
+        }
+
         Ok(())
     }
 }
