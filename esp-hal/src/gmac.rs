@@ -642,6 +642,10 @@ impl Gmac {
     ) -> Result<LinkEvent, Error> {
         match phy.link_mode(self)? {
             Some(mode) if !self.started.load(Ordering::Acquire) => {
+                // The S31 RGMII clock/data path is not immediately usable when
+                // the PHY first reports link-up. Starting DMA in that window
+                // can leave both DMA state machines stopped until reset.
+                crate::rom::ets_delay_us(10_000);
                 self.configure_rings(storage);
                 self.start(mode.speed, mode.full_duplex, self.rx_base(storage));
                 Ok(LinkEvent::Up(mode))
@@ -665,7 +669,8 @@ impl Gmac {
         // PHY address and the Clause-22 driver uses five-bit register numbers.
         regs.register4_gmiiaddressregister().write(|w| unsafe {
             w.bits(
-                (u32::from(self.phy_address) << 11) | (u32::from(register) << 6)
+                (u32::from(self.phy_address & 0x1f) << 11)
+                    | (u32::from(register & 0x1f) << 6)
                     | (5 << 2)
                     | 1,
             )
@@ -690,7 +695,8 @@ impl Gmac {
             .write(|w| unsafe { w.gd().bits(value) });
         regs.register4_gmiiaddressregister().write(|w| unsafe {
             w.bits(
-                (u32::from(self.phy_address) << 11) | (u32::from(register) << 6)
+                (u32::from(self.phy_address & 0x1f) << 11)
+                    | (u32::from(register & 0x1f) << 6)
                     | (5 << 2)
                     | (1 << 1)
                     | 1,
