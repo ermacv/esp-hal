@@ -328,7 +328,7 @@ impl Gmac {
         let regs = cnnt_sys_regs();
         regs.hp_emac_ref_ctrl().modify(|_, w| unsafe {
             w.emac_ref_clk_sel()
-                .bits(3)
+                .bits(0)
                 .emac_ref_clk_en()
                 .set_bit()
                 .emac_ref_clk_div_num()
