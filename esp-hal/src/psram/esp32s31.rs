@@ -122,6 +122,17 @@ pub(crate) fn init_psram(config: &mut PsramConfig) -> bool {
         w.reg_psram_apb_rst_en().clear_bit()
     });
 
+    if matches!(config.timing.clock_mhz, 100 | 200) {
+        // DQS, pad drive, DLL and the MSPI2/MSPI3 clocks are prerequisites
+        // for direct commands as well as cached accesses. Warm resets used
+        // during bring-up preserved this state and hid the cold-boot ordering
+        // requirement. This matches ESP-IDF's esp_psram_impl_enable order.
+        prepare_psram_phy();
+        configure_psram_clock(400 / config.timing.clock_mhz);
+    } else if config.timing.clock_mhz != 20 {
+        return false;
+    }
+
     let mut address = 0u32;
     let mut mode_registers = 0u32;
     let mut command = RomSpiCommand {
@@ -133,7 +144,7 @@ pub(crate) fn init_psram(config: &mut PsramConfig) -> bool {
         tx_bits: 0,
         rx_data: &mut mode_registers,
         rx_bits: 16,
-        dummy_bits: 8,
+        dummy_bits: config.timing.register_dummy_bits,
     };
 
     unsafe {
@@ -224,14 +235,10 @@ pub(crate) fn init_psram(config: &mut PsramConfig) -> bool {
     }
 
     if matches!(config.timing.clock_mhz, 100 | 200) {
-        prepare_psram_phy();
         let divider = 400 / config.timing.clock_mhz;
-        configure_psram_clock(divider);
         if !tune_psram(&config.timing, divider) {
             return false;
         }
-    } else if config.timing.clock_mhz != 20 {
-        return false;
     }
     true
 }
