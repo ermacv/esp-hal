@@ -237,6 +237,8 @@ unsafe extern "C" fn swint_handler_trampoline() {
         sw a7, 15*4(tp)
 
         .if {has_fpu}
+        .option push
+        .option arch,+f
         fsw f0, 32*4(tp)
         fsw f1, 33*4(tp)
         fsw f2, 34*4(tp)
@@ -271,6 +273,7 @@ unsafe extern "C" fn swint_handler_trampoline() {
         fsw f31, 63*4(tp)
         frcsr t1
         sw t1, 64*4(tp)
+        .option pop
         .endif
 
 1:
@@ -331,6 +334,8 @@ unsafe extern "C" fn swint_handler_trampoline() {
         lw sp, 30*4(tp)
 
         .if {has_fpu}
+        .option push
+        .option arch,+f
         flw f0, 32*4(tp)
         flw f1, 33*4(tp)
         flw f2, 34*4(tp)
@@ -365,6 +370,7 @@ unsafe extern "C" fn swint_handler_trampoline() {
         flw f31, 63*4(tp)
         lw t1, 64*4(tp)
         fscsr t1
+        .option pop
         .endif
 
         lw t1, 31*4(tp)
