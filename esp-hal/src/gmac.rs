@@ -307,6 +307,8 @@ pub struct Gmac {
     deferred_dma_events: AtomicU32,
     rx_frame_count: AtomicU32,
     tx_frame_count: AtomicU32,
+    rx_dhcp_count: AtomicU32,
+    tx_dhcp_count: AtomicU32,
     tx_underflow_count: AtomicU32,
     fatal_bus_error_count: AtomicU32,
     fatal_bus_recovery_failure_count: AtomicU32,
@@ -343,6 +345,8 @@ impl Gmac {
             deferred_dma_events: AtomicU32::new(0),
             rx_frame_count: AtomicU32::new(0),
             tx_frame_count: AtomicU32::new(0),
+            rx_dhcp_count: AtomicU32::new(0),
+            tx_dhcp_count: AtomicU32::new(0),
             tx_underflow_count: AtomicU32::new(0),
             fatal_bus_error_count: AtomicU32::new(0),
             fatal_bus_recovery_failure_count: AtomicU32::new(0),
@@ -396,6 +400,16 @@ impl Gmac {
     /// Returns the number of TX frames handed to DMA.
     pub fn tx_frame_count(&self) -> u32 {
         self.tx_frame_count.load(Ordering::Relaxed)
+    }
+
+    /// Returns the number of DHCP server-to-client frames received.
+    pub fn rx_dhcp_count(&self) -> u32 {
+        self.rx_dhcp_count.load(Ordering::Relaxed)
+    }
+
+    /// Returns the number of DHCP client-to-server frames transmitted.
+    pub fn tx_dhcp_count(&self) -> u32 {
+        self.tx_dhcp_count.load(Ordering::Relaxed)
     }
 
     /// Returns the number of TX FIFO underflows handled since construction.
@@ -646,7 +660,11 @@ impl Gmac {
                 BUFFER_SIZE as u32,
             )
         };
-        let result = consume(&mut storage.rx_buffers[index].0[..length]);
+        let frame = &mut storage.rx_buffers[index].0[..length];
+        if is_dhcp_frame(frame, 67, 68) {
+            self.rx_dhcp_count.fetch_add(1, Ordering::Relaxed);
+        }
+        let result = consume(frame);
         self.rx_frame_count.fetch_add(1, Ordering::Relaxed);
         storage.rx_descriptors[index].write_word(0, 1 << 31);
         unsafe {
@@ -671,6 +689,9 @@ impl Gmac {
         let index = index % TX;
         let length = length.min(1514);
         let result = fill(&mut storage.tx_buffers[index].0[..length]);
+        if is_dhcp_frame(&storage.tx_buffers[index].0[..length], 68, 67) {
+            self.tx_dhcp_count.fetch_add(1, Ordering::Relaxed);
+        }
         self.tx_frame_count.fetch_add(1, Ordering::Relaxed);
         storage.tx_descriptors[index].write_word(1, length as u32);
         storage.tx_descriptors[index]
@@ -939,6 +960,19 @@ impl Gmac {
         }
         Err(Error::MdioTimeout)
     }
+}
+
+fn is_dhcp_frame(frame: &[u8], source_port: u16, destination_port: u16) -> bool {
+    if frame.len() < 14 + 20 + 8 || frame[12..14] != [0x08, 0x00] {
+        return false;
+    }
+    let ip_header_len = usize::from(frame[14] & 0x0f) * 4;
+    if ip_header_len < 20 || frame[23] != 17 || frame.len() < 14 + ip_header_len + 8 {
+        return false;
+    }
+    let udp = 14 + ip_header_len;
+    u16::from_be_bytes([frame[udp], frame[udp + 1]]) == source_port
+        && u16::from_be_bytes([frame[udp + 2], frame[udp + 3]]) == destination_port
 }
 
 /// `embassy-net-driver` adapter for ESP32-S31 GMAC DMA storage.
