@@ -532,6 +532,11 @@ impl Gmac {
         storage.rx_descriptors.as_ptr() as u32
     }
 
+    /// Returns the TX descriptor-list base address.
+    pub fn tx_base<const RX: usize, const TX: usize>(&self, storage: &DmaStorage<RX, TX>) -> u32 {
+        storage.tx_descriptors.as_ptr() as u32
+    }
+
     /// Returns whether an RX descriptor contains one complete valid frame.
     pub fn rx_ready<const RX: usize, const TX: usize>(
         &self,
@@ -627,7 +632,7 @@ impl Gmac {
     }
 
     /// Starts MAC RX/TX and DMA for the negotiated mode.
-    pub fn start(&self, speed: Speed, full_duplex: bool, rx_base: u32) {
+    pub fn start(&self, speed: Speed, full_duplex: bool, rx_base: u32, tx_base: u32) {
         self.set_speed(speed);
         let regs = gmac_regs();
         regs.register1_macframefilter()
@@ -646,6 +651,8 @@ impl Gmac {
         });
         regs.register3_receivedescriptorlistaddressregister()
             .write(|w| unsafe { w.rdesla().bits(rx_base) });
+        regs.register4_transmitdescriptorlistaddressregister()
+            .write(|w| unsafe { w.tdesla().bits(tx_base) });
         regs.register6_operationmoderegister()
             .modify(|_, w| w.sr().set_bit().st().set_bit());
         regs.register5_statusregister().write(|w| w.ru().set_bit());
@@ -707,7 +714,12 @@ impl Gmac {
         match phy.link_mode(self)? {
             Some(mode) if !self.started.load(Ordering::Acquire) => {
                 self.configure_rings(storage);
-                self.start(mode.speed, mode.full_duplex, self.rx_base(storage));
+                self.start(
+                    mode.speed,
+                    mode.full_duplex,
+                    self.rx_base(storage),
+                    self.tx_base(storage),
+                );
                 Ok(LinkEvent::Up(mode))
             }
             Some(_) => Ok(LinkEvent::Unchanged),
