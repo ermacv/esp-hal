@@ -44,6 +44,7 @@ esp-wifi-sys-esp32c61 = { version = "0.2.0", optional = true }
 esp-wifi-sys-esp32h2 = { version = "0.2.0", optional = true }
 esp-wifi-sys-esp32s2 = { version = "0.2.0", optional = true }
 esp-wifi-sys-esp32s3 = { version = "0.2.0", optional = true }
+esp-wifi-sys-esp32s31 = { version = "0.2.0", optional = true, git = "https://github.com/ermacv/esp-wifi-sys", rev = "d700dec" }
 
 esp32   = { version = "0.40", features = ["critical-section"], optional = true, git = "https://github.com/esp-rs/esp-pacs", rev = "14aa2c8" }
 esp32c2 = { version = "0.29", features = ["critical-section"], optional = true, git = "https://github.com/esp-rs/esp-pacs", rev = "14aa2c8" }
@@ -54,6 +55,7 @@ esp32c61 = { version = "0.3", features = ["critical-section"], optional = true, 
 esp32h2 = { version = "0.19", features = ["critical-section"], optional = true, git = "https://github.com/esp-rs/esp-pacs", rev = "14aa2c8" }
 esp32s2 = { version = "0.31", features = ["critical-section"], optional = true, git = "https://github.com/esp-rs/esp-pacs", rev = "14aa2c8" }
 esp32s3 = { version = "0.35", features = ["critical-section"], optional = true, git = "https://github.com/esp-rs/esp-pacs", rev = "14aa2c8" }
+esp32s31 = { version = "0.1", features = ["critical-section"], optional = true, git = "https://github.com/ermacv/esp-pacs", rev = "221430279" }
 
 embassy-sync = "0.8"
 
@@ -137,4 +139,11 @@ esp32s3 = [
   "dep:esp-wifi-sys-esp32s3",
   "dep:esp32s3",
   "esp-metadata-generated/esp32s3",
+]
+##
+esp32s31 = [
+  "esp-hal/esp32s31",
+  "dep:esp-wifi-sys-esp32s31",
+  "dep:esp32s31",
+  "esp-metadata-generated/esp32s31",
 ]

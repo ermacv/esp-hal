@@ -68,6 +68,17 @@ use event::EVENT_CHANNEL;
 use portable_atomic::{AtomicU8, AtomicUsize, Ordering};
 use procmacros::BuilderLite;
 
+// ESP-IDF 6 renamed these public constants while retaining their ABI values.
+// Keep the rest of esp-radio expressed in its existing cross-chip vocabulary.
+#[cfg(esp32s31)]
+const esp_interface_t_ESP_IF_WIFI_STA: wifi_interface_t = wifi_interface_t_WIFI_IF_STA;
+#[cfg(esp32s31)]
+const esp_interface_t_ESP_IF_WIFI_AP: wifi_interface_t = wifi_interface_t_WIFI_IF_AP;
+#[cfg(esp32s31)]
+const wifi_bandwidth_t_WIFI_BW_HT20: wifi_bandwidth_t = wifi_bandwidth_t_WIFI_BW20;
+#[cfg(esp32s31)]
+const wifi_bandwidth_t_WIFI_BW_HT40: wifi_bandwidth_t = wifi_bandwidth_t_WIFI_BW40;
+
 pub(crate) use self::os_adapter::*;
 #[cfg(all(feature = "sniffer", feature = "unstable"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "unstable")))]
@@ -408,9 +419,15 @@ impl AuthenticationMethod {
             AuthenticationMethod::Wpa3EntSuiteB192Bit => {
                 include::wifi_auth_mode_t_WIFI_AUTH_WPA3_ENT_192
             }
+            #[cfg(not(esp32s31))]
             AuthenticationMethod::Wpa3ExtPsk => include::wifi_auth_mode_t_WIFI_AUTH_WPA3_EXT_PSK,
+            #[cfg(esp32s31)]
+            AuthenticationMethod::Wpa3ExtPsk => include::wifi_auth_mode_t_WIFI_AUTH_DUMMY_1,
             AuthenticationMethod::Wpa3ExtPskMixed => {
-                include::wifi_auth_mode_t_WIFI_AUTH_WPA3_EXT_PSK_MIXED_MODE
+                cfg_select! {
+                    esp32s31 => { include::wifi_auth_mode_t_WIFI_AUTH_DUMMY_2 }
+                    _ => { include::wifi_auth_mode_t_WIFI_AUTH_WPA3_EXT_PSK_MIXED_MODE }
+                }
             }
             AuthenticationMethod::Dpp => include::wifi_auth_mode_t_WIFI_AUTH_DPP,
             AuthenticationMethod::Wpa3Enterprise => {
@@ -446,10 +463,16 @@ impl AuthenticationMethod {
             include::wifi_auth_mode_t_WIFI_AUTH_WPA3_ENT_192 => {
                 AuthenticationMethod::Wpa3EntSuiteB192Bit
             }
+            #[cfg(not(esp32s31))]
             include::wifi_auth_mode_t_WIFI_AUTH_WPA3_EXT_PSK => AuthenticationMethod::Wpa3ExtPsk,
+            #[cfg(esp32s31)]
+            include::wifi_auth_mode_t_WIFI_AUTH_DUMMY_1 => AuthenticationMethod::Wpa3ExtPsk,
+            #[cfg(not(esp32s31))]
             include::wifi_auth_mode_t_WIFI_AUTH_WPA3_EXT_PSK_MIXED_MODE => {
                 AuthenticationMethod::Wpa3ExtPskMixed
             }
+            #[cfg(esp32s31)]
+            include::wifi_auth_mode_t_WIFI_AUTH_DUMMY_2 => AuthenticationMethod::Wpa3ExtPskMixed,
             include::wifi_auth_mode_t_WIFI_AUTH_DPP => AuthenticationMethod::Dpp,
             include::wifi_auth_mode_t_WIFI_AUTH_WPA3_ENTERPRISE => {
                 AuthenticationMethod::Wpa3Enterprise
@@ -1892,12 +1915,7 @@ static STA_LINK_STATE_WAKER: AtomicWaker = AtomicWaker::new();
 // (but 0.1 clashes with embassy-time-driver)
 pub(crate) mod embassy_02 {
     use embassy_net_driver_02::{
-        Capabilities,
-        Driver,
-        HardwareAddress,
-        LinkState,
-        RxToken,
-        TxToken,
+        Capabilities, Driver, HardwareAddress, LinkState, RxToken, TxToken,
     };
 
     use super::*;
@@ -2385,6 +2403,11 @@ impl<'d> WifiController<'d> {
 
                 tx_hetb_queue_num: 3,
                 dump_hesigb_enable: false,
+
+                #[cfg(esp32s31)]
+                privacy_enhancements: false,
+                #[cfg(esp32s31)]
+                rmac_auto_reset_int: 0,
 
                 magic: WIFI_INIT_CONFIG_MAGIC as i32,
             };
@@ -3188,8 +3211,14 @@ ignored."
                 sae_pwe_h2e: 0,
                 csa_count: 3,
                 dtim_period: config.dtim_period,
+                #[cfg(not(esp32s31))]
                 transition_disable: 0,
+                #[cfg(not(esp32s31))]
                 sae_ext: 0,
+                #[cfg(esp32s31)]
+                _bitfield_align_1: [],
+                #[cfg(esp32s31)]
+                _bitfield_1: wifi_ap_config_t::new_bitfield_1(0, 0, 0, 0),
                 bss_max_idle_cfg: include::wifi_bss_max_idle_config_t {
                     period: 0,
                     protected_keep_alive: false,

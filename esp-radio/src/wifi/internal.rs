@@ -6,9 +6,7 @@ use crate::sys::c_types::c_void;
 use crate::{
     common_adapter::*,
     sys::include::{
-        ESP_WIFI_OS_ADAPTER_MAGIC,
-        ESP_WIFI_OS_ADAPTER_VERSION,
-        wifi_init_config_t,
+        ESP_WIFI_OS_ADAPTER_MAGIC, ESP_WIFI_OS_ADAPTER_VERSION, wifi_init_config_t,
         wifi_osi_funcs_t,
     },
 };
@@ -148,8 +146,14 @@ pub(crate) static __ESP_RADIO_G_WIFI_OSI_FUNCS: wifi_osi_funcs_t = wifi_osi_func
     _rand: Some(rand),
     _dport_access_stall_other_cpu_start_wrap: Some(dport_access_stall_other_cpu_start_wrap),
     _dport_access_stall_other_cpu_end_wrap: Some(dport_access_stall_other_cpu_end_wrap),
+    #[cfg(not(esp32s31))]
     _wifi_apb80m_request: Some(wifi_apb80m_request),
+    #[cfg(not(esp32s31))]
     _wifi_apb80m_release: Some(wifi_apb80m_release),
+    #[cfg(esp32s31)]
+    _wifi_pm_sleep_lock_acquire: Some(wifi_apb80m_request),
+    #[cfg(esp32s31)]
+    _wifi_pm_sleep_lock_release: Some(wifi_apb80m_release),
     _phy_disable: Some(os_adapter::phy_disable),
     _phy_enable: Some(os_adapter::phy_enable),
     _phy_update_country_info: Some(phy_update_country_info),
@@ -217,7 +221,7 @@ pub(crate) static __ESP_RADIO_G_WIFI_OSI_FUNCS: wifi_osi_funcs_t = wifi_osi_func
     _coex_schm_curr_period_get: Some(coex_schm_curr_period_get),
     _coex_schm_curr_phase_get: Some(coex_schm_curr_phase_get),
     #[cfg(any(
-        esp32c3, esp32c2, esp32c5, esp32c6, esp32c61, esp32h2, esp32s3, esp32s2
+        esp32c3, esp32c2, esp32c5, esp32c6, esp32c61, esp32h2, esp32s3, esp32s2, esp32s31
     ))]
     _slowclk_cal_get: Some(slowclk_cal_get),
     #[cfg(any(esp32, esp32s2))]
@@ -226,11 +230,11 @@ pub(crate) static __ESP_RADIO_G_WIFI_OSI_FUNCS: wifi_osi_funcs_t = wifi_osi_func
     _phy_common_clock_enable: Some(os_adapter_chip_specific::phy_common_clock_enable),
     _coex_register_start_cb: Some(coex_register_start_cb),
 
-    #[cfg(any(esp32c6, esp32c5, esp32c61))]
+    #[cfg(any(esp32c6, esp32c5, esp32c61, esp32s31))]
     _regdma_link_set_write_wait_content: Some(
         os_adapter_chip_specific::regdma_link_set_write_wait_content_dummy,
     ),
-    #[cfg(any(esp32c6, esp32c5, esp32c61))]
+    #[cfg(any(esp32c6, esp32c5, esp32c61, esp32s31))]
     _sleep_retention_find_link_by_id: Some(
         os_adapter_chip_specific::sleep_retention_find_link_by_id_dummy,
     ),
@@ -241,8 +245,43 @@ pub(crate) static __ESP_RADIO_G_WIFI_OSI_FUNCS: wifi_osi_funcs_t = wifi_osi_func
     _coex_schm_flexible_period_get: Some(coex_schm_flexible_period_get),
     _coex_schm_get_phase_by_idx: Some(coex_schm_get_phase_by_idx),
 
+    #[cfg(esp32s31)]
+    _coex_configure_preemption_end_cb: Some(coex_configure_preemption_end_cb_s31),
+    #[cfg(esp32s31)]
+    _wifi_disable_ac_ax: Some(wifi_disable_ac_ax_s31),
+    #[cfg(esp32s31)]
+    _wifi_bb_sleep_retention_attach: Some(sleep_retention_unavailable_s31),
+    #[cfg(esp32s31)]
+    _wifi_bb_sleep_retention_detach: Some(sleep_retention_unavailable_s31),
+    #[cfg(esp32s31)]
+    _wifi_mac_sleep_retention_attach: Some(sleep_retention_unavailable_s31),
+    #[cfg(esp32s31)]
+    _wifi_mac_sleep_retention_detach: Some(sleep_retention_unavailable_s31),
+
     _magic: ESP_WIFI_OS_ADAPTER_MAGIC as i32,
 };
+
+#[cfg(esp32s31)]
+unsafe extern "C" fn coex_configure_preemption_end_cb_s31(
+    _is_register: bool,
+    _callback: Option<unsafe extern "C" fn(u32) -> i32>,
+) -> i32 {
+    // The S31 build currently has software/BLE coexistence disabled, matching
+    // the IDF adapter's fallback implementation.
+    0
+}
+
+#[cfg(esp32s31)]
+unsafe extern "C" fn wifi_disable_ac_ax_s31() -> bool {
+    false
+}
+
+#[cfg(esp32s31)]
+unsafe extern "C" fn sleep_retention_unavailable_s31() -> i32 {
+    // CONFIG_MAC_BB_PD is disabled. This is the exact return value used by the
+    // IDF wrappers when modem retention is not configured.
+    1
+}
 
 const WIFI_ENABLE_WPA3_SAE: u64 = 1 << 0;
 const WIFI_ENABLE_ENTERPRISE: u64 = 1 << 7;

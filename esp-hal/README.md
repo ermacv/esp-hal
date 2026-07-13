@@ -92,11 +92,11 @@ For help getting started with this HAL, please refer to [The Rust on ESP Book] a
 | MIPI-DSI                  |       |          |          |          |          |           |          | ⚒️      |           |          |          |
 | PARL_IO                   |       |          |          | ⚒️      | ⚒️      |           | ⚒️      |          |           |          |          |
 | PCNT                      | ⚒️   |          |          | ⚒️      | ⚒️      |           | ⚒️      | ❌       |           | ⚒️      | ⚒️      |
-| PHY                       | ⚒️   | ⚒️      | ⚒️      | ⚒️      | ⚒️      | ⚒️       | ⚒️      |          |           | ⚒️      | ⚒️      |
+| PHY                       | ⚒️   | ⚒️      | ⚒️      | ⚒️      | ⚒️      | ⚒️       | ⚒️      |          | ⚒️       | ⚒️      | ⚒️      |
 | PSRAM                     | ⚒️   |          |          | ⚒️      |          | ⚒️       |          | ⚒️      | ⚒️       | ⚒️      | ⚒️      |
 | RGB display               | ⚒️   |          |          |          |          |           |          | ❌       |           | ❌       | ⚒️      |
 | RMT                       | ⚒️   |          | ⚒️      | ⚒️      | ⚒️      |           | ⚒️      |          |           | ⚒️      | ⚒️      |
-| RNG                       | ⚒️   | ⚒️      | ⚒️      | ⚒️      | ⚒️      | ⚒️       | ⚒️      | ⚒️      |           | ⚒️      | ⚒️      |
+| RNG                       | ⚒️   | ⚒️      | ⚒️      | ⚒️      | ⚒️      | ⚒️       | ⚒️      | ⚒️      | ⚒️       | ⚒️      | ⚒️      |
 | RSA                       | ⚒️   |          | ⚒️      | ⚒️      | ⚒️      |           | ⚒️      | ⚒️      |           | ⚒️      | ⚒️      |
 | RTC Timekeeping           | ⚒️   | ⚒️      | ⚒️      | ⚒️      | ⚒️      | ⚒️       | ⚒️      | ⚒️      |           | ⚒️      | ⚒️      |
 | SDMMC/SDIO host           | ⚒️   |          |          |          |          |           |          | ⚒️      |           |          | ⚒️      |
@@ -118,7 +118,7 @@ For help getting started with this HAL, please refer to [The Rust on ESP Book] a
 | USB OTG FS                |       |          |          |          |          |           |          | ⚒️      |           | ⚒️      | ⚒️      |
 | USB OTG HS                |       |          |          |          |          |           |          | ⚒️      |           |          |          |
 | USB Serial/JTAG           |       |          | ⚒️      | ⚒️      | ⚒️      | ⚒️       | ⚒️      | ⚒️      |           |          | ⚒️      |
-| WIFI                      | ⚒️   | ⚒️      | ⚒️      | ⚒️      | ⚒️      | ⚒️       |          |          |           | ⚒️      | ⚒️      |
+| WIFI                      | ⚒️   | ⚒️      | ⚒️      | ⚒️      | ⚒️      | ⚒️       |          |          | ⚒️       | ⚒️      | ⚒️      |
 
  * Empty cell: Not available
  * ❌: Not supported

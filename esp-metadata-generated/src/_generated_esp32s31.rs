@@ -112,6 +112,9 @@ macro_rules! property {
     ("interrupts.disabled_interrupt") => {
         0
     };
+    ("phy.combo_module") => {
+        false
+    };
     ("psram.octal_spi") => {
         false
     };
@@ -120,6 +123,18 @@ macro_rules! property {
     };
     ("psram.extmem_origin", str) => {
         stringify!(1342177280)
+    };
+    ("rng.apb_cycle_wait_num") => {
+        16
+    };
+    ("rng.apb_cycle_wait_num", str) => {
+        stringify!(16)
+    };
+    ("rng.trng_supported") => {
+        false
+    };
+    ("rng.is_lp_sys") => {
+        false
     };
     ("sleep.light_sleep") => {
         false
@@ -137,6 +152,21 @@ macro_rules! property {
         true
     };
     ("soc.internal_memory_cached") => {
+        true
+    };
+    ("wifi.has_wifi6") => {
+        true
+    };
+    ("wifi.mac_version") => {
+        3
+    };
+    ("wifi.mac_version", str) => {
+        stringify!(3)
+    };
+    ("wifi.has_5g") => {
+        false
+    };
+    ("wifi.csi_supported") => {
         true
     };
 }
@@ -781,36 +811,41 @@ macro_rules! for_each_peripheral {
         "CPU_CTRL peripheral singleton"] CPU_CTRL <= virtual() (unstable)));
         _for_each_inner_peripheral!((@ peri_type #[doc =
         "SW_INTERRUPT peripheral singleton"] SW_INTERRUPT <= virtual() (unstable)));
-        _for_each_inner_peripheral!((GPIO0)); _for_each_inner_peripheral!((GPIO1));
-        _for_each_inner_peripheral!((GPIO2)); _for_each_inner_peripheral!((GPIO3));
-        _for_each_inner_peripheral!((GPIO4)); _for_each_inner_peripheral!((GPIO5));
-        _for_each_inner_peripheral!((GPIO6)); _for_each_inner_peripheral!((GPIO7));
-        _for_each_inner_peripheral!((GPIO8)); _for_each_inner_peripheral!((GPIO9));
-        _for_each_inner_peripheral!((GPIO10)); _for_each_inner_peripheral!((GPIO11));
-        _for_each_inner_peripheral!((GPIO12)); _for_each_inner_peripheral!((GPIO13));
-        _for_each_inner_peripheral!((GPIO14)); _for_each_inner_peripheral!((GPIO15));
-        _for_each_inner_peripheral!((GPIO16)); _for_each_inner_peripheral!((GPIO17));
-        _for_each_inner_peripheral!((GPIO18)); _for_each_inner_peripheral!((GPIO19));
-        _for_each_inner_peripheral!((GPIO20)); _for_each_inner_peripheral!((GPIO21));
-        _for_each_inner_peripheral!((GPIO22)); _for_each_inner_peripheral!((GPIO23));
-        _for_each_inner_peripheral!((GPIO24)); _for_each_inner_peripheral!((GPIO25));
-        _for_each_inner_peripheral!((GPIO26)); _for_each_inner_peripheral!((GPIO27));
-        _for_each_inner_peripheral!((GPIO28)); _for_each_inner_peripheral!((GPIO30));
-        _for_each_inner_peripheral!((GPIO31)); _for_each_inner_peripheral!((GPIO32));
-        _for_each_inner_peripheral!((GPIO33)); _for_each_inner_peripheral!((GPIO34));
-        _for_each_inner_peripheral!((GPIO35)); _for_each_inner_peripheral!((GPIO36));
-        _for_each_inner_peripheral!((GPIO37)); _for_each_inner_peripheral!((GPIO38));
-        _for_each_inner_peripheral!((GPIO39)); _for_each_inner_peripheral!((GPIO40));
-        _for_each_inner_peripheral!((GPIO42)); _for_each_inner_peripheral!((GPIO43));
-        _for_each_inner_peripheral!((GPIO44)); _for_each_inner_peripheral!((GPIO45));
-        _for_each_inner_peripheral!((GPIO46)); _for_each_inner_peripheral!((GPIO47));
-        _for_each_inner_peripheral!((GPIO48)); _for_each_inner_peripheral!((GPIO49));
-        _for_each_inner_peripheral!((GPIO50)); _for_each_inner_peripheral!((GPIO51));
-        _for_each_inner_peripheral!((GPIO52)); _for_each_inner_peripheral!((GPIO53));
-        _for_each_inner_peripheral!((GPIO54)); _for_each_inner_peripheral!((GPIO55));
-        _for_each_inner_peripheral!((GPIO56)); _for_each_inner_peripheral!((GPIO57));
-        _for_each_inner_peripheral!((GPIO58)); _for_each_inner_peripheral!((GPIO59));
-        _for_each_inner_peripheral!((GPIO60)); _for_each_inner_peripheral!((GPIO61));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "WIFI peripheral singleton"]
+        WIFI <= virtual(WIFI_BB : { bind_bb_interrupt, enable_bb_interrupt,
+        disable_bb_interrupt }, WIFI_MAC : { bind_mac_interrupt, enable_mac_interrupt,
+        disable_mac_interrupt }, WIFI_PWR : { bind_pwr_interrupt, enable_pwr_interrupt,
+        disable_pwr_interrupt }))); _for_each_inner_peripheral!((GPIO0));
+        _for_each_inner_peripheral!((GPIO1)); _for_each_inner_peripheral!((GPIO2));
+        _for_each_inner_peripheral!((GPIO3)); _for_each_inner_peripheral!((GPIO4));
+        _for_each_inner_peripheral!((GPIO5)); _for_each_inner_peripheral!((GPIO6));
+        _for_each_inner_peripheral!((GPIO7)); _for_each_inner_peripheral!((GPIO8));
+        _for_each_inner_peripheral!((GPIO9)); _for_each_inner_peripheral!((GPIO10));
+        _for_each_inner_peripheral!((GPIO11)); _for_each_inner_peripheral!((GPIO12));
+        _for_each_inner_peripheral!((GPIO13)); _for_each_inner_peripheral!((GPIO14));
+        _for_each_inner_peripheral!((GPIO15)); _for_each_inner_peripheral!((GPIO16));
+        _for_each_inner_peripheral!((GPIO17)); _for_each_inner_peripheral!((GPIO18));
+        _for_each_inner_peripheral!((GPIO19)); _for_each_inner_peripheral!((GPIO20));
+        _for_each_inner_peripheral!((GPIO21)); _for_each_inner_peripheral!((GPIO22));
+        _for_each_inner_peripheral!((GPIO23)); _for_each_inner_peripheral!((GPIO24));
+        _for_each_inner_peripheral!((GPIO25)); _for_each_inner_peripheral!((GPIO26));
+        _for_each_inner_peripheral!((GPIO27)); _for_each_inner_peripheral!((GPIO28));
+        _for_each_inner_peripheral!((GPIO30)); _for_each_inner_peripheral!((GPIO31));
+        _for_each_inner_peripheral!((GPIO32)); _for_each_inner_peripheral!((GPIO33));
+        _for_each_inner_peripheral!((GPIO34)); _for_each_inner_peripheral!((GPIO35));
+        _for_each_inner_peripheral!((GPIO36)); _for_each_inner_peripheral!((GPIO37));
+        _for_each_inner_peripheral!((GPIO38)); _for_each_inner_peripheral!((GPIO39));
+        _for_each_inner_peripheral!((GPIO40)); _for_each_inner_peripheral!((GPIO42));
+        _for_each_inner_peripheral!((GPIO43)); _for_each_inner_peripheral!((GPIO44));
+        _for_each_inner_peripheral!((GPIO45)); _for_each_inner_peripheral!((GPIO46));
+        _for_each_inner_peripheral!((GPIO47)); _for_each_inner_peripheral!((GPIO48));
+        _for_each_inner_peripheral!((GPIO49)); _for_each_inner_peripheral!((GPIO50));
+        _for_each_inner_peripheral!((GPIO51)); _for_each_inner_peripheral!((GPIO52));
+        _for_each_inner_peripheral!((GPIO53)); _for_each_inner_peripheral!((GPIO54));
+        _for_each_inner_peripheral!((GPIO55)); _for_each_inner_peripheral!((GPIO56));
+        _for_each_inner_peripheral!((GPIO57)); _for_each_inner_peripheral!((GPIO58));
+        _for_each_inner_peripheral!((GPIO59)); _for_each_inner_peripheral!((GPIO60));
+        _for_each_inner_peripheral!((GPIO61));
         _for_each_inner_peripheral!((GPIO(unstable)));
         _for_each_inner_peripheral!((HP_SYSTEM(unstable)));
         _for_each_inner_peripheral!((HP_SYS_CLKRST(unstable)));
@@ -847,8 +882,8 @@ macro_rules! for_each_peripheral {
         _for_each_inner_peripheral!((ETH(unstable)));
         _for_each_inner_peripheral!((CPU_CTRL(unstable)));
         _for_each_inner_peripheral!((SW_INTERRUPT(unstable)));
-        _for_each_inner_peripheral!((all(@ peri_type #[doc =
-        "GPIO0 peripheral singleton"] GPIO0 <= virtual()), (@ peri_type #[doc =
+        _for_each_inner_peripheral!((WIFI)); _for_each_inner_peripheral!((all(@ peri_type
+        #[doc = "GPIO0 peripheral singleton"] GPIO0 <= virtual()), (@ peri_type #[doc =
         "GPIO1 peripheral singleton"] GPIO1 <= virtual()), (@ peri_type #[doc =
         "GPIO2 peripheral singleton"] GPIO2 <= virtual()), (@ peri_type #[doc =
         "GPIO3 peripheral singleton"] GPIO3 <= virtual()), (@ peri_type #[doc =
@@ -956,15 +991,19 @@ macro_rules! for_each_peripheral {
         = "ETH peripheral singleton"] ETH <= virtual() (unstable)), (@ peri_type #[doc =
         "CPU_CTRL peripheral singleton"] CPU_CTRL <= virtual() (unstable)), (@ peri_type
         #[doc = "SW_INTERRUPT peripheral singleton"] SW_INTERRUPT <= virtual()
-        (unstable)))); _for_each_inner_peripheral!((singletons(GPIO0), (GPIO1), (GPIO2),
-        (GPIO3), (GPIO4), (GPIO5), (GPIO6), (GPIO7), (GPIO8), (GPIO9), (GPIO10),
-        (GPIO11), (GPIO12), (GPIO13), (GPIO14), (GPIO15), (GPIO16), (GPIO17), (GPIO18),
-        (GPIO19), (GPIO20), (GPIO21), (GPIO22), (GPIO23), (GPIO24), (GPIO25), (GPIO26),
-        (GPIO27), (GPIO28), (GPIO30), (GPIO31), (GPIO32), (GPIO33), (GPIO34), (GPIO35),
-        (GPIO36), (GPIO37), (GPIO38), (GPIO39), (GPIO40), (GPIO42), (GPIO43), (GPIO44),
-        (GPIO45), (GPIO46), (GPIO47), (GPIO48), (GPIO49), (GPIO50), (GPIO51), (GPIO52),
-        (GPIO53), (GPIO54), (GPIO55), (GPIO56), (GPIO57), (GPIO58), (GPIO59), (GPIO60),
-        (GPIO61), (GPIO(unstable)), (HP_SYSTEM(unstable)), (HP_SYS_CLKRST(unstable)),
+        (unstable)), (@ peri_type #[doc = "WIFI peripheral singleton"] WIFI <=
+        virtual(WIFI_BB : { bind_bb_interrupt, enable_bb_interrupt, disable_bb_interrupt
+        }, WIFI_MAC : { bind_mac_interrupt, enable_mac_interrupt, disable_mac_interrupt
+        }, WIFI_PWR : { bind_pwr_interrupt, enable_pwr_interrupt, disable_pwr_interrupt
+        })))); _for_each_inner_peripheral!((singletons(GPIO0), (GPIO1), (GPIO2), (GPIO3),
+        (GPIO4), (GPIO5), (GPIO6), (GPIO7), (GPIO8), (GPIO9), (GPIO10), (GPIO11),
+        (GPIO12), (GPIO13), (GPIO14), (GPIO15), (GPIO16), (GPIO17), (GPIO18), (GPIO19),
+        (GPIO20), (GPIO21), (GPIO22), (GPIO23), (GPIO24), (GPIO25), (GPIO26), (GPIO27),
+        (GPIO28), (GPIO30), (GPIO31), (GPIO32), (GPIO33), (GPIO34), (GPIO35), (GPIO36),
+        (GPIO37), (GPIO38), (GPIO39), (GPIO40), (GPIO42), (GPIO43), (GPIO44), (GPIO45),
+        (GPIO46), (GPIO47), (GPIO48), (GPIO49), (GPIO50), (GPIO51), (GPIO52), (GPIO53),
+        (GPIO54), (GPIO55), (GPIO56), (GPIO57), (GPIO58), (GPIO59), (GPIO60), (GPIO61),
+        (GPIO(unstable)), (HP_SYSTEM(unstable)), (HP_SYS_CLKRST(unstable)),
         (HP_APM(unstable)), (HP_MEM_APM(unstable)), (SYSTEM(unstable)), (CLIC(unstable)),
         (CACHE(unstable)), (CPU_APM(unstable)), (IO_MUX(unstable)),
         (IOMUX_MSPI_PIN(unstable)), (LP_AON(unstable)), (LP_AON_CLKRST(unstable)),
@@ -974,7 +1013,7 @@ macro_rules! for_each_peripheral {
         (UART2(unstable)), (UART3(unstable)), (SPI0(unstable)), (PSRAM_MSPI(unstable)),
         (PSRAM(unstable)), (SPI1(unstable)), (SPI2(unstable)), (USB_DEVICE(unstable)),
         (FLASH(unstable)), (ETH(unstable)), (CPU_CTRL(unstable)),
-        (SW_INTERRUPT(unstable)))); _for_each_inner_peripheral!((dma_eligible));
+        (SW_INTERRUPT(unstable)), (WIFI))); _for_each_inner_peripheral!((dma_eligible));
     };
 }
 /// This macro can be used to generate code for each `GPIOn` instance.

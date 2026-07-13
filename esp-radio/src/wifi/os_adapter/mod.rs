@@ -7,6 +7,7 @@
 #[cfg_attr(esp32h2, path = "esp32h2.rs")]
 #[cfg_attr(esp32s2, path = "esp32s2.rs")]
 #[cfg_attr(esp32s3, path = "esp32s3.rs")]
+#[cfg_attr(esp32s31, path = "esp32c5.rs")]
 pub(crate) mod os_adapter_chip_specific;
 
 use core::ptr::NonNull;
@@ -1501,7 +1502,7 @@ pub unsafe extern "C" fn slowclk_cal_get() -> u32 {
     #[cfg(esp32c2)]
     return 28639;
 
-    #[cfg(any(esp32c6, esp32h2, esp32c5, esp32c61))]
+    #[cfg(any(esp32c6, esp32h2, esp32c5, esp32c61, esp32s31))]
     return 0;
 
     #[cfg(esp32)]

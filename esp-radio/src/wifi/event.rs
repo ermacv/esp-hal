@@ -489,10 +489,12 @@ impl FineTimingMeasurementReport<'_> {
 
     /// Returns an iterator over the detailed FTM report entries.
     pub fn entries(&self) -> impl Iterator<Item = FineTimingMeasurementReportEntry<'_>> + '_ {
+        #[cfg(not(esp32s31))]
         let ptr = self.0.ftm_report_data;
         let len = self.0.ftm_report_num_entries as usize;
 
         // Return an empty slice when there are no entries.
+        #[cfg(not(esp32s31))]
         let entries_slice = if ptr.is_null() || len == 0 {
             &[]
         } else {
@@ -500,6 +502,10 @@ impl FineTimingMeasurementReport<'_> {
             // Can we trust the C API to provide a valid pointer and length?
             unsafe { core::slice::from_raw_parts(ptr, len) }
         };
+        // IDF 6 removed the report pointer from the event. Detailed entries
+        // must be fetched explicitly with esp_wifi_ftm_get_report.
+        #[cfg(esp32s31)]
+        let entries_slice: &[wifi_ftm_report_entry_t] = &[];
 
         entries_slice.iter().map(FineTimingMeasurementReportEntry)
     }
@@ -655,8 +661,14 @@ impl NeighborAwarenessNetworkingReceive<'_> {
     }
 
     /// Get Peer Service Info.
+    #[cfg(not(esp32s31))]
     pub fn peer_svc_info(&self) -> &[u8; 64] {
         &self.0.peer_svc_info
+    }
+
+    #[cfg(esp32s31)]
+    pub fn peer_svc_info(&self) -> &[u8] {
+        unsafe { self.0.ssi.as_slice(self.0.ssi_len as usize) }
     }
 }
 
@@ -682,8 +694,14 @@ impl NeighborDiscoveryProtocolIndication<'_> {
     }
 
     /// Get Service Specific Info.
+    #[cfg(not(esp32s31))]
     pub fn svc_info(&self) -> &[u8; 64] {
         &self.0.svc_info
+    }
+
+    #[cfg(esp32s31)]
+    pub fn svc_info(&self) -> &[u8] {
+        unsafe { self.0.ssi.as_slice(self.0.ssi_len as usize) }
     }
 }
 
@@ -714,8 +732,14 @@ impl NeighborDiscoveryProtocolConfirmation<'_> {
     }
 
     /// Get Service Specific Info.
+    #[cfg(not(esp32s31))]
     pub fn svc_info(&self) -> &[u8; 64] {
         &self.0.svc_info
+    }
+
+    #[cfg(esp32s31)]
+    pub fn svc_info(&self) -> &[u8] {
+        unsafe { self.0.ssi.as_slice(self.0.ssi_len as usize) }
     }
 }
 
@@ -761,7 +785,12 @@ impl HomeChannelChange<'_> {
 impl StationNeighborRep<'_> {
     /// Get the Neighbor Report received from the access point.
     pub fn report(&self) -> &[u8] {
-        &self.0.report[..self.0.report_len as usize]
+        #[cfg(not(esp32s31))]
+        return &self.0.report[..self.0.report_len as usize];
+        #[cfg(esp32s31)]
+        unsafe {
+            self.0.n_report.as_slice(self.0.report_len as usize)
+        }
     }
 
     /// Get the length of report.

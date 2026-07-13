@@ -71,6 +71,7 @@ peripherals = [
     { name = "ETH", virtual = true },
     { name = "CPU_CTRL", virtual = true },
     { name = "SW_INTERRUPT", virtual = true },
+    { name = "WIFI", virtual = true, interrupts = { bb = "WIFI_BB", mac = "WIFI_MAC", pwr = "WIFI_PWR" }, stable = true },
 ]
 
 [device.soc.clocks]
@@ -125,3 +126,16 @@ output_signals = [
 [device.sleep]
 support_status = "not_supported"
 wakeup_sources = { Timer = 13 }
+
+[device.wifi]
+support_status = "partial"
+has_wifi6 = true
+mac_version = 3
+csi_supported = true
+
+[device.phy]
+support_status = "partial"
+
+[device.rng]
+support_status = "partial"
+apb_cycle_wait_num = 16
