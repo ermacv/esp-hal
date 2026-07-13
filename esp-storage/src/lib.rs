@@ -38,7 +38,7 @@ pub mod ll;
 mod nor_flash;
 mod storage;
 
-#[cfg(not(feature = "emulation"))]
+#[cfg(all(not(feature = "emulation"), not(esp32s31)))]
 mod mmu;
 
 mod encrypted;

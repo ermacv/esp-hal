@@ -48,6 +48,7 @@ esp32h2 = { version = "0.19", features = ["critical-section"], optional = true, 
 esp32s2 = { version = "0.31", features = ["critical-section"], optional = true, git = "https://github.com/esp-rs/esp-pacs", rev = "14aa2c8" }
 esp32s3 = { version = "0.35", features = ["critical-section"], optional = true, git = "https://github.com/esp-rs/esp-pacs", rev = "14aa2c8" }
 esp32p4 = { version = "0.2",  features = ["critical-section"], optional = true, git = "https://github.com/esp-rs/esp-pacs", rev = "14aa2c8" }
+esp32s31 = { version = "0.1", features = ["critical-section"], optional = true, git = "https://github.com/ermacv/esp-pacs", rev = "221430279" }
 
 # Unstable dependencies that are not (strictly) part of the public API
 document-features = "0.2"
@@ -93,6 +94,8 @@ esp32     = ["esp-hal/esp32", "esp-hal/unstable", "esp-rom-sys/esp32", "esp-sync
 esp32s2   = ["esp-hal/esp32s2", "esp-hal/unstable", "esp-rom-sys/esp32s2", "esp-sync/esp32s2", "dep:esp32s2"]
 ##
 esp32s3   = ["esp-hal/esp32s3", "esp-hal/unstable", "esp-rom-sys/esp32s3", "esp-sync/esp32s3", "dep:esp32s3"]
+##
+esp32s31  = ["esp-hal/esp32s31", "esp-hal/unstable", "esp-rom-sys/esp32s31", "esp-sync/esp32s31", "dep:esp32s31"]
 ## Used for testing on a host.
 emulation = []
 

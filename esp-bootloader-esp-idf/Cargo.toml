@@ -32,6 +32,7 @@ test  = true
 defmt = { version = "1.1", optional = true }
 document-features = "0.2"
 esp-config = { version = "0.7.0", path = "../esp-config" }
+esp-hal = { version = "~1.1.0", path = "../esp-hal", default-features = false, optional = true }
 esp-hal-procmacros = { version = "0.22.0", path = "../esp-hal-procmacros", features = ["__esp_idf_bootloader"] }
 esp-metadata-generated = { version = "0.4.0", path = "../esp-metadata-generated" }
 esp-rom-sys = { version = "~0.1", path = "../esp-rom-sys", optional = true }
@@ -97,7 +98,7 @@ esp32s2   = ["esp-rom-sys/esp32s2", "esp-metadata-generated/esp32s2", "esp-hal/e
 ##
 esp32s3   = ["esp-rom-sys/esp32s3", "esp-metadata-generated/esp32s3", "esp-hal/esp32s3", "esp-storage/esp32s3"]
 ##
-esp32s31  = ["descriptor-only", "esp-metadata-generated/esp32s31", "esp-hal/esp32s31"]
+esp32s31  = ["dep:crc", "dep:md-5", "esp-rom-sys/esp32s31", "esp-metadata-generated/esp32s31", "esp-hal/esp32s31", "esp-storage/esp32s31"]
 
 # "md-5" is hidden behind `std` feature and `cargo machete` incorrectly marks it as unused.
 [package.metadata.cargo-machete]

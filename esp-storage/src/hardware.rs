@@ -31,19 +31,35 @@ pub(crate) fn spiflash_write(dest_addr: u32, data: *const u32, len: u32) -> i32 
 
 #[ram]
 pub(crate) fn spiflash_write_encrypted(dest_addr: u32, data: *mut u32, len: u32) -> i32 {
-    let rc = maybe_with_critical_section(|| unsafe {
-        esp_rom_spiflash_write_encrypted(dest_addr, data, len)
-    });
-    if rc == 0 {
-        crate::mmu::invalidate_flash_cache(dest_addr, len);
+    #[cfg(esp32s31)]
+    {
+        let _ = (dest_addr, data, len);
+        return -1;
     }
-    rc
+
+    #[cfg(not(esp32s31))]
+    {
+        let rc = maybe_with_critical_section(|| unsafe {
+            esp_rom_spiflash_write_encrypted(dest_addr, data, len)
+        });
+        if rc == 0 {
+            crate::mmu::invalidate_flash_cache(dest_addr, len);
+        }
+        rc
+    }
 }
 
 pub(crate) fn read_flash_encrypted(
     offset: u32,
     bytes: &mut [u8],
 ) -> Result<(), crate::FlashStorageError> {
+    #[cfg(esp32s31)]
+    {
+        let _ = (offset, bytes);
+        Err(crate::FlashStorageError::NotSupported)
+    }
+
+    #[cfg(not(esp32s31))]
     crate::mmu::read_flash_encrypted(offset, bytes)
 }
 
@@ -70,7 +86,11 @@ pub(crate) fn get_flash_size() -> u32 {
             let spi1 = esp_hal::peripherals::SPI1::regs();
             spi1.cmd().write(|w| w.flash_rdid().set_bit());
             while spi1.cmd().read().flash_rdid().bit_is_set() {}
-            spi1.w(0).read().buf().bits() & 0x00FF_FFFF
+            #[cfg(esp32s31)]
+            let word = spi1.w0().read().buf0().bits();
+            #[cfg(not(esp32s31))]
+            let word = spi1.w(0).read().buf().bits();
+            word & 0x00FF_FFFF
         });
 
         const KB: u32 = 1024;

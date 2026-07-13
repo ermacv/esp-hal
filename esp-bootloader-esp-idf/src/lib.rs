@@ -101,16 +101,30 @@
 // MUST be the first module
 mod fmt;
 
-#[cfg(all(not(feature = "std"), not(feature = "descriptor-only")))]
+#[cfg(all(
+    not(feature = "std"),
+    not(feature = "esp32s31"),
+    not(feature = "descriptor-only")
+))]
 mod rom;
-#[cfg(all(not(feature = "std"), not(feature = "descriptor-only")))]
+#[cfg(all(
+    not(feature = "std"),
+    not(feature = "esp32s31"),
+    not(feature = "descriptor-only")
+))]
 pub(crate) use rom as crypto;
 
-#[cfg(all(feature = "std", not(feature = "descriptor-only")))]
+#[cfg(all(
+    any(feature = "std", feature = "esp32s31"),
+    not(feature = "descriptor-only")
+))]
 mod non_rom;
 #[cfg(embedded_test)]
 pub use crypto::Crc32 as Crc32ForTesting;
-#[cfg(all(feature = "std", not(feature = "descriptor-only")))]
+#[cfg(all(
+    any(feature = "std", feature = "esp32s31"),
+    not(feature = "descriptor-only")
+))]
 pub(crate) use non_rom as crypto;
 
 #[cfg(not(feature = "descriptor-only"))]
