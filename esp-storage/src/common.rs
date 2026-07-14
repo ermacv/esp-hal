@@ -146,26 +146,20 @@ impl<'d> FlashStorage<'d> {
 
     pub(crate) fn internal_erase_sector(&mut self, sector: u32) -> Result<(), FlashStorageError> {
         #[cfg(multi_core)]
-        let unpark = self.multi_core_strategy.pre_write()?;
+        let _guard = MultiCoreWriteGuard::new(self.multi_core_strategy)?;
 
         self.unlock_once()?;
         check_rc(chip_specific::spiflash_erase_sector(sector))?;
-
-        #[cfg(multi_core)]
-        self.multi_core_strategy.post_write(unpark);
 
         Ok(())
     }
 
     pub(crate) fn internal_erase_block(&mut self, block: u32) -> Result<(), FlashStorageError> {
         #[cfg(multi_core)]
-        let unpark = self.multi_core_strategy.pre_write()?;
+        let _guard = MultiCoreWriteGuard::new(self.multi_core_strategy)?;
 
         self.unlock_once()?;
         check_rc(chip_specific::spiflash_erase_block(block))?;
-
-        #[cfg(multi_core)]
-        self.multi_core_strategy.post_write(unpark);
 
         Ok(())
     }
@@ -176,7 +170,7 @@ impl<'d> FlashStorage<'d> {
         bytes: &[u8],
     ) -> Result<(), FlashStorageError> {
         #[cfg(multi_core)]
-        let unpark = self.multi_core_strategy.pre_write()?;
+        let _guard = MultiCoreWriteGuard::new(self.multi_core_strategy)?;
 
         self.unlock_once()?;
         check_rc(chip_specific::spiflash_write(
@@ -184,9 +178,6 @@ impl<'d> FlashStorage<'d> {
             bytes.as_ptr() as *const u32,
             bytes.len() as u32,
         ))?;
-
-        #[cfg(multi_core)]
-        self.multi_core_strategy.post_write(unpark);
 
         Ok(())
     }
@@ -209,16 +200,13 @@ impl<'d> FlashStorage<'d> {
         bytes: &[u8],
     ) -> Result<(), FlashStorageError> {
         #[cfg(multi_core)]
-        let unpark = self.multi_core_strategy.pre_write()?;
+        let _guard = MultiCoreWriteGuard::new(self.multi_core_strategy)?;
 
         check_rc(chip_specific::spiflash_write_encrypted(
             offset,
             bytes.as_ptr() as *mut u32,
             bytes.len() as u32,
         ))?;
-
-        #[cfg(multi_core)]
-        self.multi_core_strategy.post_write(unpark);
 
         Ok(())
     }
@@ -239,6 +227,30 @@ pub(crate) enum MultiCoreStrategy {
     /// This is useful if the second core is known to not fetch instructions from the flash for the
     /// duration of the write. This is unsafe to use.
     Ignore,
+}
+
+/// Restores the other core on every return path after it has been parked.
+#[cfg(multi_core)]
+struct MultiCoreWriteGuard {
+    strategy: MultiCoreStrategy,
+    unpark: bool,
+}
+
+#[cfg(multi_core)]
+impl MultiCoreWriteGuard {
+    fn new(strategy: MultiCoreStrategy) -> Result<Self, FlashStorageError> {
+        Ok(Self {
+            unpark: strategy.pre_write()?,
+            strategy,
+        })
+    }
+}
+
+#[cfg(multi_core)]
+impl Drop for MultiCoreWriteGuard {
+    fn drop(&mut self) {
+        self.strategy.post_write(self.unpark);
+    }
 }
 
 #[cfg(multi_core)]
