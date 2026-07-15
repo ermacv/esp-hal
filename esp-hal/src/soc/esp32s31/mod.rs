@@ -121,26 +121,78 @@ pub(crate) fn enable_branch_predictor() {
 // invalidation with the same cross-core, interrupt-safe lock.
 static CACHE_SYNC_LOCK: esp_sync::RawMutex = esp_sync::RawMutex::new();
 
+fn cache_aligned_range(addr: u32, size: u32) -> Option<(u32, u32)> {
+    const CACHE_LINE_SIZE: u32 = 64;
+
+    if size == 0 {
+        return None;
+    }
+
+    let start = addr & !(CACHE_LINE_SIZE - 1);
+    let end = addr
+        .saturating_add(size)
+        .saturating_add(CACHE_LINE_SIZE - 1)
+        & !(CACHE_LINE_SIZE - 1);
+    Some((start, end.saturating_sub(start)))
+}
+
+// ESP-IDF replaces the ESP32-S31 ROM writeback routine with a register-level
+// implementation. The ROM routine can reject otherwise valid unaligned
+// ranges, and the cache sync operation must be issued twice on this chip.
+// Keep this helper inside CACHE_SYNC_LOCK: the CACHE sync registers are shared
+// by both CPU cores and all cache-maintenance operations.
+unsafe fn cache_writeback_addr_locked(addr: u32, size: u32) {
+    const CACHE_MAP_L1_DCACHE: u32 = 1 << 4;
+    let Some((start, size)) = cache_aligned_range(addr, size) else {
+        return;
+    };
+    let cache = unsafe { &*pac::CACHE::ptr() };
+
+    cache
+        .sync_map()
+        .write(|w| unsafe { w.sync_map().bits(CACHE_MAP_L1_DCACHE as u8) });
+    cache
+        .sync_addr()
+        .write(|w| unsafe { w.sync_addr().bits(start) });
+    cache
+        .sync_size()
+        .write(|w| unsafe { w.sync_size().bits(size) });
+
+    for _ in 0..2 {
+        cache.sync_ctrl().write(|w| w.writeback_ena().set_bit());
+        while !cache.sync_ctrl().read().sync_done().bit_is_set() {}
+    }
+}
+
+unsafe fn cache_invalidate_addr_locked(cache_map: u32, addr: u32, size: u32) {
+    let Some((start, size)) = cache_aligned_range(addr, size) else {
+        return;
+    };
+    let cache = unsafe { &*pac::CACHE::ptr() };
+
+    cache
+        .sync_map()
+        .write(|w| unsafe { w.sync_map().bits(cache_map as u8) });
+    cache
+        .sync_addr()
+        .write(|w| unsafe { w.sync_addr().bits(start) });
+    cache
+        .sync_size()
+        .write(|w| unsafe { w.sync_size().bits(size) });
+    cache.sync_ctrl().write(|w| w.invalidate_ena().set_bit());
+    while !cache.sync_ctrl().read().sync_done().bit_is_set() {}
+}
+
 /// Writes cached CPU data back so a non-coherent DMA master can observe it.
 pub(crate) unsafe fn cache_writeback_addr(addr: u32, size: u32) {
-    unsafe extern "C" {
-        fn Cache_WriteBack_Addr(cache_map: u32, addr: u32, size: u32) -> i32;
-    }
-    const CACHE_MAP_L1_DCACHE: u32 = 1 << 4;
-    let status =
-        CACHE_SYNC_LOCK.lock(|| unsafe { Cache_WriteBack_Addr(CACHE_MAP_L1_DCACHE, addr, size) });
-    assert_eq!(status, 0, "ROM cache writeback rejected its arguments");
+    CACHE_SYNC_LOCK.lock(|| unsafe { cache_writeback_addr_locked(addr, size) });
 }
 
 /// Invalidates cached CPU data before reading memory written by DMA.
 pub(crate) unsafe fn cache_invalidate_addr(addr: u32, size: u32) {
-    unsafe extern "C" {
-        fn Cache_Invalidate_Addr(cache_map: u32, addr: u32, size: u32) -> i32;
-    }
     const CACHE_MAP_L1_DCACHE: u32 = 1 << 4;
-    let status =
-        CACHE_SYNC_LOCK.lock(|| unsafe { Cache_Invalidate_Addr(CACHE_MAP_L1_DCACHE, addr, size) });
-    assert_eq!(status, 0, "ROM cache invalidation rejected its arguments");
+    CACHE_SYNC_LOCK
+        .lock(|| unsafe { cache_invalidate_addr_locked(CACHE_MAP_L1_DCACHE, addr, size) });
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -155,26 +207,13 @@ pub(crate) unsafe fn cache_prepare_code_addr(
     addr: u32,
     size: u32,
 ) -> Result<(), CachePrepareCodeError> {
-    unsafe extern "C" {
-        fn Cache_WriteBack_Addr(cache_map: u32, addr: u32, size: u32) -> i32;
-        fn Cache_Invalidate_Addr(cache_map: u32, addr: u32, size: u32) -> i32;
-    }
     const CACHE_MAP_L1_ICACHE_0: u32 = 1 << 0;
     const CACHE_MAP_L1_ICACHE_1: u32 = 1 << 1;
-    const CACHE_MAP_L1_DCACHE: u32 = 1 << 4;
     CACHE_SYNC_LOCK.lock(|| {
-        let status = unsafe { Cache_WriteBack_Addr(CACHE_MAP_L1_DCACHE, addr, size) };
-        if status != 0 {
-            return Err(CachePrepareCodeError::WritebackFailed);
+        unsafe { cache_writeback_addr_locked(addr, size) };
+        unsafe {
+            cache_invalidate_addr_locked(CACHE_MAP_L1_ICACHE_0 | CACHE_MAP_L1_ICACHE_1, addr, size)
         }
-
-        let status = unsafe {
-            Cache_Invalidate_Addr(CACHE_MAP_L1_ICACHE_0 | CACHE_MAP_L1_ICACHE_1, addr, size)
-        };
-        if status != 0 {
-            return Err(CachePrepareCodeError::InvalidateFailed);
-        }
-
         Ok(())
     })
 }
