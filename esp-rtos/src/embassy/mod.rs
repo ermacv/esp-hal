@@ -13,53 +13,8 @@ use portable_atomic::AtomicPtr;
 
 use crate::{
     SCHEDULER,
-    scheduler::SchedulerState,
-    task::{TaskPtr, read_thread_pointer},
+    task::{Task, read_thread_pointer},
 };
-
-/// A zero-overhead lock that allows mutable access to the contained value through the scheduler.
-struct SchedulerLocked<T> {
-    inner: UnsafeCell<T>,
-}
-
-unsafe impl<T: Send> Sync for SchedulerLocked<T> {}
-unsafe impl<T: Send> Send for SchedulerLocked<T> {}
-
-impl<T> SchedulerLocked<T> {
-    fn new(inner: T) -> Self {
-        Self {
-            inner: UnsafeCell::new(inner),
-        }
-    }
-
-    fn with<'s>(&'s self, _scheduler: &'s mut SchedulerState) -> &'s mut T {
-        // Safety: The `_scheduler` parameter proves the caller holds the scheduler lock,
-        // so exclusive access to the contained value is safe.
-        unsafe { &mut *self.inner.get() }
-    }
-}
-
-pub(crate) struct FlagsInner {
-    owner: TaskPtr,
-    waiting: Option<TaskPtr>,
-    set: bool,
-}
-impl FlagsInner {
-    fn take(&mut self) -> bool {
-        if self.set {
-            // The flag was set while we weren't looking.
-            self.set = false;
-            true
-        } else {
-            // `waiting` signals that the owner should be resumed when the flag is set. Copying
-            // the task pointer is an optimization that allows clearing the
-            // waiting state without computing the address of a separate field.
-            self.waiting = Some(self.owner);
-
-            false
-        }
-    }
-}
 
 /// A single event bit, optimized for the thread-mode embassy executor.
 ///
@@ -67,10 +22,13 @@ impl FlagsInner {
 /// queue, no timeout, assumes a single thread waits for the flag, there is only a single bit of
 /// flag information).
 struct ThreadFlag {
-    inner: SchedulerLocked<FlagsInner>,
+    owner: AtomicPtr<Task>,
+    state: AtomicPtr<Task>,
 }
 
 impl ThreadFlag {
+    const SET: *mut Task = core::ptr::without_provenance_mut(1);
+
     fn new() -> Self {
         let owner = SCHEDULER.with(|scheduler| {
             if let Some(current_task) = NonNull::new(read_thread_pointer()) {
@@ -82,60 +40,91 @@ impl ThreadFlag {
             }
         });
         Self {
-            inner: SchedulerLocked::new(FlagsInner {
-                owner,
-                waiting: None,
-                set: false,
-            }),
+            owner: AtomicPtr::new(owner.as_ptr()),
+            state: AtomicPtr::new(core::ptr::null_mut()),
         }
     }
 
-    fn with<R>(&self, scheduler: &mut SchedulerState, f: impl FnOnce(&mut FlagsInner) -> R) -> R {
-        let inner = self.inner.with(scheduler);
-        f(inner)
-    }
-
     fn set(&self) {
-        SCHEDULER.with(|scheduler| {
-            let to_resume = self.with(scheduler, |inner| {
-                let to_resume = inner.waiting.take();
-
-                if to_resume.is_none() {
-                    // The task isn't waiting, set the flag.
-                    inner.set = true;
-                }
-
-                to_resume
-            });
-
-            if let Some(waiting) = to_resume {
-                // The task is waiting, there is no need to set the flag - resuming the thread
-                // is all the signal we need.
-                scheduler.resume_task(waiting);
+        // Most calls to `__pender` happen while the executor is polling and therefore don't need
+        // the scheduler at all. This is important: a waker may run while the current CPU already
+        // holds a mutable scheduler borrow, so unconditionally locking it here is reentrant.
+        let mut state = self.state.load(Ordering::Acquire);
+        loop {
+            if state == Self::SET {
+                return;
             }
-        });
+
+            if state.is_null() {
+                match self.state.compare_exchange(
+                    core::ptr::null_mut(),
+                    Self::SET,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                ) {
+                    Ok(_) => return,
+                    Err(actual) => state = actual,
+                }
+            } else {
+                match self.state.compare_exchange(
+                    state,
+                    core::ptr::null_mut(),
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                ) {
+                    Ok(_) => {
+                        let waiting = unwrap!(NonNull::new(state));
+                        SCHEDULER.with(|scheduler| scheduler.resume_task(waiting));
+                        return;
+                    }
+                    Err(actual) => state = actual,
+                }
+            }
+        }
     }
 
     fn get(&self) -> bool {
-        SCHEDULER.with(|scheduler| self.with(scheduler, |inner| inner.set))
+        self.state.load(Ordering::Acquire) == Self::SET
     }
 
     fn wait(&self) {
         // SCHEDULER.sleep_until, but we know the current task's ID, and we know there
         // is no timeout.
         SCHEDULER.with(|scheduler| {
-            let owner_to_suspend = self.with(scheduler, |inner| {
-                if !inner.take() {
-                    Some(inner.owner)
-                } else {
-                    None
-                }
-            });
+            let owner_ptr = self.owner.load(Ordering::Relaxed);
+            let owner = unwrap!(NonNull::new(owner_ptr));
+            let mut state = self.state.load(Ordering::Acquire);
 
-            if let Some(owner) = owner_to_suspend {
-                scheduler.sleep_task_until(owner, Instant::EPOCH + Duration::MAX);
-                crate::task::yield_task();
+            loop {
+                if state == Self::SET {
+                    match self.state.compare_exchange(
+                        Self::SET,
+                        core::ptr::null_mut(),
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    ) {
+                        Ok(_) => return,
+                        Err(actual) => state = actual,
+                    }
+                } else if state.is_null() {
+                    match self.state.compare_exchange(
+                        core::ptr::null_mut(),
+                        owner_ptr,
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    ) {
+                        Ok(_) => break,
+                        Err(actual) => state = actual,
+                    }
+                } else {
+                    unreachable!("a ThreadFlag has only one waiting task")
+                }
             }
+
+            // If `set` claims the waiter before this call, it blocks on the scheduler lock until
+            // the task is sleeping. It can then safely put the task back in the ready queue.
+            scheduler.sleep_task_until(owner, Instant::EPOCH + Duration::MAX);
+            crate::task::yield_task();
         });
     }
 }
