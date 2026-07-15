@@ -94,9 +94,25 @@ pub(crate) fn psram_range() -> Range<usize> {
     if end < start { 0..0 } else { start..end }
 }
 
+/// Error returned while making newly written PSRAM bytes executable.
+#[cfg(esp32s31)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[instability::unstable]
+pub enum PsramCacheError {
+    /// The ROM could not write modified data-cache lines back to PSRAM.
+    WritebackFailed,
+    /// The ROM could not invalidate the instruction-cache lines for the range.
+    InvalidateFailed,
+}
+
 /// Makes bytes written through the data cache visible to instruction fetches.
 ///
 /// Call this after copying code into PSRAM and before executing that code.
+///
+/// # Errors
+///
+/// Returns [`PsramCacheError`] if the ROM rejects either cache operation.
 ///
 /// # Safety
 ///
@@ -104,9 +120,17 @@ pub(crate) fn psram_range() -> Range<usize> {
 /// may execute from the range while it is being modified.
 #[cfg(esp32s31)]
 #[instability::unstable]
-pub unsafe fn prepare_code(address: *const u8, size: usize) {
-    unsafe { crate::soc::cache_prepare_code_addr(address as u32, size as u32) };
+pub unsafe fn prepare_code(address: *const u8, size: usize) -> Result<(), PsramCacheError> {
+    unsafe { crate::soc::cache_prepare_code_addr(address as u32, size as u32) }.map_err(
+        |error| match error {
+            crate::soc::CachePrepareCodeError::WritebackFailed => PsramCacheError::WritebackFailed,
+            crate::soc::CachePrepareCodeError::InvalidateFailed => {
+                PsramCacheError::InvalidateFailed
+            }
+        },
+    )?;
     unsafe { core::arch::asm!("fence.i", options(nostack)) };
+    Ok(())
 }
 
 /// # Safety
