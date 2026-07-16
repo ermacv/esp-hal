@@ -68,6 +68,12 @@ use event::EVENT_CHANNEL;
 use portable_atomic::{AtomicU8, AtomicUsize, Ordering};
 use procmacros::BuilderLite;
 
+unsafe extern "C" {
+    // ESP-IDF applies CONFIG_ESP_WIFI_TX_BA_WIN separately from
+    // wifi_init_config_t, which only contains the RX window.
+    fn esp_wifi_internal_set_baw(rx_ba_win: i32, tx_ba_win: i32);
+}
+
 // ESP-IDF 6 renamed these public constants while retaining their ABI values.
 // Keep the rest of esp-radio expressed in its existing cross-chip vocabulary.
 #[cfg(esp32s31)]
@@ -833,6 +839,22 @@ impl From<&[u8]> for Ssid {
 }
 
 static TX_QUEUE_SIZE: AtomicUsize = AtomicUsize::new(0);
+static RX_CALLBACKS: AtomicUsize = AtomicUsize::new(0);
+static RX_QUEUE_DROPS: AtomicUsize = AtomicUsize::new(0);
+static RX_QUEUE_HIGH_WATER: AtomicUsize = AtomicUsize::new(0);
+static TX_CAPACITY_BLOCKS: AtomicUsize = AtomicUsize::new(0);
+static TX_SUBMITTED: AtomicUsize = AtomicUsize::new(0);
+static TX_IMMEDIATE_ERRORS: AtomicUsize = AtomicUsize::new(0);
+static TX_STATE_REJECTS: AtomicUsize = AtomicUsize::new(0);
+static TX_DONE_OK: AtomicUsize = AtomicUsize::new(0);
+static TX_DONE_FAILED: AtomicUsize = AtomicUsize::new(0);
+static TX_INFLIGHT_HIGH_WATER: AtomicUsize = AtomicUsize::new(0);
+
+fn record_high_water(counter: &AtomicUsize, value: usize) {
+    let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+        (value > current).then_some(value)
+    });
+}
 
 /// A receive packet queue.
 ///
@@ -898,6 +920,58 @@ static DATA_QUEUE_RX_AP: NonReentrantMutex<PacketQueue> =
 
 static DATA_QUEUE_RX_STA: NonReentrantMutex<PacketQueue> =
     NonReentrantMutex::new(PacketQueue::new());
+
+/// Snapshot of the Wi-Fi packet handoff path counters.
+///
+/// These counters distinguish vendor-driver failures from congestion in the
+/// queue between the Wi-Fi callback and the upper network stack.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub struct DataPathDiagnostics {
+    /// Frames delivered by the vendor RX callback.
+    pub rx_callbacks: usize,
+    /// Frames rejected because the esp-radio RX queue was full.
+    pub rx_queue_drops: usize,
+    /// Highest observed number of frames in the esp-radio RX queue.
+    pub rx_queue_high_water: usize,
+    /// Current number of frames in the station RX queue.
+    pub rx_queue_len: usize,
+    /// Polls that found the esp-radio TX in-flight limit exhausted.
+    pub tx_capacity_blocks: usize,
+    /// Frames submitted to the vendor TX function.
+    pub tx_submitted: usize,
+    /// Immediate errors returned by the vendor TX function.
+    pub tx_immediate_errors: usize,
+    /// Frames rejected because the interface stopped being connected.
+    pub tx_state_rejects: usize,
+    /// Successful vendor TX completion callbacks.
+    pub tx_done_ok: usize,
+    /// Failed vendor TX completion callbacks.
+    pub tx_done_failed: usize,
+    /// Current number of frames owned by the vendor TX path.
+    pub tx_inflight: usize,
+    /// Highest observed number of in-flight vendor TX frames.
+    pub tx_inflight_high_water: usize,
+}
+
+/// Returns a snapshot of Wi-Fi data-path diagnostics.
+pub fn data_path_diagnostics() -> DataPathDiagnostics {
+    DataPathDiagnostics {
+        rx_callbacks: RX_CALLBACKS.load(Ordering::Relaxed),
+        rx_queue_drops: RX_QUEUE_DROPS.load(Ordering::Relaxed),
+        rx_queue_high_water: RX_QUEUE_HIGH_WATER.load(Ordering::Relaxed),
+        rx_queue_len: DATA_QUEUE_RX_STA.with(|queue| queue.len()),
+        tx_capacity_blocks: TX_CAPACITY_BLOCKS.load(Ordering::Relaxed),
+        tx_submitted: TX_SUBMITTED.load(Ordering::Relaxed),
+        tx_immediate_errors: TX_IMMEDIATE_ERRORS.load(Ordering::Relaxed),
+        tx_state_rejects: TX_STATE_REJECTS.load(Ordering::Relaxed),
+        tx_done_ok: TX_DONE_OK.load(Ordering::Relaxed),
+        tx_done_failed: TX_DONE_FAILED.load(Ordering::Relaxed),
+        tx_inflight: WIFI_TX_INFLIGHT.load(Ordering::Relaxed),
+        tx_inflight_high_water: TX_INFLIGHT_HIGH_WATER.load(Ordering::Relaxed),
+    }
+}
 
 /// Common errors.
 #[derive(Display, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1063,6 +1137,7 @@ unsafe extern "C" fn recv_cb_sta(
     len: u16,
     eb: *mut c_types::c_void,
 ) -> esp_err_t {
+    RX_CALLBACKS.fetch_add(1, Ordering::Relaxed);
     let packet = PacketBuffer { buffer, len, eb };
     // We must handle the result outside of the lock because
     // PacketBuffer::drop must not be called in a critical section.
@@ -1071,8 +1146,13 @@ unsafe extern "C" fn recv_cb_sta(
     // the function will try to trigger a context switch, which will fail if we
     // are in an interrupt-free context.
     match DATA_QUEUE_RX_STA.with(|queue| queue.push_back(packet)) {
-        Ok(()) => include::ESP_OK as esp_err_t,
+        Ok(()) => {
+            let queue_len = DATA_QUEUE_RX_STA.with(|queue| queue.len());
+            record_high_water(&RX_QUEUE_HIGH_WATER, queue_len);
+            include::ESP_OK as esp_err_t
+        }
         _ => {
+            RX_QUEUE_DROPS.fetch_add(1, Ordering::Relaxed);
             debug!("RX QUEUE FULL");
             include::ESP_ERR_NO_MEM as esp_err_t
         }
@@ -1115,11 +1195,16 @@ unsafe extern "C" fn esp_wifi_tx_done_cb(
     _ifidx: u8,
     _data: *mut u8,
     _data_len: *mut u16,
-    _tx_status: bool,
+    tx_status: bool,
 ) {
     trace!("esp_wifi_tx_done_cb");
 
     decrement_inflight_counter();
+    if tx_status {
+        TX_DONE_OK.fetch_add(1, Ordering::Relaxed);
+    } else {
+        TX_DONE_FAILED.fetch_add(1, Ordering::Relaxed);
+    }
 
     TRANSMIT_WAKER.wake();
 }
@@ -1262,11 +1347,13 @@ impl InterfaceType {
     }
 
     fn increase_in_flight_counter(&self) {
-        WIFI_TX_INFLIGHT.fetch_add(1, Ordering::SeqCst);
+        let inflight = WIFI_TX_INFLIGHT.fetch_add(1, Ordering::SeqCst) + 1;
+        record_high_water(&TX_INFLIGHT_HIGH_WATER, inflight);
     }
 
     fn tx_token(&self) -> Option<WifiTxToken> {
         if !self.can_send() {
+            TX_CAPACITY_BLOCKS.fetch_add(1, Ordering::Relaxed);
             // TODO: perhaps we can use a counting semaphore with a short blocking timeout
             crate::preempt::yield_task();
         }
@@ -1859,6 +1946,8 @@ pub(crate) fn esp_wifi_send_data(interface: wifi_interface_t, data: &mut [u8]) {
             || (interface == wifi_interface_t_WIFI_IF_AP
                 && !matches!(access_point_state(), WifiAccessPointState::Started))
         {
+            TX_STATE_REJECTS.fetch_add(1, Ordering::Relaxed);
+            decrement_inflight_counter();
             return;
         }
 
@@ -1868,9 +1957,11 @@ pub(crate) fn esp_wifi_send_data(interface: wifi_interface_t, data: &mut [u8]) {
         let len = data.len() as u16;
         let ptr = data.as_mut_ptr().cast();
 
+        TX_SUBMITTED.fetch_add(1, Ordering::Relaxed);
         let res = unsafe { esp_wifi_internal_tx(interface, ptr, len) };
 
         if res != include::ESP_OK as i32 {
+            TX_IMMEDIATE_ERRORS.fetch_add(1, Ordering::Relaxed);
             warn!("esp_wifi_internal_tx returned error: {}", res);
             decrement_inflight_counter();
         }
@@ -2249,6 +2340,14 @@ pub struct ControllerConfig {
     #[builder_lite(unstable)]
     rx_ba_win: u8,
 
+    /// Set the size of the Wi-Fi Block Ack TX window.
+    ///
+    /// A larger value can improve aggregate TX throughput but consumes more
+    /// memory in the vendor driver. ESP-IDF defaults to 6 and recommends
+    /// changing it only after measuring the target and access point.
+    #[builder_lite(unstable)]
+    tx_ba_win: u8,
+
     /// Initial Wi-Fi configuration.
     #[builder_lite(reference)]
     initial_config: Config,
@@ -2271,6 +2370,7 @@ impl Default for ControllerConfig {
             amsdu_tx_enable: false,
 
             rx_ba_win: 6,
+            tx_ba_win: 6,
 
             country_info: CountryInfo::from(*b"CN"),
 
@@ -2286,6 +2386,9 @@ impl ControllerConfig {
         }
         if self.rx_ba_win as u16 >= 2 * (self.static_rx_buf_num as u16) {
             warn!("RX BA window size should be less than twice the number of static RX buffers.");
+        }
+        if !(2..=64).contains(&self.tx_ba_win) {
+            warn!("TX BA window size should be in the range 2..=64.");
         }
     }
 }
@@ -2419,6 +2522,13 @@ impl<'d> WifiController<'d> {
         TX_QUEUE_SIZE.store(config.tx_queue_size, Ordering::Relaxed);
 
         crate::wifi::wifi_init(device)?;
+
+        // wifi_init_config_t carries only RX BA. ESP-IDF applies its TX BA
+        // Kconfig value through this vendor entry point; direct users of
+        // esp_wifi_init_internal must reproduce that step explicitly.
+        unsafe {
+            esp_wifi_internal_set_baw(config.rx_ba_win as i32, config.tx_ba_win as i32);
+        }
 
         // At some point the "High-speed ADC" entropy source became available.
         #[cfg(rng_trng_supported)]
