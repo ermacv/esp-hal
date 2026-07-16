@@ -3453,9 +3453,13 @@ ignored."
                 sae_pwe_h2e: 3,
                 _bitfield_align_1: [0; 0],
                 _bitfield_1: __BindgenBitfieldUnit::new([0; 4]),
+                #[cfg(esp32s31)]
+                _bitfield_tail_1: [0; 2],
                 failure_retry_cnt: config.failure_retry_cnt,
                 _bitfield_align_2: [0; 0],
                 _bitfield_2: __BindgenBitfieldUnit::new([0; 4]),
+                #[cfg(esp32s31)]
+                _bitfield_tail_2: [0; 2],
                 sae_pk_mode: 0, // ??
                 sae_h2e_identifier: [0; 32],
             },
@@ -3500,9 +3504,13 @@ ignored."
                 sae_pwe_h2e: 3,
                 _bitfield_align_1: [0; 0],
                 _bitfield_1: __BindgenBitfieldUnit::new([0; 4]),
+                #[cfg(esp32s31)]
+                _bitfield_tail_1: [0; 2],
                 failure_retry_cnt: config.failure_retry_cnt,
                 _bitfield_align_2: [0; 0],
                 _bitfield_2: __BindgenBitfieldUnit::new([0; 4]),
+                #[cfg(esp32s31)]
+                _bitfield_tail_2: [0; 2],
                 sae_pk_mode: 0, // ??
                 sae_h2e_identifier: [0; 32],
             },
