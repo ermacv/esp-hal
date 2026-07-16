@@ -603,6 +603,23 @@ pub(crate) fn setup_interrupts() {
     unsafe { crate::interrupt::init_vectoring() };
 }
 
+/// Reinitializes this core's interrupt controller and vector tables.
+///
+/// This is intended for a post-bootstrap image that installs a different
+/// vector table after the normal Rust startup has already run. All existing
+/// peripheral interrupt mappings on both cores are disabled; drivers must be
+/// initialized only after this function returns.
+///
+/// # Safety
+///
+/// Interrupts must be globally disabled, the other core must be stopped, and
+/// no initialized peripheral driver may still rely on the previous mappings.
+#[cfg(feature = "rt")]
+#[instability::unstable]
+pub unsafe fn reinitialize_vectoring_after_handoff() {
+    setup_interrupts();
+}
+
 #[inline(always)]
 #[cfg(feature = "rt")]
 fn should_handle(core: Cpu, interrupt_nr: u32, level: u32) -> bool {
