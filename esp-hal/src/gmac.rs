@@ -9,7 +9,9 @@ use core::{
     task::Context,
 };
 
-use embassy_net_driver_02::{Capabilities, Driver, HardwareAddress, LinkState, RxToken, TxToken};
+use embassy_net_driver_02::{
+    Capabilities, Checksum, Driver, HardwareAddress, LinkState, RxToken, TxToken,
+};
 
 use crate::{
     asynch::AtomicWaker,
@@ -43,13 +45,25 @@ fn cnnt_sys_regs() -> &'static crate::pac::cnnt_sys::RegisterBlock {
 }
 
 const BUFFER_SIZE: usize = 1536;
+const DMA_GUARD_WORD: u32 = 0xa55a_c33c;
 const DMA_STATUS_TX_UNDERFLOW: u32 = 1 << 5;
 const DMA_STATUS_FATAL_BUS_ERROR: u32 = 1 << 13;
 const DMA_STATUS_ERROR_BITS: u32 = 0x7 << 23;
 const DMA_DEFERRED_EVENT_MASK: u32 =
     DMA_STATUS_TX_UNDERFLOW | DMA_STATUS_FATAL_BUS_ERROR | DMA_STATUS_ERROR_BITS;
+// ESP32-S31 ICM_SYS registers are not exposed by the current PAC yet.  These
+// addresses and field positions come from the official ESP-IDF
+// soc/icm_sys_reg.h and hal/axi_icm_ll.h definitions.
+const ICM_MST_ARQOS_REG0: *mut u32 = 0x2051_0428 as *mut u32;
+const ICM_MST_AWQOS_REG0: *mut u32 = 0x2051_0430 as *mut u32;
+const ICM_GMAC_QOS_SHIFT: u32 = 16;
+const ICM_GMAC_QOS_MASK: u32 = 0x0f << ICM_GMAC_QOS_SHIFT;
 static INTERRUPT_GMAC: AtomicPtr<Gmac> = AtomicPtr::new(ptr::null_mut());
 
+// The receive-complete interrupt is on the throughput-critical path.  Keep it
+// in internal RAM, as ESP-IDF does for its EMAC ISR, so an instruction-cache
+// miss on XIP flash cannot delay RX FIFO service or the network-task wakeup.
+#[crate::ram]
 #[crate::handler]
 fn gmac_interrupt() {
     let regs = gmac_regs();
@@ -63,6 +77,20 @@ fn gmac_interrupt() {
     let gmac = INTERRUPT_GMAC.load(Ordering::Acquire);
     if !gmac.is_null() {
         let gmac = unsafe { &*gmac };
+        // Do not pay mask/rearm MMIO overhead for isolated frames such as TCP
+        // ACKs. Once the runner is already draining a burst, suppress further
+        // receive-complete interrupts until it reaches an empty descriptor.
+        if status.ri().bit_is_set() {
+            let now: u32;
+            unsafe { core::arch::asm!("rdcycle {value}", value = out(reg) now) };
+            let previous = gmac.last_rx_irq_cycle.swap(now, Ordering::AcqRel);
+            let burst = now.wrapping_sub(previous) < 40_960; // 128 us at 320 MHz.
+            if burst || gmac.rx_draining.load(Ordering::Acquire) {
+                regs.register7_interruptenableregister()
+                    .modify(|_, w| w.rie().clear_bit());
+                gmac.rx_interrupt_masked.store(true, Ordering::Release);
+            }
+        }
         gmac.deferred_dma_events
             .fetch_or(status.bits() & DMA_DEFERRED_EVENT_MASK, Ordering::Release);
         gmac.net_waker.wake();
@@ -87,22 +115,30 @@ impl Descriptor {
 #[repr(C, align(64))]
 struct Buffer([u8; BUFFER_SIZE]);
 
+#[repr(C, align(64))]
+struct DmaGuard([u32; 16]);
+
 /// Statically allocated enhanced descriptor rings and packet buffers.
+#[repr(C, align(64))]
 pub struct DmaStorage<const RX: usize, const TX: usize> {
+    leading_guard: DmaGuard,
     rx_descriptors: [Descriptor; RX],
     tx_descriptors: [Descriptor; TX],
     rx_buffers: [Buffer; RX],
     tx_buffers: [Buffer; TX],
+    trailing_guard: DmaGuard,
 }
 
 impl<const RX: usize, const TX: usize> DmaStorage<RX, TX> {
     /// Creates zero-initialized DMA storage suitable for a `static` cell.
     pub const fn new() -> Self {
         Self {
+            leading_guard: DmaGuard([DMA_GUARD_WORD; 16]),
             rx_descriptors: [const { Descriptor([0; 8]) }; RX],
             tx_descriptors: [const { Descriptor([0; 8]) }; TX],
             rx_buffers: [const { Buffer([0; BUFFER_SIZE]) }; RX],
             tx_buffers: [const { Buffer([0; BUFFER_SIZE]) }; TX],
+            trailing_guard: DmaGuard([DMA_GUARD_WORD; 16]),
         }
     }
 }
@@ -159,6 +195,7 @@ pub enum LinkEvent {
 
 /// Motorcomm YT8531 Gigabit Ethernet PHY policy.
 pub struct Yt8531 {
+    rgmii_rx_delay: u8,
     rgmii_tx_delay: u8,
 }
 
@@ -170,7 +207,19 @@ impl Yt8531 {
         if rgmii_tx_delay > 15 {
             return Err(Error::InvalidPhyConfiguration);
         }
-        Ok(Self { rgmii_tx_delay })
+        Ok(Self {
+            rgmii_rx_delay: 0,
+            rgmii_tx_delay,
+        })
+    }
+
+    /// Configures the RGMII RX clock delay in 150 ps steps.
+    pub fn with_rx_delay(mut self, rgmii_rx_delay: u8) -> Result<Self, Error> {
+        if rgmii_rx_delay > 15 {
+            return Err(Error::InvalidPhyConfiguration);
+        }
+        self.rgmii_rx_delay = rgmii_rx_delay;
+        Ok(self)
     }
 
     /// Verifies and configures the PHY after board-level reset and pin routing.
@@ -182,7 +231,9 @@ impl Yt8531 {
         self.write_extended(
             gmac,
             0xa003,
-            (rgmii & !0x000f) | u16::from(self.rgmii_tx_delay),
+            (rgmii & !((0x000f << 10) | 0x000f))
+                | (u16::from(self.rgmii_rx_delay) << 10)
+                | u16::from(self.rgmii_tx_delay),
         )
     }
 
@@ -303,9 +354,18 @@ pub struct Gmac {
     _peri: ETH<'static>,
     phy_address: u8,
     started: AtomicBool,
+    interrupt_driven: AtomicBool,
+    rx_interrupt_masked: AtomicBool,
+    rx_draining: AtomicBool,
+    last_rx_irq_cycle: AtomicU32,
     ring_generation: AtomicU32,
     deferred_dma_events: AtomicU32,
+    configured_dma_bus_mode: AtomicU32,
     rx_frame_count: AtomicU32,
+    rx_error_drop_count: AtomicU32,
+    last_rx_error_status: AtomicU32,
+    dma_guard_status: AtomicU32,
+    rx_ring_integrity_status: AtomicU32,
     tx_frame_count: AtomicU32,
     rx_dhcp_count: AtomicU32,
     tx_dhcp_count: AtomicU32,
@@ -341,9 +401,18 @@ impl Gmac {
             _peri: peri,
             phy_address,
             started: AtomicBool::new(false),
+            interrupt_driven: AtomicBool::new(true),
+            rx_interrupt_masked: AtomicBool::new(false),
+            rx_draining: AtomicBool::new(false),
+            last_rx_irq_cycle: AtomicU32::new(0),
             ring_generation: AtomicU32::new(0),
             deferred_dma_events: AtomicU32::new(0),
+            configured_dma_bus_mode: AtomicU32::new(0),
             rx_frame_count: AtomicU32::new(0),
+            rx_error_drop_count: AtomicU32::new(0),
+            last_rx_error_status: AtomicU32::new(0),
+            dma_guard_status: AtomicU32::new(0),
+            rx_ring_integrity_status: AtomicU32::new(0),
             tx_frame_count: AtomicU32::new(0),
             rx_dhcp_count: AtomicU32::new(0),
             tx_dhcp_count: AtomicU32::new(0),
@@ -392,9 +461,86 @@ impl Gmac {
         gmac_regs().register5_statusregister().read().bits()
     }
 
+    /// Returns the raw DMA bus-mode register for diagnostics.
+    pub fn dma_bus_mode(&self) -> u32 {
+        gmac_regs().register0_busmoderegister().read().bits()
+    }
+
+    /// Returns the BMR readback captured immediately after configuration.
+    pub fn configured_dma_bus_mode(&self) -> u32 {
+        self.configured_dma_bus_mode.load(Ordering::Relaxed)
+    }
+
+    /// Returns the raw DMA operation-mode register for diagnostics.
+    pub fn dma_operation_mode(&self) -> u32 {
+        gmac_regs().register6_operationmoderegister().read().bits()
+    }
+
+    /// Returns the raw GMAC AXI bus-mode register for diagnostics.
+    pub fn axi_bus_mode(&self) -> u32 {
+        gmac_regs().register10_axibusmoderegister().read().bits()
+    }
+
+    /// Returns the raw GMAC AXI status register for diagnostics.
+    pub fn axi_status(&self) -> u32 {
+        gmac_regs()
+            .register11_ahboraxistatusregister()
+            .read()
+            .bits()
+    }
+
+    /// Returns GMAC read/write QoS nibbles as `ARQOS | AWQOS << 4`.
+    pub fn interconnect_qos(&self) -> u32 {
+        unsafe {
+            ((ICM_MST_ARQOS_REG0.read_volatile() & ICM_GMAC_QOS_MASK)
+                >> ICM_GMAC_QOS_SHIFT)
+                | (((ICM_MST_AWQOS_REG0.read_volatile() & ICM_GMAC_QOS_MASK)
+                    >> ICM_GMAC_QOS_SHIFT)
+                    << 4)
+        }
+    }
+
+    /// Selects timer-driven polling instead of DMA interrupts.
+    ///
+    /// This is primarily useful for isolating interrupt-controller and waker
+    /// faults during low-level GMAC bring-up.
+    pub fn use_polling(&self) {
+        self.interrupt_driven.store(false, Ordering::Release);
+        gmac_regs().register7_interruptenableregister().reset();
+        interrupt::disable(Cpu::current(), Interrupt::SBD);
+    }
+
     /// Returns the number of RX frames handed to the network stack.
     pub fn rx_frame_count(&self) -> u32 {
         self.rx_frame_count.load(Ordering::Relaxed)
+    }
+
+    /// Returns the number of invalid RX descriptors recycled without delivery.
+    pub fn rx_error_drop_count(&self) -> u32 {
+        self.rx_error_drop_count.load(Ordering::Relaxed)
+    }
+
+    /// Returns the status word from the latest invalid RX descriptor.
+    pub fn last_rx_error_status(&self) -> u32 {
+        self.last_rx_error_status.load(Ordering::Relaxed)
+    }
+
+    /// Returns bit 0 for a damaged leading DMA guard and bit 1 for trailing.
+    pub fn dma_guard_status(&self) -> u32 {
+        self.dma_guard_status.load(Ordering::Relaxed)
+    }
+
+    /// Returns a bit mask of RX descriptors with corrupted immutable fields.
+    pub fn rx_ring_integrity_status(&self) -> u32 {
+        self.rx_ring_integrity_status.load(Ordering::Relaxed)
+    }
+
+    /// Returns the raw DWC DMA missed-frame and RX-buffer-overflow counter.
+    pub fn missed_frame_and_buffer_overflow(&self) -> u32 {
+        gmac_regs()
+            .register8_missedframeandbufferoverflowcounterregister()
+            .read()
+            .bits()
     }
 
     /// Returns the number of TX frames handed to DMA.
@@ -538,15 +684,20 @@ impl Gmac {
     /// Configures enhanced chained descriptors and their list heads.
     pub fn configure_descriptor_lists(&self, rx_base: u32, tx_base: u32) {
         let regs = gmac_regs();
-        regs.register0_busmoderegister().write(|w| unsafe {
-            w.atds()
-                .set_bit()
-                .pbl()
-                .bits(16)
-                .aal()
-                .set_bit()
-                .mb()
-                .set_bit()
+        // Use the literal register image from ESP-IDF's S31 defaults here so
+        // the diagnostic readback also catches an SVD field-accessor error.
+        // ATDS=1, PBL=16, AAL=1, MB=1; burst 32 is forbidden on S31.
+        regs.register0_busmoderegister()
+            .write(|w| unsafe { w.bits((1 << 7) | (16 << 8) | (1 << 25) | (1 << 26)) });
+        self.configured_dma_bus_mode.store(
+            regs.register0_busmoderegister().read().bits(),
+            Ordering::Relaxed,
+        );
+        // Reset defaults allow two outstanding AXI reads/writes. Four is the
+        // maximum implemented by this GMAC configuration and hides SRAM/ICM
+        // arbitration latency without using the unsupported 32-beat burst.
+        regs.register10_axibusmoderegister().modify(|_, w| unsafe {
+            w.rd_osr_lmt().bits(3).wr_osr_lmt().bits(3)
         });
         regs.register3_receivedescriptorlistaddressregister()
             .write(|w| unsafe { w.rdesla().bits(rx_base) });
@@ -621,6 +772,103 @@ impl Gmac {
             && status & (1 << 8) != 0
     }
 
+    /// Recycles invalid CPU-owned descriptors until the current RX slot is
+    /// either a complete frame or is still owned by DMA.
+    ///
+    /// A descriptor carrying an error summary or an incomplete frame must not
+    /// remain at the software ring head. DMA continues with later descriptors,
+    /// but the network stack would otherwise keep polling the same invalid slot
+    /// forever and eventually exhaust the complete RX ring.
+    fn prepare_rx<const RX: usize, const TX: usize>(
+        &self,
+        storage: &mut DmaStorage<RX, TX>,
+        index: &mut usize,
+    ) -> bool {
+        // Guard validation is diagnostic work, not per-frame work. Checking
+        // once per complete ring still detects corruption promptly without
+        // scanning 32 volatile guard words for every received packet.
+        if *index == 0 && self.audit_dma_guards(storage) != 0 {
+            self.stop();
+            return false;
+        }
+        for _ in 0..RX {
+            let current = *index;
+            let status = self.rx_descriptor_status(storage, current);
+            if !self.rx_descriptor_integrity(storage, current) {
+                self.rx_ring_integrity_status
+                    .fetch_or(1 << current.min(31), Ordering::Relaxed);
+                self.stop();
+                return false;
+            }
+            if status & (1 << 31) != 0 {
+                self.rx_draining.store(false, Ordering::Release);
+                self.rearm_rx_interrupt();
+                return false;
+            }
+            if status & (1 << 15) == 0 && status & (1 << 9) != 0 && status & (1 << 8) != 0 {
+                self.rx_draining.store(true, Ordering::Release);
+                return true;
+            }
+
+            storage.rx_descriptors[current].write_word(0, 1 << 31);
+            unsafe {
+                crate::soc::cache_writeback_addr(
+                    core::ptr::addr_of!(storage.rx_descriptors[current]) as u32,
+                    core::mem::size_of::<Descriptor>() as u32,
+                )
+            };
+            core::sync::atomic::fence(Ordering::Release);
+            self.last_rx_error_status.store(status, Ordering::Relaxed);
+            self.rx_error_drop_count.fetch_add(1, Ordering::Relaxed);
+            *index = (current + 1) % RX;
+            self.demand_rx_poll();
+        }
+        false
+    }
+
+    fn audit_dma_guards<const RX: usize, const TX: usize>(
+        &self,
+        storage: &DmaStorage<RX, TX>,
+    ) -> u32 {
+        unsafe {
+            crate::soc::cache_invalidate_addr(
+                core::ptr::addr_of!(storage.leading_guard) as u32,
+                core::mem::size_of::<DmaGuard>() as u32,
+            );
+            crate::soc::cache_invalidate_addr(
+                core::ptr::addr_of!(storage.trailing_guard) as u32,
+                core::mem::size_of::<DmaGuard>() as u32,
+            );
+        }
+        let leading_bad = storage
+            .leading_guard
+            .0
+            .iter()
+            .any(|word| unsafe { core::ptr::read_volatile(word) } != DMA_GUARD_WORD);
+        let trailing_bad = storage
+            .trailing_guard
+            .0
+            .iter()
+            .any(|word| unsafe { core::ptr::read_volatile(word) } != DMA_GUARD_WORD);
+        let status = u32::from(leading_bad) | (u32::from(trailing_bad) << 1);
+        self.dma_guard_status.fetch_or(status, Ordering::Relaxed);
+        status
+    }
+
+    fn rx_descriptor_integrity<const RX: usize, const TX: usize>(
+        &self,
+        storage: &DmaStorage<RX, TX>,
+        index: usize,
+    ) -> bool {
+        let index = index % RX;
+        let next = (index + 1) % RX;
+        let descriptor = &storage.rx_descriptors[index];
+        descriptor.read_word(1) == (BUFFER_SIZE as u32 & 0x1fff) | (1 << 14)
+            && descriptor.read_word(2) == storage.rx_buffers[index].0.as_ptr() as u32
+            && descriptor.read_word(3)
+                == core::ptr::addr_of!(storage.rx_descriptors[next]) as u32
+    }
+
     /// Returns one raw RX descriptor status word after cache invalidation.
     pub fn rx_descriptor_status<const RX: usize, const TX: usize>(
         &self,
@@ -667,7 +915,7 @@ impl Gmac {
         unsafe {
             crate::soc::cache_invalidate_addr(
                 storage.rx_buffers[index].0.as_ptr() as u32,
-                BUFFER_SIZE as u32,
+                length as u32,
             )
         };
         let frame = &mut storage.rx_buffers[index].0[..length];
@@ -723,8 +971,13 @@ impl Gmac {
 
     /// Starts MAC RX/TX and DMA for the negotiated mode.
     pub fn start(&self, speed: Speed, full_duplex: bool, rx_base: u32, tx_base: u32) {
+        // Changing the RGMII reference divider can reset the DMA clock domain
+        // on ESP32-S31. Configure every DMA bus parameter only after the final
+        // link clock is selected; merely restoring the descriptor heads leaves
+        // PBL at its reset value of one beat and cannot sustain gigabit RX.
         self.set_speed(speed);
         let regs = gmac_regs();
+        self.configure_descriptor_lists(rx_base, tx_base);
         regs.register1_macframefilter()
             .modify(|_, w| w.ra().set_bit());
         regs.register0_macconfigurationregister().modify(|_, w| {
@@ -734,17 +987,15 @@ impl Gmac {
                 .bit(speed == Speed::Mbps100)
                 .dm()
                 .bit(full_duplex)
+                .ipc()
+                .set_bit()
                 .re()
                 .set_bit()
                 .te()
                 .set_bit()
         });
-        regs.register3_receivedescriptorlistaddressregister()
-            .write(|w| unsafe { w.rdesla().bits(rx_base) });
-        regs.register4_transmitdescriptorlistaddressregister()
-            .write(|w| unsafe { w.tdesla().bits(tx_base) });
         regs.register6_operationmoderegister()
-            .modify(|_, w| w.sr().set_bit().st().set_bit());
+            .modify(|_, w| w.osf().set_bit().sr().set_bit().st().set_bit());
         regs.register5_statusregister().write(|w| w.ru().set_bit());
         self.demand_rx_poll();
         self.started.store(true, Ordering::Release);
@@ -782,9 +1033,27 @@ impl Gmac {
         self.net_waker.wake();
     }
 
+    /// Acknowledges DMA events and wakes the network task without an ISR.
+    pub fn poll_dma_events(&self) {
+        let regs = gmac_regs();
+        let status = regs.register5_statusregister().read().bits();
+        if status != 0 {
+            regs.register5_statusregister()
+                .write(|w| unsafe { w.bits(status) });
+            self.deferred_dma_events
+                .fetch_or(status & DMA_DEFERRED_EVENT_MASK, Ordering::Release);
+        }
+        self.net_waker.wake();
+    }
+
     /// Enables RX/TX DMA interrupts and binds them to the Embassy waker.
     fn enable_interrupts(&self) {
+        if !self.interrupt_driven.load(Ordering::Acquire) {
+            gmac_regs().register7_interruptenableregister().reset();
+            return;
+        }
         INTERRUPT_GMAC.store(self as *const Self as *mut Self, Ordering::Release);
+        self.rx_interrupt_masked.store(false, Ordering::Release);
         let regs = gmac_regs();
         let pending = regs.register5_statusregister().read().bits();
         regs.register5_statusregister()
@@ -805,6 +1074,17 @@ impl Gmac {
                 .nie()
                 .set_bit()
         });
+    }
+
+    #[inline]
+    fn rearm_rx_interrupt(&self) {
+        if self.interrupt_driven.load(Ordering::Acquire)
+            && self.rx_interrupt_masked.swap(false, Ordering::AcqRel)
+        {
+            gmac_regs()
+                .register7_interruptenableregister()
+                .modify(|_, w| w.rie().set_bit());
+        }
     }
 
     /// Handles DMA events captured by the ISR in the network executor context.
@@ -1077,9 +1357,9 @@ impl<const RX: usize, const TX: usize> Driver for NetDriver<RX, TX> {
     fn receive(&mut self, cx: &mut Context<'_>) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         self.synchronize();
         self.gmac.net_waker.register(cx.waker());
-        let storage = unsafe { &*self.storage };
+        let storage = unsafe { &mut *self.storage };
         if !self.gmac.started.load(Ordering::Acquire)
-            || !self.gmac.rx_ready(storage, self.rx_index)
+            || !self.gmac.prepare_rx(storage, &mut self.rx_index)
             || !self.gmac.tx_ready(storage, self.tx_index)
         {
             return None;
@@ -1122,6 +1402,15 @@ impl<const RX: usize, const TX: usize> Driver for NetDriver<RX, TX> {
     fn capabilities(&self) -> Capabilities {
         let mut capabilities = Capabilities::default();
         capabilities.max_transmission_unit = 1514;
+        // The Type-2 receive checksum engine validates IPv4 headers and
+        // IPv4/IPv6 TCP, UDP and ICMP payloads. The DMA drops checksum-error
+        // frames while `Checksum::Tx` keeps software checksums enabled for
+        // transmission, where descriptor offload is not configured yet.
+        capabilities.checksum.ipv4 = Checksum::Tx;
+        capabilities.checksum.udp = Checksum::Tx;
+        capabilities.checksum.tcp = Checksum::Tx;
+        capabilities.checksum.icmpv4 = Checksum::Tx;
+        capabilities.checksum.icmpv6 = Checksum::Tx;
         capabilities
     }
 
