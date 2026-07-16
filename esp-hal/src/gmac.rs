@@ -367,6 +367,10 @@ pub struct Gmac {
     dma_guard_status: AtomicU32,
     rx_ring_integrity_status: AtomicU32,
     tx_frame_count: AtomicU32,
+    tx_payload_checksum_error_count: AtomicU32,
+    tx_ip_header_error_count: AtomicU32,
+    tx_error_summary_count: AtomicU32,
+    last_tx_descriptor_status: AtomicU32,
     rx_dhcp_count: AtomicU32,
     tx_dhcp_count: AtomicU32,
     tx_underflow_count: AtomicU32,
@@ -414,6 +418,10 @@ impl Gmac {
             dma_guard_status: AtomicU32::new(0),
             rx_ring_integrity_status: AtomicU32::new(0),
             tx_frame_count: AtomicU32::new(0),
+            tx_payload_checksum_error_count: AtomicU32::new(0),
+            tx_ip_header_error_count: AtomicU32::new(0),
+            tx_error_summary_count: AtomicU32::new(0),
+            last_tx_descriptor_status: AtomicU32::new(0),
             rx_dhcp_count: AtomicU32::new(0),
             tx_dhcp_count: AtomicU32::new(0),
             tx_underflow_count: AtomicU32::new(0),
@@ -546,6 +554,26 @@ impl Gmac {
     /// Returns the number of TX frames handed to DMA.
     pub fn tx_frame_count(&self) -> u32 {
         self.tx_frame_count.load(Ordering::Relaxed)
+    }
+
+    /// Returns the number of completed TX descriptors with TDES0.PCE set.
+    pub fn tx_payload_checksum_error_count(&self) -> u32 {
+        self.tx_payload_checksum_error_count.load(Ordering::Relaxed)
+    }
+
+    /// Returns the number of completed TX descriptors with TDES0.IHE set.
+    pub fn tx_ip_header_error_count(&self) -> u32 {
+        self.tx_ip_header_error_count.load(Ordering::Relaxed)
+    }
+
+    /// Returns the number of completed TX descriptors with TDES0.ES set.
+    pub fn tx_error_summary_count(&self) -> u32 {
+        self.tx_error_summary_count.load(Ordering::Relaxed)
+    }
+
+    /// Returns the latest TX descriptor write-back status observed on reuse.
+    pub fn last_tx_descriptor_status(&self) -> u32 {
+        self.last_tx_descriptor_status.load(Ordering::Relaxed)
     }
 
     /// Returns the number of DHCP server-to-client frames received.
@@ -946,6 +974,23 @@ impl Gmac {
     ) -> R {
         let index = index % TX;
         let length = length.min(1514);
+        // `tx_ready` invalidated this descriptor before handing out the token.
+        // Preserve DMA write-back diagnostics before replacing TDES0 control
+        // bits for the next frame.
+        let completed_status = storage.tx_descriptors[index].read_word(0);
+        self.last_tx_descriptor_status
+            .store(completed_status, Ordering::Relaxed);
+        if completed_status & (1 << 12) != 0 {
+            self.tx_payload_checksum_error_count
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        if completed_status & (1 << 16) != 0 {
+            self.tx_ip_header_error_count
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        if completed_status & (1 << 15) != 0 {
+            self.tx_error_summary_count.fetch_add(1, Ordering::Relaxed);
+        }
         let result = fill(&mut storage.tx_buffers[index].0[..length]);
         if is_dhcp_frame(&storage.tx_buffers[index].0[..length], 68, 67) {
             self.tx_dhcp_count.fetch_add(1, Ordering::Relaxed);
@@ -1405,7 +1450,8 @@ impl<const RX: usize, const TX: usize> Driver for NetDriver<RX, TX> {
         // The Type-2 receive checksum engine validates IPv4 headers and
         // IPv4/IPv6 TCP, UDP and ICMP payloads. The DMA drops checksum-error
         // frames while `Checksum::Tx` keeps software checksums enabled for
-        // transmission, where descriptor offload is not configured yet.
+        // transmission. ESP32-S31 advertises TX checksum offload, but its
+        // payload engine fails for Ethernet frames of 880 bytes and larger.
         capabilities.checksum.ipv4 = Checksum::Tx;
         capabilities.checksum.udp = Checksum::Tx;
         capabilities.checksum.tcp = Checksum::Tx;
