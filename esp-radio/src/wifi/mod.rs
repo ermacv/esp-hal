@@ -2523,13 +2523,6 @@ impl<'d> WifiController<'d> {
 
         crate::wifi::wifi_init(device)?;
 
-        // wifi_init_config_t carries only RX BA. ESP-IDF applies its TX BA
-        // Kconfig value through this vendor entry point; direct users of
-        // esp_wifi_init_internal must reproduce that step explicitly.
-        unsafe {
-            esp_wifi_internal_set_baw(config.rx_ba_win as i32, config.tx_ba_win as i32);
-        }
-
         // At some point the "High-speed ADC" entropy source became available.
         #[cfg(rng_trng_supported)]
         esp_hal::if_unstable_hal! {
@@ -2551,6 +2544,15 @@ impl<'d> WifiController<'d> {
         controller.set_power_saving(PowerSaveMode::default())?;
 
         controller.set_config(&config.initial_config)?;
+
+        // wifi_init_config_t carries only RX BA. ESP-IDF applies its TX BA
+        // Kconfig value through this vendor entry point; direct users of
+        // esp_wifi_init_internal must reproduce that step explicitly. Apply it
+        // after the interface configuration, which initializes the blob state
+        // consumed by this function.
+        unsafe {
+            esp_wifi_internal_set_baw(config.rx_ba_win as i32, config.tx_ba_win as i32);
+        }
 
         // Set a default TX power
         esp_wifi_result!(unsafe { esp_wifi_set_max_tx_power(20) })?;
