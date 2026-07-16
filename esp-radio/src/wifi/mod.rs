@@ -65,12 +65,16 @@ use esp_hal::system::Cpu;
 use esp_hal::time::{Duration, Instant};
 use esp_sync::NonReentrantMutex;
 use event::EVENT_CHANNEL;
-use portable_atomic::{AtomicU8, AtomicUsize, Ordering};
+use portable_atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicUsize, Ordering};
 use procmacros::BuilderLite;
 
 unsafe extern "C" {
-    // ESP-IDF applies CONFIG_ESP_WIFI_TX_BA_WIN separately from
-    // wifi_init_config_t, which only contains the RX window.
+    // Older ESP-IDF targets apply CONFIG_ESP_WIFI_TX_BA_WIN separately from
+    // wifi_init_config_t, which only contains the RX window. ESP32-S31 is
+    // deliberately excluded: its current ESP-IDF reference does not call this
+    // private entry point and the vendor library negotiates its TX window
+    // internally.
+    #[cfg(not(esp32s31))]
     fn esp_wifi_internal_set_baw(rx_ba_win: i32, tx_ba_win: i32);
 }
 
@@ -845,10 +849,14 @@ static RX_QUEUE_HIGH_WATER: AtomicUsize = AtomicUsize::new(0);
 static TX_CAPACITY_BLOCKS: AtomicUsize = AtomicUsize::new(0);
 static TX_SUBMITTED: AtomicUsize = AtomicUsize::new(0);
 static TX_IMMEDIATE_ERRORS: AtomicUsize = AtomicUsize::new(0);
+static TX_LAST_IMMEDIATE_ERROR: AtomicI32 = AtomicI32::new(0);
 static TX_STATE_REJECTS: AtomicUsize = AtomicUsize::new(0);
 static TX_DONE_OK: AtomicUsize = AtomicUsize::new(0);
 static TX_DONE_FAILED: AtomicUsize = AtomicUsize::new(0);
 static TX_INFLIGHT_HIGH_WATER: AtomicUsize = AtomicUsize::new(0);
+static TX_COMPLETION_WAKES: AtomicUsize = AtomicUsize::new(0);
+static TX_CAPACITY_WAITING: AtomicBool = AtomicBool::new(false);
+const TX_COMPLETION_WAKE_BATCH: usize = 4;
 
 fn record_high_water(counter: &AtomicUsize, value: usize) {
     let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
@@ -943,6 +951,8 @@ pub struct DataPathDiagnostics {
     pub tx_submitted: usize,
     /// Immediate errors returned by the vendor TX function.
     pub tx_immediate_errors: usize,
+    /// Most recent non-zero result returned by the vendor TX function.
+    pub tx_last_immediate_error: i32,
     /// Frames rejected because the interface stopped being connected.
     pub tx_state_rejects: usize,
     /// Successful vendor TX completion callbacks.
@@ -953,6 +963,8 @@ pub struct DataPathDiagnostics {
     pub tx_inflight: usize,
     /// Highest observed number of in-flight vendor TX frames.
     pub tx_inflight_high_water: usize,
+    /// Executor wakes caused by a full-to-available TX transition.
+    pub tx_completion_wakes: usize,
 }
 
 /// Returns a snapshot of Wi-Fi data-path diagnostics.
@@ -965,11 +977,13 @@ pub fn data_path_diagnostics() -> DataPathDiagnostics {
         tx_capacity_blocks: TX_CAPACITY_BLOCKS.load(Ordering::Relaxed),
         tx_submitted: TX_SUBMITTED.load(Ordering::Relaxed),
         tx_immediate_errors: TX_IMMEDIATE_ERRORS.load(Ordering::Relaxed),
+        tx_last_immediate_error: TX_LAST_IMMEDIATE_ERROR.load(Ordering::Relaxed),
         tx_state_rejects: TX_STATE_REJECTS.load(Ordering::Relaxed),
         tx_done_ok: TX_DONE_OK.load(Ordering::Relaxed),
         tx_done_failed: TX_DONE_FAILED.load(Ordering::Relaxed),
         tx_inflight: WIFI_TX_INFLIGHT.load(Ordering::Relaxed),
         tx_inflight_high_water: TX_INFLIGHT_HIGH_WATER.load(Ordering::Relaxed),
+        tx_completion_wakes: TX_COMPLETION_WAKES.load(Ordering::Relaxed),
     }
 }
 
@@ -1182,12 +1196,12 @@ unsafe extern "C" fn recv_cb_ap(
 
 pub(crate) static WIFI_TX_INFLIGHT: AtomicUsize = AtomicUsize::new(0);
 
-fn decrement_inflight_counter() {
+fn decrement_inflight_counter() -> usize {
     unwrap!(
         WIFI_TX_INFLIGHT.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
             Some(x.saturating_sub(1))
         })
-    );
+    )
 }
 
 #[ram]
@@ -1199,14 +1213,24 @@ unsafe extern "C" fn esp_wifi_tx_done_cb(
 ) {
     trace!("esp_wifi_tx_done_cb");
 
-    decrement_inflight_counter();
+    let previous_inflight = decrement_inflight_counter();
     if tx_status {
         TX_DONE_OK.fetch_add(1, Ordering::Relaxed);
     } else {
         TX_DONE_FAILED.fetch_add(1, Ordering::Relaxed);
     }
 
-    TRANSMIT_WAKER.wake();
+    // Refill several released slots at once. Waking immediately after every
+    // full-to-available transition makes the two cores exchange one packet
+    // per software interrupt and shortens the vendor AMPDU batches.
+    let queue_size = TX_QUEUE_SIZE.load(Ordering::Relaxed);
+    let wake_level = queue_size.saturating_sub(TX_COMPLETION_WAKE_BATCH);
+    if previous_inflight.saturating_sub(1) <= wake_level
+        && TX_CAPACITY_WAITING.swap(false, Ordering::AcqRel)
+    {
+        TX_COMPLETION_WAKES.fetch_add(1, Ordering::Relaxed);
+        TRANSMIT_WAKER.wake();
+    }
 }
 
 pub(crate) fn wifi_start_scan(
@@ -1354,11 +1378,13 @@ impl InterfaceType {
     fn tx_token(&self) -> Option<WifiTxToken> {
         if !self.can_send() {
             TX_CAPACITY_BLOCKS.fetch_add(1, Ordering::Relaxed);
+            TX_CAPACITY_WAITING.store(true, Ordering::Release);
             // TODO: perhaps we can use a counting semaphore with a short blocking timeout
             crate::preempt::yield_task();
         }
 
         if self.can_send() {
+            TX_CAPACITY_WAITING.store(false, Ordering::Release);
             // even checking for !Uninitialized would be enough to not crash
             if self.link_state() == LinkState::Up {
                 return Some(WifiTxToken { mode: *self });
@@ -1962,6 +1988,7 @@ pub(crate) fn esp_wifi_send_data(interface: wifi_interface_t, data: &mut [u8]) {
 
         if res != include::ESP_OK as i32 {
             TX_IMMEDIATE_ERRORS.fetch_add(1, Ordering::Relaxed);
+            TX_LAST_IMMEDIATE_ERROR.store(res, Ordering::Relaxed);
             warn!("esp_wifi_internal_tx returned error: {}", res);
             decrement_inflight_counter();
         }
@@ -2545,11 +2572,12 @@ impl<'d> WifiController<'d> {
 
         controller.set_config(&config.initial_config)?;
 
-        // wifi_init_config_t carries only RX BA. ESP-IDF applies its TX BA
-        // Kconfig value through this vendor entry point; direct users of
-        // esp_wifi_init_internal must reproduce that step explicitly. Apply it
-        // after the interface configuration, which initializes the blob state
-        // consumed by this function.
+        // wifi_init_config_t carries only RX BA. Older ESP-IDF targets apply
+        // the TX Kconfig value through this vendor entry point; direct users of
+        // esp_wifi_init_internal must reproduce that step explicitly. The S31
+        // reference does not call it, and calling it after interface setup can
+        // leave that target's aggregation state inconsistent.
+        #[cfg(not(esp32s31))]
         unsafe {
             esp_wifi_internal_set_baw(config.rx_ba_win as i32, config.tx_ba_win as i32);
         }
