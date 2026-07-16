@@ -21,6 +21,7 @@ use crate::{
         common::{str_from_c, thread_sem_get},
         malloc::{InternalMemory, calloc_internal},
     },
+    hal::ram,
     sys::c_types::*,
     time::{blob_ticks_to_micros, millis_to_blob_ticks},
 };
@@ -139,8 +140,9 @@ pub unsafe extern "C" fn ints_off(mask: u32) {
 ///   true if in interrupt or false if not
 ///
 /// *************************************************************************
+#[ram]
 pub unsafe extern "C" fn is_from_isr() -> bool {
-    true
+    !crate::hal::interrupt::RunLevel::current().is_thread()
 }
 
 /// **************************************************************************
