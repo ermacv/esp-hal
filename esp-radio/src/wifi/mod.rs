@@ -1224,7 +1224,10 @@ unsafe extern "C" fn esp_wifi_tx_done_cb(
     // full-to-available transition makes the two cores exchange one packet
     // per software interrupt and shortens the vendor AMPDU batches.
     let queue_size = TX_QUEUE_SIZE.load(Ordering::Relaxed);
-    let wake_level = queue_size.saturating_sub(TX_COMPLETION_WAKE_BATCH);
+    // Preserve low latency for the small default queues while still batching
+    // completion wakeups for throughput-oriented configurations.
+    let wake_batch = TX_COMPLETION_WAKE_BATCH.min((queue_size / 2).max(1));
+    let wake_level = queue_size.saturating_sub(wake_batch);
     if previous_inflight.saturating_sub(1) <= wake_level
         && TX_CAPACITY_WAITING.swap(false, Ordering::AcqRel)
     {
