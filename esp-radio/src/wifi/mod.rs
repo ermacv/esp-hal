@@ -3469,6 +3469,8 @@ ignored."
             cfg.sta.ssid[0..(config.ssid.len())].copy_from_slice(config.ssid.as_bytes());
             cfg.sta.password[0..(config.password.len())]
                 .copy_from_slice(config.password.as_bytes());
+            cfg.sta
+                .set_he_mcs9_enabled(u32::from(config.he_mcs9_enabled));
 
             esp_wifi_result!(esp_wifi_set_config(wifi_interface_t_WIFI_IF_STA, &mut cfg))
         }
