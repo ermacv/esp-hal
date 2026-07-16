@@ -602,7 +602,17 @@ pub unsafe extern "C" fn task_get_current_task() -> *mut c_void {
 /// *************************************************************************
 pub unsafe extern "C" fn task_get_max_priority() -> i32 {
     trace!("task_get_max_priority");
-    crate::preempt::max_task_priority() as i32
+
+    // The closed S31 Wi-Fi library derives the driver task priority as
+    // `_task_get_max_priority() - 2`. ESP-IDF exposes FreeRTOS'
+    // `configMAX_PRIORITIES` here, which is 25 and therefore creates the
+    // driver task at priority 23. Exposing esp-rtos' wider priority range made
+    // the same binary create it at priority 29 instead.
+    if cfg!(esp32s31) {
+        25
+    } else {
+        crate::preempt::max_task_priority() as i32
+    }
 }
 
 /// **************************************************************************

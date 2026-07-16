@@ -852,7 +852,7 @@ static TX_DONE_FAILED: AtomicUsize = AtomicUsize::new(0);
 static TX_INFLIGHT_HIGH_WATER: AtomicUsize = AtomicUsize::new(0);
 static TX_COMPLETION_WAKES: AtomicUsize = AtomicUsize::new(0);
 static TX_CAPACITY_WAITING: AtomicBool = AtomicBool::new(false);
-const TX_COMPLETION_WAKE_BATCH: usize = 4;
+const TX_COMPLETION_WAKE_BATCH: usize = 8;
 
 fn record_high_water(counter: &AtomicUsize, value: usize) {
     let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
@@ -2581,6 +2581,15 @@ impl<'d> WifiController<'d> {
 
         // Set a default TX power
         esp_wifi_result!(unsafe { esp_wifi_set_max_tx_power(20) })?;
+
+        // The S31 driver builds its initial station rate-control table from the
+        // station capabilities and protocol mask only after Wi-Fi has started
+        // and the BA state is initialized. Without this final application the
+        // config readback contains he_mcs9_enabled=1, but the active table is
+        // still capped at MCS7. ESP-IDF's S31 iperf path likewise applies the
+        // station config after esp_wifi_start() and immediately before connect.
+        #[cfg(esp32s31)]
+        controller.set_config(&config.initial_config)?;
 
         Ok(controller)
     }
