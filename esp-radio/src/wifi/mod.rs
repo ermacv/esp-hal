@@ -2855,23 +2855,23 @@ impl WifiController<'_> {
 
         match conf {
             Config::Station(config) => {
-                Self::apply_protocols(wifi_interface_t_WIFI_IF_STA, &config.protocols)?;
                 self.apply_sta_config(config)?;
+                Self::apply_protocols(wifi_interface_t_WIFI_IF_STA, &config.protocols)?;
             }
             Config::AccessPoint(config) => {
-                Self::apply_protocols(wifi_interface_t_WIFI_IF_AP, &config.protocols)?;
                 self.apply_ap_config(config)?;
+                Self::apply_protocols(wifi_interface_t_WIFI_IF_AP, &config.protocols)?;
             }
             Config::AccessPointStation(sta_config, ap_config) => {
-                Self::apply_protocols(wifi_interface_t_WIFI_IF_AP, &ap_config.protocols)?;
                 self.apply_ap_config(ap_config)?;
-                Self::apply_protocols(wifi_interface_t_WIFI_IF_STA, &sta_config.protocols)?;
+                Self::apply_protocols(wifi_interface_t_WIFI_IF_AP, &ap_config.protocols)?;
                 self.apply_sta_config(sta_config)?;
+                Self::apply_protocols(wifi_interface_t_WIFI_IF_STA, &sta_config.protocols)?;
             }
             #[cfg(feature = "wifi-eap")]
             Config::EapStation(config) => {
-                Self::apply_protocols(wifi_interface_t_WIFI_IF_STA, &config.protocols)?;
                 self.apply_sta_eap_config(config)?;
+                Self::apply_protocols(wifi_interface_t_WIFI_IF_STA, &config.protocols)?;
             }
         }
 
