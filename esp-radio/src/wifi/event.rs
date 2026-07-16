@@ -666,6 +666,7 @@ impl NeighborAwarenessNetworkingReceive<'_> {
         &self.0.peer_svc_info
     }
 
+    /// Get Peer Service Info.
     #[cfg(esp32s31)]
     pub fn peer_svc_info(&self) -> &[u8] {
         unsafe { self.0.ssi.as_slice(self.0.ssi_len as usize) }
@@ -699,6 +700,7 @@ impl NeighborDiscoveryProtocolIndication<'_> {
         &self.0.svc_info
     }
 
+    /// Get Service Specific Info.
     #[cfg(esp32s31)]
     pub fn svc_info(&self) -> &[u8] {
         unsafe { self.0.ssi.as_slice(self.0.ssi_len as usize) }
@@ -737,6 +739,7 @@ impl NeighborDiscoveryProtocolConfirmation<'_> {
         &self.0.svc_info
     }
 
+    /// Get Service Specific Info.
     #[cfg(esp32s31)]
     pub fn svc_info(&self) -> &[u8] {
         unsafe { self.0.ssi.as_slice(self.0.ssi_len as usize) }

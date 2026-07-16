@@ -69,12 +69,8 @@ use portable_atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicUsize, Ordering};
 use procmacros::BuilderLite;
 
 unsafe extern "C" {
-    // Older ESP-IDF targets apply CONFIG_ESP_WIFI_TX_BA_WIN separately from
-    // wifi_init_config_t, which only contains the RX window. ESP32-S31 is
-    // deliberately excluded: its current ESP-IDF reference does not call this
-    // private entry point and the vendor library negotiates its TX window
-    // internally.
-    #[cfg(not(esp32s31))]
+    // ESP-IDF applies CONFIG_ESP_WIFI_TX_BA_WIN separately from
+    // wifi_init_config_t, which only contains the RX window.
     fn esp_wifi_internal_set_baw(rx_ba_win: i32, tx_ba_win: i32);
 }
 
@@ -2575,12 +2571,10 @@ impl<'d> WifiController<'d> {
 
         controller.set_config(&config.initial_config)?;
 
-        // wifi_init_config_t carries only RX BA. Older ESP-IDF targets apply
-        // the TX Kconfig value through this vendor entry point; direct users of
-        // esp_wifi_init_internal must reproduce that step explicitly. The S31
-        // reference does not call it, and calling it after interface setup can
-        // leave that target's aggregation state inconsistent.
-        #[cfg(not(esp32s31))]
+        // wifi_init_config_t carries only RX BA. ESP-IDF applies its TX BA
+        // Kconfig value through this vendor entry point; direct users of
+        // esp_wifi_init_internal must reproduce that step explicitly. Apply it
+        // after interface configuration, once the blob state is initialized.
         unsafe {
             esp_wifi_internal_set_baw(config.rx_ba_win as i32, config.tx_ba_win as i32);
         }
