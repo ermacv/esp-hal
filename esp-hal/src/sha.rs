@@ -343,7 +343,7 @@ impl crate::interrupt::InterruptConfigurable for Sha<'_> {
 pub mod dma {
     use core::{future::poll_fn, marker::PhantomData, mem::ManuallyDrop, task::Poll};
 
-    use super::{AlignmentHelper, Sha, ShaAlgorithm, SocDependentEndianess, h_mem};
+    use super::{AlignmentHelper, Sha, Sha256, ShaAlgorithm, SocDependentEndianess, h_mem};
     use crate::{
         Async,
         asynch::AtomicWaker,
@@ -383,6 +383,10 @@ pub mod dma {
         /// The buffer is empty, not an integer number of SHA blocks, or exceeds
         /// [`MAX_TRANSFER_SIZE`].
         InvalidLength,
+        /// The provided DMA buffer cannot hold one complete SHA-256 block.
+        BufferTooSmall,
+        /// The message is too long for SHA-256's 64-bit length field.
+        MessageTooLong,
         /// The DMA engine rejected the descriptor chain or transfer.
         Dma(DmaError),
     }
@@ -487,13 +491,21 @@ pub mod dma {
             mut self,
             output: &mut [u8],
         ) -> Result<(ShaDma<'d>, DmaTxBuf), (Error, ShaDma<'d>, DmaTxBuf)> {
+            if let Err(error) = self.wait_for_completion_async().await {
+                let (sha_dma, input) = self.release();
+                return Err((error, sha_dma, input));
+            }
+
+            Ok(self.finish(output))
+        }
+
+        async fn wait_for_completion_async(&mut self) -> Result<(), Error> {
             let regs = self.sha_dma.sha.sha.register_block();
             regs.clear_irq().write(|w| w.clear_interrupt().set_bit());
             regs.irq_ena().write(|w| w.interrupt_ena().set_bit());
 
             if let Err(error) = DmaTxFuture::new(&mut self.sha_dma.channel.tx).await {
-                let (sha_dma, input) = self.release();
-                return Err((Error::Dma(error), sha_dma, input));
+                return Err(Error::Dma(error));
             }
 
             poll_fn(|cx| {
@@ -506,7 +518,7 @@ pub mod dma {
             })
             .await;
 
-            Ok(self.finish(output))
+            Ok(())
         }
 
         fn finish(mut self, output: &mut [u8]) -> (ShaDma<'d>, DmaTxBuf) {
@@ -563,6 +575,321 @@ pub mod dma {
                 ManuallyDrop::drop(&mut self.sha_dma);
                 let tx_view = ManuallyDrop::take(&mut self.tx_view);
                 let _ = DmaTxBuf::from_view(tx_view);
+            }
+        }
+    }
+
+    /// Streaming SHA-256 context backed by the SHA accelerator and AXI-DMA.
+    ///
+    /// The context accepts arbitrarily split input, buffers at most 63 message
+    /// bytes internally, adds SHA-256 padding during finalization, and splits
+    /// large inputs into transfers accepted by the hardware. It never allocates:
+    /// the caller supplies a statically allocated [`DmaTxBuf`] which is owned and
+    /// reused by the context. Complete input blocks are copied into that DMA
+    /// buffer, so the source slice itself does not need to be DMA-capable.
+    ///
+    /// Cancelling an asynchronous update or finalization resets the hash to the
+    /// empty state. The SHA peripheral, DMA channel, and DMA buffer remain owned
+    /// by this object and can be used for a new message.
+    pub struct Sha256Dma<'d> {
+        sha: Option<ShaDma<'d>>,
+        input: Option<DmaTxBuf>,
+        tail: [u8; Sha256::CHUNK_LENGTH],
+        tail_len: usize,
+        message_bytes: u64,
+        first_block: bool,
+        transfer_capacity: usize,
+    }
+
+    impl core::fmt::Debug for Sha256Dma<'_> {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.debug_struct("Sha256Dma")
+                .field("tail_len", &self.tail_len)
+                .field("message_bytes", &self.message_bytes)
+                .field("first_block", &self.first_block)
+                .field("transfer_capacity", &self.transfer_capacity)
+                .finish_non_exhaustive()
+        }
+    }
+
+    impl<'d> Sha256Dma<'d> {
+        const MAX_MESSAGE_BYTES: u64 = u64::MAX / 8;
+
+        /// Creates a streaming SHA-256 context from exclusively owned DMA resources.
+        ///
+        /// The buffer must hold at least one 64-byte SHA-256 block. Capacity above
+        /// [`MAX_TRANSFER_SIZE`] is accepted but is not used by one transfer.
+        pub fn new(
+            sha: ShaDma<'d>,
+            input: DmaTxBuf,
+        ) -> Result<Self, (Error, ShaDma<'d>, DmaTxBuf)> {
+            let transfer_capacity = core::cmp::min(input.capacity(), MAX_TRANSFER_SIZE)
+                / Sha256::CHUNK_LENGTH
+                * Sha256::CHUNK_LENGTH;
+            if transfer_capacity == 0 {
+                return Err((Error::BufferTooSmall, sha, input));
+            }
+
+            Ok(Self {
+                sha: Some(sha),
+                input: Some(input),
+                tail: [0; Sha256::CHUNK_LENGTH],
+                tail_len: 0,
+                message_bytes: 0,
+                first_block: true,
+                transfer_capacity,
+            })
+        }
+
+        /// Returns the maximum number of bytes submitted by one DMA operation.
+        pub fn transfer_capacity(&self) -> usize {
+            self.transfer_capacity
+        }
+
+        /// Adds message bytes and asynchronously waits for required DMA operations.
+        pub async fn update(&mut self, mut data: &[u8]) -> Result<(), Error> {
+            let new_message_bytes = self.checked_message_length(data.len())?;
+
+            if self.tail_len != 0 {
+                let copied = core::cmp::min(Sha256::CHUNK_LENGTH - self.tail_len, data.len());
+                self.tail[self.tail_len..self.tail_len + copied].copy_from_slice(&data[..copied]);
+                self.tail_len += copied;
+                data = &data[copied..];
+
+                if self.tail_len == Sha256::CHUNK_LENGTH {
+                    let block = self.tail;
+                    self.process_blocks_async(&block, &mut []).await?;
+                    self.tail_len = 0;
+                } else {
+                    self.message_bytes = new_message_bytes;
+                    return Ok(());
+                }
+            }
+
+            while data.len() >= Sha256::CHUNK_LENGTH {
+                let complete_bytes = data.len() / Sha256::CHUNK_LENGTH * Sha256::CHUNK_LENGTH;
+                let transfer_bytes = core::cmp::min(complete_bytes, self.transfer_capacity);
+                self.process_blocks_async(&data[..transfer_bytes], &mut [])
+                    .await?;
+                data = &data[transfer_bytes..];
+            }
+
+            self.tail[..data.len()].copy_from_slice(data);
+            self.tail_len = data.len();
+            self.message_bytes = new_message_bytes;
+            Ok(())
+        }
+
+        /// Finalizes the message asynchronously and resets the context.
+        pub async fn finalize(
+            &mut self,
+            output: &mut [u8; Sha256::DIGEST_LENGTH],
+        ) -> Result<(), Error> {
+            let (final_blocks, final_len) = self.padded_final_blocks();
+            let result = if final_len <= self.transfer_capacity {
+                self.process_blocks_async(&final_blocks[..final_len], output)
+                    .await
+            } else {
+                self.process_blocks_async(&final_blocks[..Sha256::CHUNK_LENGTH], &mut [])
+                    .await?;
+                self.process_blocks_async(&final_blocks[Sha256::CHUNK_LENGTH..final_len], output)
+                    .await
+            };
+
+            if result.is_ok() {
+                self.reset_state();
+            }
+            result
+        }
+
+        /// Adds message bytes, busy-waiting for required DMA operations.
+        pub fn update_blocking(&mut self, mut data: &[u8]) -> Result<(), Error> {
+            let new_message_bytes = self.checked_message_length(data.len())?;
+
+            if self.tail_len != 0 {
+                let copied = core::cmp::min(Sha256::CHUNK_LENGTH - self.tail_len, data.len());
+                self.tail[self.tail_len..self.tail_len + copied].copy_from_slice(&data[..copied]);
+                self.tail_len += copied;
+                data = &data[copied..];
+
+                if self.tail_len == Sha256::CHUNK_LENGTH {
+                    let block = self.tail;
+                    self.process_blocks_blocking(&block, &mut [])?;
+                    self.tail_len = 0;
+                } else {
+                    self.message_bytes = new_message_bytes;
+                    return Ok(());
+                }
+            }
+
+            while data.len() >= Sha256::CHUNK_LENGTH {
+                let complete_bytes = data.len() / Sha256::CHUNK_LENGTH * Sha256::CHUNK_LENGTH;
+                let transfer_bytes = core::cmp::min(complete_bytes, self.transfer_capacity);
+                self.process_blocks_blocking(&data[..transfer_bytes], &mut [])?;
+                data = &data[transfer_bytes..];
+            }
+
+            self.tail[..data.len()].copy_from_slice(data);
+            self.tail_len = data.len();
+            self.message_bytes = new_message_bytes;
+            Ok(())
+        }
+
+        /// Finalizes the message by busy-waiting and resets the context.
+        pub fn finalize_blocking(
+            &mut self,
+            output: &mut [u8; Sha256::DIGEST_LENGTH],
+        ) -> Result<(), Error> {
+            let (final_blocks, final_len) = self.padded_final_blocks();
+            let result = if final_len <= self.transfer_capacity {
+                self.process_blocks_blocking(&final_blocks[..final_len], output)
+            } else {
+                self.process_blocks_blocking(&final_blocks[..Sha256::CHUNK_LENGTH], &mut [])?;
+                self.process_blocks_blocking(&final_blocks[Sha256::CHUNK_LENGTH..final_len], output)
+            };
+
+            if result.is_ok() {
+                self.reset_state();
+            }
+            result
+        }
+
+        /// Discards the current message while retaining all hardware resources.
+        pub fn reset(&mut self) {
+            self.reset_state();
+        }
+
+        /// Releases the SHA peripheral, DMA channel, and DMA buffer.
+        pub fn release(mut self) -> (ShaDma<'d>, DmaTxBuf) {
+            (
+                self.sha.take().expect("SHA-DMA resources are present"),
+                self.input.take().expect("SHA-DMA buffer is present"),
+            )
+        }
+
+        fn checked_message_length(&self, additional: usize) -> Result<u64, Error> {
+            let Some(length) = self.message_bytes.checked_add(additional as u64) else {
+                return Err(Error::MessageTooLong);
+            };
+            if length > Self::MAX_MESSAGE_BYTES {
+                return Err(Error::MessageTooLong);
+            }
+            Ok(length)
+        }
+
+        fn padded_final_blocks(&self) -> ([u8; Sha256::CHUNK_LENGTH * 2], usize) {
+            let mut blocks = [0u8; Sha256::CHUNK_LENGTH * 2];
+            blocks[..self.tail_len].copy_from_slice(&self.tail[..self.tail_len]);
+            blocks[self.tail_len] = 0x80;
+
+            let length_bytes = core::mem::size_of::<u64>();
+            let final_len = if self.tail_len + 1 + length_bytes <= Sha256::CHUNK_LENGTH {
+                Sha256::CHUNK_LENGTH
+            } else {
+                Sha256::CHUNK_LENGTH * 2
+            };
+            blocks[final_len - length_bytes..final_len]
+                .copy_from_slice(&(self.message_bytes * 8).to_be_bytes());
+            (blocks, final_len)
+        }
+
+        async fn process_blocks_async(
+            &mut self,
+            blocks: &[u8],
+            output: &mut [u8],
+        ) -> Result<(), Error> {
+            debug_assert!(!blocks.is_empty());
+            debug_assert!(blocks.len().is_multiple_of(Sha256::CHUNK_LENGTH));
+            debug_assert!(blocks.len() <= self.transfer_capacity);
+
+            let mut input = self.input.take().expect("SHA-DMA buffer is present");
+            input.fill(blocks);
+            let sha = self.sha.take().expect("SHA-DMA resources are present");
+            let transfer = match sha.process::<Sha256>(input, self.first_block) {
+                Ok(transfer) => transfer,
+                Err((error, sha, input)) => {
+                    self.sha = Some(sha);
+                    self.input = Some(input);
+                    self.reset_state();
+                    return Err(error);
+                }
+            };
+
+            let mut guard = Sha256TransferGuard {
+                owner: self,
+                transfer: Some(transfer),
+            };
+            guard.wait().await?;
+            guard.finish(output);
+            Ok(())
+        }
+
+        fn process_blocks_blocking(
+            &mut self,
+            blocks: &[u8],
+            output: &mut [u8],
+        ) -> Result<(), Error> {
+            debug_assert!(!blocks.is_empty());
+            debug_assert!(blocks.len().is_multiple_of(Sha256::CHUNK_LENGTH));
+            debug_assert!(blocks.len() <= self.transfer_capacity);
+
+            let mut input = self.input.take().expect("SHA-DMA buffer is present");
+            input.fill(blocks);
+            let sha = self.sha.take().expect("SHA-DMA resources are present");
+            let transfer = match sha.process::<Sha256>(input, self.first_block) {
+                Ok(transfer) => transfer,
+                Err((error, sha, input)) => {
+                    self.sha = Some(sha);
+                    self.input = Some(input);
+                    self.reset_state();
+                    return Err(error);
+                }
+            };
+            let (sha, input) = transfer.wait(output);
+            self.sha = Some(sha);
+            self.input = Some(input);
+            self.first_block = false;
+            Ok(())
+        }
+
+        fn reset_state(&mut self) {
+            self.tail.fill(0);
+            self.tail_len = 0;
+            self.message_bytes = 0;
+            self.first_block = true;
+        }
+    }
+
+    struct Sha256TransferGuard<'a, 'd> {
+        owner: &'a mut Sha256Dma<'d>,
+        transfer: Option<ShaDmaTransfer<'d, Sha256>>,
+    }
+
+    impl Sha256TransferGuard<'_, '_> {
+        async fn wait(&mut self) -> Result<(), Error> {
+            self.transfer
+                .as_mut()
+                .expect("SHA-DMA transfer is present")
+                .wait_for_completion_async()
+                .await
+        }
+
+        fn finish(mut self, output: &mut [u8]) {
+            let transfer = self.transfer.take().expect("SHA-DMA transfer is present");
+            let (sha, input) = transfer.finish(output);
+            self.owner.sha = Some(sha);
+            self.owner.input = Some(input);
+            self.owner.first_block = false;
+        }
+    }
+
+    impl Drop for Sha256TransferGuard<'_, '_> {
+        fn drop(&mut self) {
+            if let Some(transfer) = self.transfer.take() {
+                let (sha, input) = transfer.release();
+                self.owner.sha = Some(sha);
+                self.owner.input = Some(input);
+                self.owner.reset_state();
             }
         }
     }
