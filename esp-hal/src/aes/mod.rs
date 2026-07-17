@@ -384,7 +384,9 @@ pub mod dma {
             DmaDescriptor,
             DmaEligiblePeripheral,
             DmaError,
+            DmaRxBuf,
             DmaRxBuffer,
+            DmaTxBuf,
             DmaTxBuffer,
             NoBuffer,
             aligned::InternalMemory,
@@ -417,8 +419,129 @@ pub mod dma {
         /// Cipher Feedback Mode with 128-bit shifting.
         #[cfg(aes_dma_mode_cfb128)]
         Cfb128 = 5,
-        // TODO: GCM needs different handling, not supported yet
+        /// Galois/Counter Mode. This is used by the dedicated one-shot GCM API.
+        #[cfg(aes_dma_mode_gcm)]
+        Gcm    = 6,
     }
+
+    /// Error while constructing the authenticated input stream for AES-GCM.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub enum GcmInputError {
+        /// AAD or payload length cannot be represented by the hardware length block.
+        LengthTooLarge,
+        /// The supplied DMA buffer cannot hold padded AAD, payload and the length block.
+        BufferTooSmall,
+        /// Hardware GCM requires a non-empty payload.
+        EmptyPayload,
+    }
+
+    /// A prepared one-shot AES-GCM input stream.
+    ///
+    /// The private layout is `AAD || pad || payload || pad || length block`, as
+    /// required by the ESP32-S31 GCM DMA engine. Constructing this type copies
+    /// the caller's slices into DMA-capable memory and prevents application code
+    /// from accidentally assembling the hardware-specific stream incorrectly.
+    pub struct GcmDmaInput {
+        buffer: DmaTxBuf,
+        aad_blocks: u32,
+        data_blocks: u32,
+        remainder_bits: u8,
+        data_len: usize,
+    }
+
+    impl GcmDmaInput {
+        /// Prepares AAD and payload for one complete GCM operation.
+        ///
+        /// Construction errors return the DMA buffer together with the error.
+        pub fn new(
+            mut buffer: DmaTxBuf,
+            aad: &[u8],
+            payload: &[u8],
+        ) -> Result<Self, (GcmInputError, DmaTxBuf)> {
+            if payload.is_empty() {
+                return Err((GcmInputError::EmptyPayload, buffer));
+            }
+            let Some(aad_bits) = u32::try_from(aad.len())
+                .ok()
+                .and_then(|length| length.checked_mul(8))
+            else {
+                return Err((GcmInputError::LengthTooLarge, buffer));
+            };
+            let Some(data_bits) = u32::try_from(payload.len())
+                .ok()
+                .and_then(|length| length.checked_mul(8))
+            else {
+                return Err((GcmInputError::LengthTooLarge, buffer));
+            };
+            let aad_padded = aad.len().div_ceil(BLOCK_SIZE) * BLOCK_SIZE;
+            let data_padded = payload.len().div_ceil(BLOCK_SIZE) * BLOCK_SIZE;
+            let Some(required) = aad_padded
+                .checked_add(data_padded)
+                .and_then(|length| length.checked_add(BLOCK_SIZE))
+            else {
+                return Err((GcmInputError::LengthTooLarge, buffer));
+            };
+            if required > buffer.capacity() {
+                return Err((GcmInputError::BufferTooSmall, buffer));
+            }
+
+            let bytes = buffer.as_mut_slice();
+            bytes[..required].fill(0);
+            bytes[..aad.len()].copy_from_slice(aad);
+            bytes[aad_padded..aad_padded + payload.len()].copy_from_slice(payload);
+            let lengths = &mut bytes[required - BLOCK_SIZE..required];
+            lengths[4..8].copy_from_slice(&aad_bits.to_be_bytes());
+            lengths[12..16].copy_from_slice(&data_bits.to_be_bytes());
+            buffer.set_length(required);
+
+            Ok(Self {
+                buffer,
+                aad_blocks: (aad_padded / BLOCK_SIZE) as u32,
+                data_blocks: (data_padded / BLOCK_SIZE) as u32,
+                remainder_bits: (data_bits % 128) as u8,
+                data_len: payload.len(),
+            })
+        }
+
+        /// Returns the original DMA buffer after an operation has completed.
+        pub fn into_buffer(self) -> DmaTxBuf {
+            self.buffer
+        }
+
+        /// Returns the unpadded payload length.
+        pub fn data_len(&self) -> usize {
+            self.data_len
+        }
+    }
+
+    /// A full-length 128-bit AES-GCM authentication tag.
+    #[derive(Clone, Copy)]
+    pub struct GcmTag([u8; BLOCK_SIZE]);
+
+    impl GcmTag {
+        /// Returns the tag bytes.
+        pub const fn into_bytes(self) -> [u8; BLOCK_SIZE] {
+            self.0
+        }
+    }
+
+    impl PartialEq for GcmTag {
+        fn eq(&self, other: &Self) -> bool {
+            let mut difference = 0u8;
+            for index in 0..BLOCK_SIZE {
+                difference |= self.0[index] ^ other.0[index];
+            }
+            difference == 0
+        }
+    }
+
+    impl Eq for GcmTag {}
+
+    /// Authentication failed while decrypting an AES-GCM message.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub struct GcmAuthenticationError;
 
     // If we can process from PSRAM, we need 2 extra descriptors. One will store the unaligned head,
     // one will store the unaligned tail.
@@ -541,6 +664,115 @@ pub mod dma {
             self.start_dma_transfer(number_of_blocks, output, input, mode, cipher_mode, &key)
         }
 
+        /// Encrypts one complete message with hardware AES-GCM.
+        ///
+        /// The nonce is intentionally fixed to the recommended 96-bit form;
+        /// the driver derives `J0 = nonce || 0x00000001`. A new nonce is
+        /// required for every message encrypted under the same key.
+        #[cfg(aes_dma_mode_gcm)]
+        pub fn encrypt_gcm<K>(
+            self,
+            nonce: [u8; 12],
+            output: DmaRxBuf,
+            input: GcmDmaInput,
+            key: K,
+        ) -> Result<GcmEncryptTransfer<'d>, (DmaError, Self, DmaRxBuf, GcmDmaInput)>
+        where
+            K: Into<Key>,
+        {
+            self.start_gcm(nonce, output, input, key, Operation::Encrypt)
+                .map(|inner| GcmEncryptTransfer { inner })
+        }
+
+        /// Decrypts and authenticates one complete message with hardware AES-GCM.
+        ///
+        /// The plaintext is not exposed until [`GcmDecryptTransfer::wait`] has
+        /// compared the full 128-bit tag. On authentication failure the entire
+        /// plaintext output is zeroized before its buffer is returned.
+        #[cfg(aes_dma_mode_gcm)]
+        pub fn decrypt_gcm<K>(
+            self,
+            nonce: [u8; 12],
+            output: DmaRxBuf,
+            input: GcmDmaInput,
+            expected_tag: [u8; BLOCK_SIZE],
+            key: K,
+        ) -> Result<GcmDecryptTransfer<'d>, (DmaError, Self, DmaRxBuf, GcmDmaInput)>
+        where
+            K: Into<Key>,
+        {
+            self.start_gcm(nonce, output, input, key, Operation::Decrypt)
+                .map(|inner| GcmDecryptTransfer {
+                    inner,
+                    expected_tag: GcmTag(expected_tag),
+                })
+        }
+
+        #[cfg(aes_dma_mode_gcm)]
+        fn start_gcm<K>(
+            mut self,
+            nonce: [u8; 12],
+            mut output: DmaRxBuf,
+            mut input: GcmDmaInput,
+            key: K,
+            operation: Operation,
+        ) -> Result<GcmTransfer<'d>, (DmaError, Self, DmaRxBuf, GcmDmaInput)>
+        where
+            K: Into<Key>,
+        {
+            let output_len = input.data_blocks as usize * BLOCK_SIZE;
+            if output.capacity() < output_len {
+                return Err((DmaError::BufferTooSmall, self, output, input));
+            }
+            output.set_length(output_len);
+
+            self.reset_aes();
+            let key = key.into();
+            let mode = match operation {
+                Operation::Encrypt => key.encrypt_mode(),
+                Operation::Decrypt => key.decrypt_mode(),
+            };
+            self.aes.write_mode(mode);
+            self.write_key(&key);
+            self.set_cipher_mode(CipherMode::Gcm);
+            self.set_gcm_layout(input.aad_blocks, input.remainder_bits);
+
+            // GCM first computes H = AES_K(0^128) without a DMA transfer.
+            self.enable_dma(true);
+            self.start_transform();
+            while !self.aes.is_idle() {}
+            self.write_gcm_j0(nonce);
+
+            let peri = self.aes.aes.dma_peripheral();
+            if let Err(error) = unsafe { self.channel.tx.prepare_transfer(peri, &mut input.buffer) }
+                .and_then(|_| unsafe { self.channel.rx.prepare_transfer(peri, &mut output) })
+                .and_then(|_| self.channel.tx.start_transfer())
+                .and_then(|_| self.channel.rx.start_transfer())
+            {
+                self.enable_dma(false);
+                return Err((error, self, output, input));
+            }
+
+            self.listen();
+            self.set_num_block(input.data_blocks);
+            self.continue_gcm_transform();
+
+            let aad_blocks = input.aad_blocks;
+            let data_blocks = input.data_blocks;
+            let remainder_bits = input.remainder_bits;
+            let data_len = input.data_len;
+
+            Ok(GcmTransfer {
+                aes_dma: ManuallyDrop::new(self),
+                rx_view: ManuallyDrop::new(output.into_view()),
+                tx_view: ManuallyDrop::new(input.buffer.into_view()),
+                aad_blocks,
+                data_blocks,
+                remainder_bits,
+                data_len,
+            })
+        }
+
         fn reset_aes(&self) {
             PeripheralClockControl::reset(Peripheral::Aes);
         }
@@ -590,6 +822,45 @@ pub mod dma {
                 .regs()
                 .block_num()
                 .modify(|_, w| unsafe { w.block_num().bits(block) });
+        }
+
+        #[cfg(aes_dma_mode_gcm)]
+        fn set_gcm_layout(&self, aad_blocks: u32, remainder_bits: u8) {
+            self.aes
+                .regs()
+                .aad_block_num()
+                .write(|w| unsafe { w.aad_block_num().bits(aad_blocks) });
+            self.aes
+                .regs()
+                .remainder_bit_num()
+                .write(|w| unsafe { w.remainder_bit_num().bits(remainder_bits) });
+        }
+
+        #[cfg(aes_dma_mode_gcm)]
+        fn write_gcm_j0(&self, nonce: [u8; 12]) {
+            let mut j0 = [0u8; BLOCK_SIZE];
+            j0[..nonce.len()].copy_from_slice(&nonce);
+            j0[BLOCK_SIZE - 1] = 1;
+            for (word, register) in read_words(&j0).zip(self.aes.regs().j0_mem_iter()) {
+                register.write(|w| unsafe { w.bits(word) });
+            }
+        }
+
+        #[cfg(aes_dma_mode_gcm)]
+        fn continue_gcm_transform(&self) {
+            self.aes
+                .regs()
+                .continue_()
+                .write(|w| w.continue_().set_bit());
+        }
+
+        #[cfg(aes_dma_mode_gcm)]
+        fn read_gcm_tag(&self) -> GcmTag {
+            let mut tag = [0u8; BLOCK_SIZE];
+            for (chunk, register) in tag.chunks_exact_mut(4).zip(self.aes.regs().t0_mem_iter()) {
+                chunk.copy_from_slice(&register.read().bits().to_le_bytes());
+            }
+            GcmTag(tag)
         }
 
         fn is_done(&self) -> bool {
@@ -672,6 +943,122 @@ pub mod dma {
             let tx_view = unsafe { ManuallyDrop::take(&mut self.tx_view) };
             let _ = RX::from_view(rx_view);
             let _ = TX::from_view(tx_view);
+        }
+    }
+
+    #[cfg(aes_dma_mode_gcm)]
+    struct GcmTransfer<'d> {
+        aes_dma: ManuallyDrop<AesDma<'d>>,
+        rx_view: ManuallyDrop<<DmaRxBuf as DmaRxBuffer>::View>,
+        tx_view: ManuallyDrop<<DmaTxBuf as DmaTxBuffer>::View>,
+        aad_blocks: u32,
+        data_blocks: u32,
+        remainder_bits: u8,
+        data_len: usize,
+    }
+
+    #[cfg(aes_dma_mode_gcm)]
+    impl<'d> GcmTransfer<'d> {
+        fn is_done(&self) -> bool {
+            self.aes_dma.is_done()
+        }
+
+        fn wait(mut self) -> (AesDma<'d>, DmaRxBuf, GcmDmaInput, GcmTag) {
+            while !self.is_done() {}
+            while !self.aes_dma.channel.rx.is_done() {}
+
+            self.aes_dma.channel.rx.stop_transfer();
+            self.aes_dma.channel.tx.stop_transfer();
+            let tag = self.aes_dma.read_gcm_tag();
+            self.aes_dma.finish_transform();
+
+            unsafe {
+                let aes_dma = ManuallyDrop::take(&mut self.aes_dma);
+                let rx_view = ManuallyDrop::take(&mut self.rx_view);
+                let tx_view = ManuallyDrop::take(&mut self.tx_view);
+                let mut output = DmaRxBuf::from_view(rx_view);
+                output.set_length(self.data_len);
+                let buffer = DmaTxBuf::from_view(tx_view);
+                let input = GcmDmaInput {
+                    buffer,
+                    aad_blocks: self.aad_blocks,
+                    data_blocks: self.data_blocks,
+                    remainder_bits: self.remainder_bits,
+                    data_len: self.data_len,
+                };
+                core::mem::forget(self);
+                (aes_dma, output, input, tag)
+            }
+        }
+    }
+
+    #[cfg(aes_dma_mode_gcm)]
+    impl Drop for GcmTransfer<'_> {
+        fn drop(&mut self) {
+            self.aes_dma.channel.rx.stop_transfer();
+            self.aes_dma.channel.tx.stop_transfer();
+            self.aes_dma.finish_transform();
+            unsafe { ManuallyDrop::drop(&mut self.aes_dma) };
+            let rx_view = unsafe { ManuallyDrop::take(&mut self.rx_view) };
+            let tx_view = unsafe { ManuallyDrop::take(&mut self.tx_view) };
+            let _ = DmaRxBuf::from_view(rx_view);
+            let _ = DmaTxBuf::from_view(tx_view);
+        }
+    }
+
+    /// An active one-shot AES-GCM encryption.
+    #[cfg(aes_dma_mode_gcm)]
+    pub struct GcmEncryptTransfer<'d> {
+        inner: GcmTransfer<'d>,
+    }
+
+    #[cfg(aes_dma_mode_gcm)]
+    impl<'d> GcmEncryptTransfer<'d> {
+        /// Returns true when [`Self::wait`] will no longer block.
+        pub fn is_done(&self) -> bool {
+            self.inner.is_done()
+        }
+
+        /// Waits for ciphertext and authentication tag, returning all resources.
+        pub fn wait(self) -> (AesDma<'d>, DmaRxBuf, GcmDmaInput, GcmTag) {
+            self.inner.wait()
+        }
+    }
+
+    /// An active one-shot authenticated AES-GCM decryption.
+    #[cfg(aes_dma_mode_gcm)]
+    pub struct GcmDecryptTransfer<'d> {
+        inner: GcmTransfer<'d>,
+        expected_tag: GcmTag,
+    }
+
+    /// Resources returned by an authenticated AES-GCM decryption.
+    #[cfg(aes_dma_mode_gcm)]
+    pub type GcmDecryptResources<'d> = (AesDma<'d>, DmaRxBuf, GcmDmaInput);
+
+    #[cfg(aes_dma_mode_gcm)]
+    impl<'d> GcmDecryptTransfer<'d> {
+        /// Returns true when [`Self::wait`] will no longer block.
+        pub fn is_done(&self) -> bool {
+            self.inner.is_done()
+        }
+
+        /// Waits until decryption and authentication are complete.
+        ///
+        /// The error contains the recovered resources, but its plaintext output
+        /// has been zeroized and therefore cannot expose unauthenticated text.
+        pub fn wait(
+            self,
+        ) -> Result<GcmDecryptResources<'d>, (GcmAuthenticationError, GcmDecryptResources<'d>)>
+        {
+            let expected_tag = self.expected_tag;
+            let (aes, mut output, input, actual_tag) = self.inner.wait();
+            if actual_tag == expected_tag {
+                Ok((aes, output, input))
+            } else {
+                output.as_mut_slice().fill(0);
+                Err((GcmAuthenticationError, (aes, output, input)))
+            }
         }
     }
 
