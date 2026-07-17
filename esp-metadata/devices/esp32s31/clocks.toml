@@ -7,8 +7,14 @@ system_clocks = { clock_tree = [
 peripheral_clocks = { templates = [
     { name = "clk_en_template", value = "crate::peripherals::HP_SYS_CLKRST::regs().systimer_ctrl0().modify(|_, w| w.reg_systimer_apb_clk_en().bit(enable).reg_systimer_clk_en().bit(enable));" },
     { name = "rst_template", value = "crate::peripherals::HP_SYS_CLKRST::regs().systimer_ctrl0().modify(|_, w| w.reg_systimer_rst_en().bit(reset));" },
+    # The crypto subsystem clock is shared, while SHA has its own leaf clock and
+    # reset bits. Keep the shared clock enabled so dropping a SHA guard cannot
+    # stop another crypto peripheral that will be added later.
+    { name = "sha_clk_template", value = "crate::peripherals::HP_SYS_CLKRST::regs().crypto_ctrl0().modify(|_, w| w.reg_crypto_sys_clk_en().set_bit().reg_crypto_sha_clk_en().bit(enable));" },
+    { name = "sha_rst_template", value = "crate::peripherals::HP_SYS_CLKRST::regs().crypto_ctrl0().modify(|_, w| w.reg_crypto_sha_rst_en().bit(reset));" },
 ], peripheral_clocks = [
     { name = "Systimer", keep_enabled = true },
+    { name = "Sha", template_params = { clk_en_template = "{{sha_clk_template}}", rst_template = "{{sha_rst_template}}" } },
     # USB Serial/JTAG is already enabled by the ROM. Like ESP32-P4, S31 has a
     # dedicated APB clock gate but no peripheral reset bit in HP_SYS_CLKRST.
     { name = "UsbDevice", template_params = { clk_en_template = "crate::peripherals::HP_SYS_CLKRST::regs().usb_device_ctrl0().modify(|_, w| w.reg_usb_device_apb_clk_en().bit(enable));", rst_template = "let _ = reset;" }, keep_enabled = true },

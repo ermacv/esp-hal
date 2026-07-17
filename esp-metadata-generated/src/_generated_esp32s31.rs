@@ -342,6 +342,33 @@ macro_rules! for_each_sw_interrupt {
 }
 #[macro_export]
 #[cfg_attr(docsrs, doc(cfg(feature = "_device-selected")))]
+macro_rules! for_each_sha_algorithm {
+    ($($pattern:tt => $code:tt;)*) => {
+        macro_rules! _for_each_inner_sha_algorithm { $(($pattern) => $code;)* ($other :
+        tt) => {} } _for_each_inner_sha_algorithm!((Sha1, "SHA-1"(sizes : 64, 20, 8)
+        (insecure_against : "collision", "length extension"), 0));
+        _for_each_inner_sha_algorithm!((Sha224, "SHA-224"(sizes : 64, 28, 8)
+        (insecure_against : "length extension"), 1));
+        _for_each_inner_sha_algorithm!((Sha256, "SHA-256"(sizes : 64, 32, 8)
+        (insecure_against : "length extension"), 2));
+        _for_each_inner_sha_algorithm!((Sha384, "SHA-384"(sizes : 128, 48, 16)
+        (insecure_against :), 3)); _for_each_inner_sha_algorithm!((Sha512,
+        "SHA-512"(sizes : 128, 64, 16) (insecure_against : "length extension"), 4));
+        _for_each_inner_sha_algorithm!((Sha512_224, "SHA-512/224"(sizes : 128, 28, 16)
+        (insecure_against :), 5)); _for_each_inner_sha_algorithm!((Sha512_256,
+        "SHA-512/256"(sizes : 128, 32, 16) (insecure_against :), 6));
+        _for_each_inner_sha_algorithm!((algos(Sha1, "SHA-1"(sizes : 64, 20, 8)
+        (insecure_against : "collision", "length extension"), 0), (Sha224,
+        "SHA-224"(sizes : 64, 28, 8) (insecure_against : "length extension"), 1),
+        (Sha256, "SHA-256"(sizes : 64, 32, 8) (insecure_against : "length extension"),
+        2), (Sha384, "SHA-384"(sizes : 128, 48, 16) (insecure_against :), 3), (Sha512,
+        "SHA-512"(sizes : 128, 64, 16) (insecure_against : "length extension"), 4),
+        (Sha512_224, "SHA-512/224"(sizes : 128, 28, 16) (insecure_against :), 5),
+        (Sha512_256, "SHA-512/256"(sizes : 128, 32, 16) (insecure_against :), 6)));
+    };
+}
+#[macro_export]
+#[cfg_attr(docsrs, doc(cfg(feature = "_device-selected")))]
 macro_rules! for_each_wakeup_source {
     ($($pattern:tt => $code:tt;)*) => {
         macro_rules! _for_each_inner_wakeup_source { $(($pattern) => $code;)* ($other :
@@ -592,6 +619,8 @@ macro_rules! implement_peripheral_clocks {
         #[repr(u8)]
         #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum Peripheral {
+            /// SHA peripheral clock signal
+            Sha,
             /// SYSTIMER peripheral clock signal
             Systimer,
             /// USB_DEVICE peripheral clock signal
@@ -600,10 +629,20 @@ macro_rules! implement_peripheral_clocks {
         impl Peripheral {
             const KEEP_ENABLED: &[Peripheral] = &[Self::Systimer, Self::UsbDevice];
             const COUNT: usize = Self::ALL.len();
-            const ALL: &[Self] = &[Self::Systimer, Self::UsbDevice];
+            const ALL: &[Self] = &[Self::Sha, Self::Systimer, Self::UsbDevice];
         }
         unsafe fn enable_internal_racey(peripheral: Peripheral, enable: bool) {
             match peripheral {
+                Peripheral::Sha => {
+                    crate::peripherals::HP_SYS_CLKRST::regs()
+                        .crypto_ctrl0()
+                        .modify(|_, w| {
+                            w.reg_crypto_sys_clk_en()
+                                .set_bit()
+                                .reg_crypto_sha_clk_en()
+                                .bit(enable)
+                        });
+                }
                 Peripheral::Systimer => {
                     crate::peripherals::HP_SYS_CLKRST::regs()
                         .systimer_ctrl0()
@@ -623,6 +662,11 @@ macro_rules! implement_peripheral_clocks {
         }
         unsafe fn assert_peri_reset_racey(peripheral: Peripheral, reset: bool) {
             match peripheral {
+                Peripheral::Sha => {
+                    crate::peripherals::HP_SYS_CLKRST::regs()
+                        .crypto_ctrl0()
+                        .modify(|_, w| w.reg_crypto_sha_rst_en().bit(reset));
+                }
                 Peripheral::Systimer => {
                     crate::peripherals::HP_SYS_CLKRST::regs()
                         .systimer_ctrl0()
@@ -788,23 +832,25 @@ macro_rules! for_each_peripheral {
         "LPWR peripheral singleton"] LPWR <= LP_AON_CLKRST() (unstable)));
         _for_each_inner_peripheral!((@ peri_type #[doc = "RNG peripheral singleton"] RNG
         <= TRNG() (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
-        "SYSTIMER peripheral singleton"] SYSTIMER <= SYSTIMER() (unstable)));
-        _for_each_inner_peripheral!((@ peri_type #[doc = "TIMG0 peripheral singleton"]
-        TIMG0 <= TIMG0() (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
-        "TIMG1 peripheral singleton"] TIMG1 <= TIMG1() (unstable)));
-        _for_each_inner_peripheral!((@ peri_type #[doc = "UART0 peripheral singleton"]
-        UART0 <= UART0(UART0 : { bind_peri_interrupt, enable_peri_interrupt,
+        "SHA peripheral singleton"] SHA <= SHA(SHA : { bind_peri_interrupt,
+        enable_peri_interrupt, disable_peri_interrupt }) (unstable)));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "SYSTIMER peripheral singleton"]
+        SYSTIMER <= SYSTIMER() (unstable))); _for_each_inner_peripheral!((@ peri_type
+        #[doc = "TIMG0 peripheral singleton"] TIMG0 <= TIMG0() (unstable)));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "TIMG1 peripheral singleton"]
+        TIMG1 <= TIMG1() (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "UART0 peripheral singleton"] UART0 <= UART0(UART0 : { bind_peri_interrupt,
+        enable_peri_interrupt, disable_peri_interrupt }) (unstable)));
+        _for_each_inner_peripheral!((@ peri_type #[doc = "UART1 peripheral singleton"]
+        UART1 <= UART1(UART1 : { bind_peri_interrupt, enable_peri_interrupt,
         disable_peri_interrupt }) (unstable))); _for_each_inner_peripheral!((@ peri_type
-        #[doc = "UART1 peripheral singleton"] UART1 <= UART1(UART1 : {
+        #[doc = "UART2 peripheral singleton"] UART2 <= UART2(UART2 : {
         bind_peri_interrupt, enable_peri_interrupt, disable_peri_interrupt })
         (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
-        "UART2 peripheral singleton"] UART2 <= UART2(UART2 : { bind_peri_interrupt,
+        "UART3 peripheral singleton"] UART3 <= UART3(UART3 : { bind_peri_interrupt,
         enable_peri_interrupt, disable_peri_interrupt }) (unstable)));
-        _for_each_inner_peripheral!((@ peri_type #[doc = "UART3 peripheral singleton"]
-        UART3 <= UART3(UART3 : { bind_peri_interrupt, enable_peri_interrupt,
-        disable_peri_interrupt }) (unstable))); _for_each_inner_peripheral!((@ peri_type
-        #[doc = "SPI0 peripheral singleton"] SPI0 <= SPI0() (unstable)));
-        _for_each_inner_peripheral!((@ peri_type #[doc =
+        _for_each_inner_peripheral!((@ peri_type #[doc = "SPI0 peripheral singleton"]
+        SPI0 <= SPI0() (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
         "PSRAM_MSPI peripheral singleton"] PSRAM_MSPI <= PSRAM_MSPI() (unstable)));
         _for_each_inner_peripheral!((@ peri_type #[doc = "PSRAM peripheral singleton"]
         PSRAM <= virtual() (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
@@ -875,6 +921,7 @@ macro_rules! for_each_peripheral {
         _for_each_inner_peripheral!((LP_WDT(unstable)));
         _for_each_inner_peripheral!((LPWR(unstable)));
         _for_each_inner_peripheral!((RNG(unstable)));
+        _for_each_inner_peripheral!((SHA(unstable)));
         _for_each_inner_peripheral!((SYSTIMER(unstable)));
         _for_each_inner_peripheral!((TIMG0(unstable)));
         _for_each_inner_peripheral!((TIMG1(unstable)));
@@ -976,6 +1023,8 @@ macro_rules! for_each_peripheral {
         peri_type #[doc = "LP_WDT peripheral singleton"] LP_WDT <= LP_WDT() (unstable)),
         (@ peri_type #[doc = "LPWR peripheral singleton"] LPWR <= LP_AON_CLKRST()
         (unstable)), (@ peri_type #[doc = "RNG peripheral singleton"] RNG <= TRNG()
+        (unstable)), (@ peri_type #[doc = "SHA peripheral singleton"] SHA <= SHA(SHA : {
+        bind_peri_interrupt, enable_peri_interrupt, disable_peri_interrupt })
         (unstable)), (@ peri_type #[doc = "SYSTIMER peripheral singleton"] SYSTIMER <=
         SYSTIMER() (unstable)), (@ peri_type #[doc = "TIMG0 peripheral singleton"] TIMG0
         <= TIMG0() (unstable)), (@ peri_type #[doc = "TIMG1 peripheral singleton"] TIMG1
@@ -1018,11 +1067,11 @@ macro_rules! for_each_peripheral {
         (CACHE(unstable)), (CPU_APM(unstable)), (IO_MUX(unstable)),
         (IOMUX_MSPI_PIN(unstable)), (LP_AON(unstable)), (LP_AON_CLKRST(unstable)),
         (LP_I2C_ANA_MST(unstable)), (PMU(unstable)), (RTC_TIMER(unstable)),
-        (LP_WDT(unstable)), (LPWR(unstable)), (RNG(unstable)), (SYSTIMER(unstable)),
-        (TIMG0(unstable)), (TIMG1(unstable)), (UART0(unstable)), (UART1(unstable)),
-        (UART2(unstable)), (UART3(unstable)), (SPI0(unstable)), (PSRAM_MSPI(unstable)),
-        (PSRAM(unstable)), (SPI1(unstable)), (SPI2(unstable)), (USB_DEVICE(unstable)),
-        (FLASH(unstable)), (ETH(unstable)), (CPU_CTRL(unstable)),
+        (LP_WDT(unstable)), (LPWR(unstable)), (RNG(unstable)), (SHA(unstable)),
+        (SYSTIMER(unstable)), (TIMG0(unstable)), (TIMG1(unstable)), (UART0(unstable)),
+        (UART1(unstable)), (UART2(unstable)), (UART3(unstable)), (SPI0(unstable)),
+        (PSRAM_MSPI(unstable)), (PSRAM(unstable)), (SPI1(unstable)), (SPI2(unstable)),
+        (USB_DEVICE(unstable)), (FLASH(unstable)), (ETH(unstable)), (CPU_CTRL(unstable)),
         (SW_INTERRUPT(unstable)), (WIFI))); _for_each_inner_peripheral!((dma_eligible));
     };
 }
