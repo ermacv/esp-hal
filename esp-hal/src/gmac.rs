@@ -4,6 +4,7 @@
 //! setup. PHY policy and board reset wiring intentionally remain outside HAL.
 
 use core::{
+    mem::MaybeUninit,
     ptr,
     sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering},
     task::Context,
@@ -139,6 +140,25 @@ impl<const RX: usize, const TX: usize> DmaStorage<RX, TX> {
             rx_buffers: [const { Buffer([0; BUFFER_SIZE]) }; RX],
             tx_buffers: [const { Buffer([0; BUFFER_SIZE]) }; TX],
             trailing_guard: DmaGuard([DMA_GUARD_WORD; 16]),
+        }
+    }
+
+    /// Initializes DMA storage directly in its final static location.
+    ///
+    /// Unlike returning [`Self::new`] by value, this method guarantees that a
+    /// storage-sized temporary is not placed on the caller's stack. This is
+    /// important for configurations with many full-size Ethernet buffers.
+    pub fn init_in_place(storage: &mut MaybeUninit<Self>) -> &mut Self {
+        let storage = storage.as_mut_ptr();
+        // SAFETY: `storage` is exclusively borrowed uninitialized memory with
+        // the correct size and alignment. Every field consists only of u8/u32
+        // arrays, so the all-zero bit pattern is valid. The two guards are
+        // written before the initialized reference is created.
+        unsafe {
+            storage.write_bytes(0, 1);
+            ptr::addr_of_mut!((*storage).leading_guard).write(DmaGuard([DMA_GUARD_WORD; 16]));
+            ptr::addr_of_mut!((*storage).trailing_guard).write(DmaGuard([DMA_GUARD_WORD; 16]));
+            &mut *storage
         }
     }
 }
