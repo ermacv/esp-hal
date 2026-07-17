@@ -279,6 +279,32 @@ impl Yt8531 {
         gmac.mdio_write(0, control)
     }
 
+    /// Enables or disables 1000BASE-T full-duplex advertisement.
+    ///
+    /// The new advertisement becomes active after link-down, PHY reset, or an
+    /// explicit [`Self::restart_autonegotiation`] call.
+    pub fn set_gigabit_advertisement(&self, gmac: &Gmac, enabled: bool) -> Result<(), Error> {
+        let control = gmac.mdio_read(9)?;
+        let control = if enabled {
+            control | (1 << 9)
+        } else {
+            control & !(1 << 9)
+        };
+        gmac.mdio_write(9, control)
+    }
+
+    /// Restarts IEEE 802.3 auto-negotiation without resetting the PHY.
+    pub fn restart_autonegotiation(&self, gmac: &Gmac) -> Result<(), Error> {
+        let control = gmac.mdio_read(0)?;
+        gmac.mdio_write(0, control | (1 << 12) | (1 << 9))
+    }
+
+    /// Returns whether smart-speed selected a lower speed after failed
+    /// high-speed negotiation attempts.
+    pub fn wirespeed_downgraded(&self, gmac: &Gmac) -> Result<bool, Error> {
+        Ok(gmac.mdio_read(0x11)? & (1 << 5) != 0)
+    }
+
     /// Enables or disables the IEEE 802.3 PHY loopback path.
     ///
     /// The negotiated speed and duplex fields are preserved. Loopback should
@@ -1246,7 +1272,10 @@ impl Gmac {
         storage: &mut DmaStorage<RX, TX>,
     ) -> Result<LinkEvent, Error> {
         match phy.link_mode(self)? {
-            Some(mode) if !self.started.load(Ordering::Acquire) => {
+            Some(mode) if self.running_link_mode() != Some(mode) => {
+                if self.started.load(Ordering::Acquire) {
+                    self.stop();
+                }
                 self.configure_rings(storage);
                 self.start(
                     mode.speed,
@@ -1263,6 +1292,24 @@ impl Gmac {
             }
             None => Ok(LinkEvent::Unchanged),
         }
+    }
+
+    fn running_link_mode(&self) -> Option<LinkMode> {
+        if !self.started.load(Ordering::Acquire) {
+            return None;
+        }
+        let configuration = gmac_regs().register0_macconfigurationregister().read();
+        let speed = if configuration.ps().bit_is_clear() {
+            Speed::Mbps1000
+        } else if configuration.fes().bit_is_set() {
+            Speed::Mbps100
+        } else {
+            Speed::Mbps10
+        };
+        Some(LinkMode {
+            speed,
+            full_duplex: configuration.dm().bit_is_set(),
+        })
     }
 
     /// Reads one IEEE 802.3 Clause-22 PHY register.
