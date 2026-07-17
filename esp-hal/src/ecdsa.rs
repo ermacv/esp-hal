@@ -29,7 +29,12 @@ const P256_ORDER: [u8; P256_COMPONENT_LEN] = [
     0xbc, 0xe6, 0xfa, 0xad, 0xa7, 0x17, 0x9e, 0x84, 0xf3, 0xb9, 0xca, 0xc2, 0xfc, 0x63, 0x25, 0x51,
 ];
 
+// The normal HAL linker collects `.data.*` in SRAM. ESP32-S31 applications
+// that relocate ordinary data to PSRAM can collect this named subsection in
+// their interrupt-owned SRAM region before the generic `.data.*` rule.
+#[unsafe(link_section = ".data.ecdsa_irq")]
 static WAKER: AtomicWaker = AtomicWaker::new();
+#[unsafe(link_section = ".data.ecdsa_irq")]
 static INTERRUPT_FIRED: AtomicBool = AtomicBool::new(false);
 
 #[handler]
