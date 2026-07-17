@@ -55,6 +55,7 @@ peripherals = [
     { name = "LPWR", pac = "LP_AON_CLKRST" },
     { name = "RNG", pac = "TRNG" },
     { name = "AXI_GDMA", pac = "AXI_DMA" },
+    { name = "AES", interrupts = { peri = "AES" } },
     { name = "SHA", interrupts = { peri = "SHA" } },
     # ECDSA verification uses the dedicated front-end plus the shared ECC
     # arithmetic engine. ECC remains hidden until its generic driver has been
@@ -151,6 +152,16 @@ support_status = "partial"
 [device.rng]
 support_status = "partial"
 apb_cycle_wait_num = 16
+
+[device.aes]
+support_status = "partial"
+has_split_text_registers = true
+endianness_configurable = false
+key_length = { options = [
+    { bits = 128, encrypt_mode = 0, decrypt_mode = 4 },
+    { bits = 192, encrypt_mode = 1, decrypt_mode = 5 },
+    { bits = 256, encrypt_mode = 2, decrypt_mode = 6 },
+] }
 
 [device.sha]
 support_status = "partial"
