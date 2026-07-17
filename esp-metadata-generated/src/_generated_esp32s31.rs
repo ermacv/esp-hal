@@ -594,11 +594,13 @@ macro_rules! implement_peripheral_clocks {
         pub enum Peripheral {
             /// SYSTIMER peripheral clock signal
             Systimer,
+            /// USB_DEVICE peripheral clock signal
+            UsbDevice,
         }
         impl Peripheral {
-            const KEEP_ENABLED: &[Peripheral] = &[Self::Systimer];
+            const KEEP_ENABLED: &[Peripheral] = &[Self::Systimer, Self::UsbDevice];
             const COUNT: usize = Self::ALL.len();
-            const ALL: &[Self] = &[Self::Systimer];
+            const ALL: &[Self] = &[Self::Systimer, Self::UsbDevice];
         }
         unsafe fn enable_internal_racey(peripheral: Peripheral, enable: bool) {
             match peripheral {
@@ -612,6 +614,11 @@ macro_rules! implement_peripheral_clocks {
                                 .bit(enable)
                         });
                 }
+                Peripheral::UsbDevice => {
+                    crate::peripherals::HP_SYS_CLKRST::regs()
+                        .usb_device_ctrl0()
+                        .modify(|_, w| w.reg_usb_device_apb_clk_en().bit(enable));
+                }
             }
         }
         unsafe fn assert_peri_reset_racey(peripheral: Peripheral, reset: bool) {
@@ -620,6 +627,9 @@ macro_rules! implement_peripheral_clocks {
                     crate::peripherals::HP_SYS_CLKRST::regs()
                         .systimer_ctrl0()
                         .modify(|_, w| w.reg_systimer_rst_en().bit(reset));
+                }
+                Peripheral::UsbDevice => {
+                    let _ = reset;
                 }
             }
         }

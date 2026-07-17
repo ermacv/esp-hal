@@ -9,4 +9,7 @@ peripheral_clocks = { templates = [
     { name = "rst_template", value = "crate::peripherals::HP_SYS_CLKRST::regs().systimer_ctrl0().modify(|_, w| w.reg_systimer_rst_en().bit(reset));" },
 ], peripheral_clocks = [
     { name = "Systimer", keep_enabled = true },
+    # USB Serial/JTAG is already enabled by the ROM. Like ESP32-P4, S31 has a
+    # dedicated APB clock gate but no peripheral reset bit in HP_SYS_CLKRST.
+    { name = "UsbDevice", template_params = { clk_en_template = "crate::peripherals::HP_SYS_CLKRST::regs().usb_device_ctrl0().modify(|_, w| w.reg_usb_device_apb_clk_en().bit(enable));", rst_template = "let _ = reset;" }, keep_enabled = true },
 ] }

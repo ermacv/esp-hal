@@ -82,6 +82,11 @@ peripherals = [
 [device.psram]
 extmem_origin = 0x5000_0000
 
+# The USB Serial/JTAG register block matches the classic Espressif controller
+# used by the other RISC-V parts.  ESP32-S31 adds timeout registers after the
+# common register range, without changing any register consumed by the driver.
+[device.usb_serial_jtag]
+
 [device.gpio]
 # ESP32-S31 uses the dual-core GPIO register layout (GPIO v3).  Peripheral
 # signal mappings and native IO_MUX functions will be added separately; this
