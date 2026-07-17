@@ -5,6 +5,7 @@ pub(crate) use esp32s31 as pac;
 pub mod clocks;
 pub(crate) mod cpu_control;
 pub(crate) mod regi2c;
+pub(crate) mod trng;
 
 #[inline(always)]
 #[cfg(feature = "rt")]
