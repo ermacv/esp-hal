@@ -566,7 +566,6 @@ pub mod dma {
                 .block_mode()
                 .modify(|_, w| unsafe { w.block_mode().bits(mode as u8) });
 
-            // FIXME
             #[cfg(aes_dma_mode_ctr)]
             if mode == CipherMode::Ctr {
                 self.aes
@@ -679,8 +678,7 @@ pub mod dma {
     const AES_DMA_VTABLE: VTable<super::AesOperation> = VTable {
         post: |driver, item| {
             let driver = unsafe { AesDmaBackend::from_raw(driver) };
-            driver.start_processing(item);
-            Some(Poll::Pending(false))
+            Some(driver.start_processing(item))
         },
         poll: |driver, item| {
             let driver = unsafe { AesDmaBackend::from_raw(driver) };
@@ -939,8 +937,10 @@ pub mod dma {
                         unreachable!()
                     };
 
+                    // Save chaining/counter state before `wait` finishes the
+                    // transform and resets the AES peripheral.
+                    unsafe { item.cipher_mode.as_mut() }.read_state(&transfer.aes_dma);
                     let (driver, _, _) = transfer.wait();
-                    unsafe { item.cipher_mode.as_mut() }.read_state(&driver);
 
                     driver.clear_interrupt();
 
@@ -992,6 +992,14 @@ pub mod dma {
             work_item: &mut AesOperation,
         ) -> Result<(), AesDma<'d>> {
             let input_len = work_item.buffers.input.len();
+            if !input_len.is_multiple_of(BLOCK_SIZE) {
+                // Keep a single operation on one execution path. In
+                // particular, switching to a CPU-driven tail immediately
+                // after finishing and resetting a DMA transform is not
+                // supported by all AES peripheral revisions.
+                return Err(driver);
+            }
+
             let (input_dscr, output_dscr) = self.descriptors.get_mut().into_inner().split_at_mut(1);
             let (input_buffer, data_len) = unsafe {
                 // This unwrap is infallible as AES-DMA devices don't have TX DMA alignment
@@ -1108,10 +1116,16 @@ pub mod dma {
     }
 
     #[cfg(aes_dma_mode_ctr)]
-    impl From<cipher_modes::Ctr> for DmaCipherState {
-        fn from(value: cipher_modes::Ctr) -> Self {
-            Self {
-                state: CipherState::Ctr(value),
+    impl TryFrom<cipher_modes::Ctr> for DmaCipherState {
+        type Error = super::Error;
+
+        fn try_from(value: cipher_modes::Ctr) -> Result<Self, Self::Error> {
+            if value.is_inc32() {
+                Ok(Self {
+                    state: CipherState::Ctr(value),
+                })
+            } else {
+                Err(super::Error::CipherModeNotSupportedByDma)
             }
         }
     }
@@ -1145,7 +1159,7 @@ pub mod dma {
                 #[cfg(aes_dma_mode_ofb)]
                 Self::Ofb(_) => Some(CipherMode::Ofb),
                 #[cfg(aes_dma_mode_ctr)]
-                Self::Ctr(_) => Some(CipherMode::Ctr),
+                Self::Ctr(ctr) if ctr.is_inc32() => Some(CipherMode::Ctr),
                 #[cfg(aes_dma_mode_cfb8)]
                 Self::Cfb8(_) => Some(CipherMode::Cfb8),
                 #[cfg(aes_dma_mode_cfb128)]
@@ -1160,10 +1174,18 @@ pub mod dma {
         }
 
         fn hardware_operating_mode(&self, operation: Operation, key: &Key) -> Mode {
-            if operation == Operation::Encrypt {
-                key.encrypt_mode()
-            } else {
-                key.decrypt_mode()
+            match self {
+                Self::Ecb(_) | Self::Cbc(_) => {
+                    if operation == Operation::Encrypt {
+                        key.encrypt_mode()
+                    } else {
+                        key.decrypt_mode()
+                    }
+                }
+                // Stream-like modes always generate their key stream with the
+                // AES encryption primitive. Encrypt/decrypt only changes how
+                // that stream is combined with input and feedback.
+                Self::Ofb(_) | Self::Ctr(_) | Self::Cfb8(_) | Self::Cfb128(_) => key.encrypt_mode(),
             }
         }
 
@@ -1501,6 +1523,8 @@ pub enum Error {
 
     /// The buffer length is not appropriate for the current cipher mode.
     IncorrectBufferLength,
+    /// The cipher mode or its configuration is not supported by the AES DMA engine.
+    CipherModeNotSupportedByDma,
 }
 
 /// An active work queue driver.

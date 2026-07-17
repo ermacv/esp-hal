@@ -128,3 +128,5 @@ esp32     = ["esp-sync/esp32"]
 esp32s2   = ["esp-sync/esp32s2"]
 ##
 esp32s3   = ["esp-sync/esp32s3"]
+##
+esp32s31  = ["esp-sync/esp32s31"]

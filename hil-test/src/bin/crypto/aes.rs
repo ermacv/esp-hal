@@ -300,7 +300,13 @@ fn run_cipher_tests(buffer: &mut [u8]) {
     aes_roundtrip::<32>("CBC", Cbc::new(IV), &plaintext, &CIPHERTEXT_CBC_256, buffer);
 
     aes_roundtrip::<16>("OFB", Ofb::new(IV), &plaintext, &CIPHERTEXT_OFB, buffer);
-    aes_roundtrip::<16>("CTR", Ctr::new(IV), &plaintext, &CIPHERTEXT_CTR, buffer);
+    aes_roundtrip::<16>(
+        "CTR",
+        Ctr::new_inc32(IV),
+        &plaintext,
+        &CIPHERTEXT_CTR,
+        buffer,
+    );
     aes_roundtrip::<16>("CFB-8", Cfb8::new(IV), &plaintext, &CIPHERTEXT_CFB8, buffer);
     aes_roundtrip::<16>(
         "CFB-128",
@@ -429,7 +435,7 @@ mod tests {
 
         let dma_channel = cfg_select! {
             esp32s2 => peripherals.DMA_CRYPTO,
-            esp32p4 => peripherals.DMA_AXI_CH0,
+            any(esp32p4, esp32s31) => peripherals.DMA_AXI_CH0,
             _ => peripherals.DMA_CH0,
         };
 
@@ -605,7 +611,7 @@ mod work_queue_dma_tests {
 
         let dma = cfg_select! {
             esp32s2 => p.DMA_CRYPTO,
-            esp32p4 => p.DMA_AXI_CH0,
+            any(esp32p4, esp32s31) => p.DMA_AXI_CH0,
             _ => p.DMA_CH0,
         };
 
