@@ -197,12 +197,10 @@ macro_rules! for_each_aes_key_length {
     ($($pattern:tt => $code:tt;)*) => {
         macro_rules! _for_each_inner_aes_key_length { $(($pattern) => $code;)* ($other :
         tt) => {} } _for_each_inner_aes_key_length!((128));
-        _for_each_inner_aes_key_length!((192)); _for_each_inner_aes_key_length!((256));
-        _for_each_inner_aes_key_length!((128, 0, 4));
-        _for_each_inner_aes_key_length!((192, 1, 5));
-        _for_each_inner_aes_key_length!((256, 2, 6));
-        _for_each_inner_aes_key_length!((bits(128), (192), (256)));
-        _for_each_inner_aes_key_length!((modes(128, 0, 4), (192, 1, 5), (256, 2, 6)));
+        _for_each_inner_aes_key_length!((256)); _for_each_inner_aes_key_length!((128, 0,
+        4)); _for_each_inner_aes_key_length!((256, 2, 6));
+        _for_each_inner_aes_key_length!((bits(128), (256)));
+        _for_each_inner_aes_key_length!((modes(128, 0, 4), (256, 2, 6)));
     };
 }
 #[macro_export]
