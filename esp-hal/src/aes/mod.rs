@@ -567,6 +567,7 @@ pub mod dma {
                 .modify(|_, w| unsafe { w.block_mode().bits(mode as u8) });
 
             // FIXME
+            #[cfg(aes_dma_mode_ctr)]
             if mode == CipherMode::Ctr {
                 self.aes
                     .regs()

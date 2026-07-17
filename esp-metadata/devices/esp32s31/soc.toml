@@ -157,6 +157,7 @@ apb_cycle_wait_num = 16
 support_status = "partial"
 has_split_text_registers = true
 endianness_configurable = false
+dma_mode = ["ECB"]
 key_length = { options = [
     { bits = 128, encrypt_mode = 0, decrypt_mode = 4 },
     { bits = 256, encrypt_mode = 2, decrypt_mode = 6 },
@@ -178,8 +179,9 @@ engines = [
         name = "AXI_GDMA",
         max_priority = 5,
         burst_sizes = [8, 16, 32, 64, 128],
-        drivers = ["sha"],
+        drivers = ["aes", "sha"],
         peripheral_instances = [
+            { name = "AES", dma_id = 4 },
             { name = "SHA", dma_id = 5 },
         ],
         channels = [

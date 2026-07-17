@@ -222,21 +222,21 @@ macro_rules! for_each_dma_channel {
         _for_each_inner_dma_channel!(("AXI_GDMA", DMA_AXI_CH2));
         _for_each_inner_dma_channel!(("AXI_GDMA", any_channel = AxiGdmaChannel));
         _for_each_inner_dma_channel!(("AXI_GDMA", DMA_AXI_CH0, 0, interrupt_in =
-        AXI_PDMA_IN_CH0, interrupt_out = AXI_PDMA_OUT_CH0, compatible = [SHA]));
+        AXI_PDMA_IN_CH0, interrupt_out = AXI_PDMA_OUT_CH0, compatible = [AES, SHA]));
         _for_each_inner_dma_channel!(("AXI_GDMA", DMA_AXI_CH1, 1, interrupt_in =
-        AXI_PDMA_IN_CH1, interrupt_out = AXI_PDMA_OUT_CH1, compatible = [SHA]));
+        AXI_PDMA_IN_CH1, interrupt_out = AXI_PDMA_OUT_CH1, compatible = [AES, SHA]));
         _for_each_inner_dma_channel!(("AXI_GDMA", DMA_AXI_CH2, 2, interrupt_in =
-        AXI_PDMA_IN_CH2, interrupt_out = AXI_PDMA_OUT_CH2, compatible = [SHA]));
+        AXI_PDMA_IN_CH2, interrupt_out = AXI_PDMA_OUT_CH2, compatible = [AES, SHA]));
         _for_each_inner_dma_channel!((names("AXI_GDMA", DMA_AXI_CH0), ("AXI_GDMA",
         DMA_AXI_CH1), ("AXI_GDMA", DMA_AXI_CH2)));
         _for_each_inner_dma_channel!((separate_any_type("AXI_GDMA", any_channel =
         AxiGdmaChannel))); _for_each_inner_dma_channel!((shared));
         _for_each_inner_dma_channel!((split("AXI_GDMA", DMA_AXI_CH0, 0, interrupt_in =
-        AXI_PDMA_IN_CH0, interrupt_out = AXI_PDMA_OUT_CH0, compatible = [SHA]),
+        AXI_PDMA_IN_CH0, interrupt_out = AXI_PDMA_OUT_CH0, compatible = [AES, SHA]),
         ("AXI_GDMA", DMA_AXI_CH1, 1, interrupt_in = AXI_PDMA_IN_CH1, interrupt_out =
-        AXI_PDMA_OUT_CH1, compatible = [SHA]), ("AXI_GDMA", DMA_AXI_CH2, 2, interrupt_in
-        = AXI_PDMA_IN_CH2, interrupt_out = AXI_PDMA_OUT_CH2, compatible = [SHA])));
-        _for_each_inner_dma_channel!((no_own_interrupt));
+        AXI_PDMA_OUT_CH1, compatible = [AES, SHA]), ("AXI_GDMA", DMA_AXI_CH2, 2,
+        interrupt_in = AXI_PDMA_IN_CH2, interrupt_out = AXI_PDMA_OUT_CH2, compatible =
+        [AES, SHA]))); _for_each_inner_dma_channel!((no_own_interrupt));
     };
 }
 #[macro_export]
@@ -245,14 +245,20 @@ macro_rules! for_each_dma_channel_peri_pair {
     ($($pattern:tt => $code:tt;)*) => {
         macro_rules! _for_each_inner_dma_channel_peri_pair { $(($pattern) => $code;)*
         ($other : tt) => {} } _for_each_inner_dma_channel_peri_pair!(("AXI_GDMA",
+        DMA_AXI_CH0, AES)); _for_each_inner_dma_channel_peri_pair!(("AXI_GDMA",
         DMA_AXI_CH0, SHA)); _for_each_inner_dma_channel_peri_pair!(("AXI_GDMA",
+        DMA_AXI_CH1, AES)); _for_each_inner_dma_channel_peri_pair!(("AXI_GDMA",
         DMA_AXI_CH1, SHA)); _for_each_inner_dma_channel_peri_pair!(("AXI_GDMA",
+        DMA_AXI_CH2, AES)); _for_each_inner_dma_channel_peri_pair!(("AXI_GDMA",
         DMA_AXI_CH2, SHA)); _for_each_inner_dma_channel_peri_pair!(("AXI_GDMA",
-        any_channel = AxiGdmaChannel, SHA));
-        _for_each_inner_dma_channel_peri_pair!((channels("AXI_GDMA", DMA_AXI_CH0, SHA),
-        ("AXI_GDMA", DMA_AXI_CH1, SHA), ("AXI_GDMA", DMA_AXI_CH2, SHA)));
+        any_channel = AxiGdmaChannel, AES));
+        _for_each_inner_dma_channel_peri_pair!(("AXI_GDMA", any_channel = AxiGdmaChannel,
+        SHA)); _for_each_inner_dma_channel_peri_pair!((channels("AXI_GDMA", DMA_AXI_CH0,
+        AES), ("AXI_GDMA", DMA_AXI_CH0, SHA), ("AXI_GDMA", DMA_AXI_CH1, AES),
+        ("AXI_GDMA", DMA_AXI_CH1, SHA), ("AXI_GDMA", DMA_AXI_CH2, AES), ("AXI_GDMA",
+        DMA_AXI_CH2, SHA)));
         _for_each_inner_dma_channel_peri_pair!((any_channels("AXI_GDMA", any_channel =
-        AxiGdmaChannel, SHA)));
+        AxiGdmaChannel, AES), ("AXI_GDMA", any_channel = AxiGdmaChannel, SHA)));
     };
 }
 #[macro_export]
@@ -272,6 +278,14 @@ macro_rules! for_each_mem2mem_channel {
         _for_each_inner_mem2mem_channel!((erased("AXI_GDMA", AxiGdma, AxiGdmaChannel, 0,
         6, 1, 7, 2, 8))); _for_each_inner_mem2mem_channel!((engines("AXI_GDMA", AxiGdma,
         AxiGdmaChannel)));
+    };
+}
+#[macro_export]
+#[cfg_attr(docsrs, doc(cfg(feature = "_device-selected")))]
+macro_rules! with_aes_dma_engine {
+    ($($pattern:tt => $code:tt;)*) => {
+        macro_rules! _with_inner_aes_dma_engine { $(($pattern) => $code;)* ($other : tt)
+        => {} } _with_inner_aes_dma_engine!(("AXI_GDMA", AxiGdmaChannel));
     };
 }
 #[macro_export]
@@ -1168,8 +1182,9 @@ macro_rules! for_each_peripheral {
         _for_each_inner_peripheral!((ETH(unstable)));
         _for_each_inner_peripheral!((CPU_CTRL(unstable)));
         _for_each_inner_peripheral!((SW_INTERRUPT(unstable)));
-        _for_each_inner_peripheral!((WIFI)); _for_each_inner_peripheral!((SHA, Sha, 5,
-        AxiGdmaChannel)); _for_each_inner_peripheral!((all(@ peri_type #[doc =
+        _for_each_inner_peripheral!((WIFI)); _for_each_inner_peripheral!((AES, Aes, 4,
+        AxiGdmaChannel)); _for_each_inner_peripheral!((SHA, Sha, 5, AxiGdmaChannel));
+        _for_each_inner_peripheral!((all(@ peri_type #[doc =
         "GPIO0 peripheral singleton"] GPIO0 <= virtual()), (@ peri_type #[doc =
         "GPIO1 peripheral singleton"] GPIO1 <= virtual()), (@ peri_type #[doc =
         "GPIO2 peripheral singleton"] GPIO2 <= virtual()), (@ peri_type #[doc =
@@ -1324,7 +1339,8 @@ macro_rules! for_each_peripheral {
         (PSRAM(unstable)), (SPI1(unstable)), (SPI2(unstable)), (USB_DEVICE(unstable)),
         (FLASH(unstable)), (ETH(unstable)), (CPU_CTRL(unstable)),
         (SW_INTERRUPT(unstable)), (WIFI)));
-        _for_each_inner_peripheral!((dma_eligible(SHA, Sha, 5, AxiGdmaChannel)));
+        _for_each_inner_peripheral!((dma_eligible(AES, Aes, 4, AxiGdmaChannel), (SHA,
+        Sha, 5, AxiGdmaChannel)));
     };
 }
 /// This macro can be used to generate code for each `GPIOn` instance.
