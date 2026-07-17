@@ -1532,7 +1532,7 @@ pub(crate) mod asynch {
         CH: DmaTxChannel,
     {
         #[cfg_attr(
-            not(any(i2s_driver_supported, uhci_driver_supported)),
+            not(any(i2s_driver_supported, uhci_driver_supported, sha_supports_dma)),
             expect(dead_code)
         )]
         pub fn new(tx: &'a mut ChannelTx<Async, CH>) -> Self {

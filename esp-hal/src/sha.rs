@@ -341,18 +341,39 @@ impl crate::interrupt::InterruptConfigurable for Sha<'_> {
 #[cfg(sha_supports_dma)]
 #[instability::unstable]
 pub mod dma {
-    use core::{marker::PhantomData, mem::ManuallyDrop};
+    use core::{future::poll_fn, marker::PhantomData, mem::ManuallyDrop, task::Poll};
 
     use super::{AlignmentHelper, Sha, ShaAlgorithm, SocDependentEndianess, h_mem};
     use crate::{
-        Blocking,
-        dma::{Channel, DmaEligiblePeripheral, DmaError, DmaTxBuf, DmaTxBuffer},
+        Async,
+        asynch::AtomicWaker,
+        dma::{
+            Channel,
+            DmaEligiblePeripheral,
+            DmaError,
+            DmaTxBuf,
+            DmaTxBuffer,
+            asynch::DmaTxFuture,
+        },
+        handler,
+        ram,
     };
 
     /// Maximum input accepted by one ESP SHA-DMA operation.
     ///
     /// Larger messages can be split into multiple complete-block operations.
     pub const MAX_TRANSFER_SIZE: usize = 3968;
+
+    static WAKER: AtomicWaker = AtomicWaker::new();
+
+    #[handler]
+    #[ram]
+    fn interrupt_handler() {
+        let regs = crate::peripherals::SHA::regs();
+        regs.irq_ena().write(|w| w.interrupt_ena().clear_bit());
+        regs.clear_irq().write(|w| w.clear_interrupt().set_bit());
+        WAKER.wake();
+    }
 
     /// Error returned when a SHA-DMA operation cannot be started.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -375,14 +396,16 @@ pub mod dma {
     /// A SHA accelerator paired with an exclusively owned DMA channel.
     pub struct ShaDma<'d> {
         sha: Sha<'d>,
-        channel: Channel<Blocking, ShaErased<'d>>,
+        channel: Channel<Async, ShaErased<'d>>,
     }
 
     impl<'d> Sha<'d> {
         /// Pair this SHA peripheral with a compatible DMA channel.
         pub fn with_dma(self, channel: impl ShaDmaChannel<'d>) -> ShaDma<'d> {
-            let channel = Channel::new(channel.into());
+            let channel = Channel::new(channel.into()).into_async();
             channel.runtime_ensure_compatible(self.sha.dma_peripheral());
+            self.sha.disable_peri_interrupt_on_all_cores();
+            self.sha.bind_peri_interrupt(interrupt_handler);
             ShaDma { sha: self, channel }
         }
     }
@@ -450,8 +473,46 @@ pub mod dma {
 
         /// Wait for completion, read the digest state, and return all owned
         /// resources.
-        pub fn wait(mut self, output: &mut [u8]) -> (ShaDma<'d>, DmaTxBuf) {
+        pub fn wait(self, output: &mut [u8]) -> (ShaDma<'d>, DmaTxBuf) {
             while !self.is_done() {}
+
+            self.finish(output)
+        }
+
+        /// Asynchronously wait for the DMA and SHA completion interrupts.
+        ///
+        /// Unlike [`Self::wait`], this yields the CPU while the accelerator and
+        /// AXI-DMA engine are working.
+        pub async fn wait_async(
+            mut self,
+            output: &mut [u8],
+        ) -> Result<(ShaDma<'d>, DmaTxBuf), (Error, ShaDma<'d>, DmaTxBuf)> {
+            let regs = self.sha_dma.sha.sha.register_block();
+            regs.clear_irq().write(|w| w.clear_interrupt().set_bit());
+            regs.irq_ena().write(|w| w.interrupt_ena().set_bit());
+
+            if let Err(error) = DmaTxFuture::new(&mut self.sha_dma.channel.tx).await {
+                let (sha_dma, input) = self.release();
+                return Err((Error::Dma(error), sha_dma, input));
+            }
+
+            poll_fn(|cx| {
+                WAKER.register(cx.waker());
+                if !A::ALGORITHM_KIND.is_busy(&self.sha_dma.sha.sha) {
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            })
+            .await;
+
+            Ok(self.finish(output))
+        }
+
+        fn finish(mut self, output: &mut [u8]) -> (ShaDma<'d>, DmaTxBuf) {
+            let regs = self.sha_dma.sha.sha.register_block();
+            regs.irq_ena().write(|w| w.interrupt_ena().clear_bit());
+            regs.clear_irq().write(|w| w.clear_interrupt().set_bit());
 
             self.sha_dma.channel.tx.stop_transfer();
 
@@ -463,6 +524,25 @@ pub mod dma {
             );
 
             unsafe {
+                // SAFETY: the transfer exclusively owns both ManuallyDrop values. Forgetting
+                // `self` prevents its Drop implementation from releasing them a second time.
+                let sha_dma = ManuallyDrop::take(&mut self.sha_dma);
+                let tx_view = ManuallyDrop::take(&mut self.tx_view);
+                core::mem::forget(self);
+
+                (sha_dma, DmaTxBuf::from_view(tx_view))
+            }
+        }
+
+        fn release(mut self) -> (ShaDma<'d>, DmaTxBuf) {
+            let regs = self.sha_dma.sha.sha.register_block();
+            regs.irq_ena().write(|w| w.interrupt_ena().clear_bit());
+            regs.clear_irq().write(|w| w.clear_interrupt().set_bit());
+            self.sha_dma.channel.tx.stop_transfer();
+
+            unsafe {
+                // SAFETY: the transfer exclusively owns both ManuallyDrop values. Forgetting
+                // `self` prevents its Drop implementation from releasing them a second time.
                 let sha_dma = ManuallyDrop::take(&mut self.sha_dma);
                 let tx_view = ManuallyDrop::take(&mut self.tx_view);
                 core::mem::forget(self);
@@ -474,6 +554,9 @@ pub mod dma {
 
     impl<A: ShaAlgorithm> Drop for ShaDmaTransfer<'_, A> {
         fn drop(&mut self) {
+            let regs = self.sha_dma.sha.sha.register_block();
+            regs.irq_ena().write(|w| w.interrupt_ena().clear_bit());
+            regs.clear_irq().write(|w| w.clear_interrupt().set_bit());
             self.sha_dma.channel.tx.stop_transfer();
 
             unsafe {
