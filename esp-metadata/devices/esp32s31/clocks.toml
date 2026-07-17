@@ -12,6 +12,8 @@ peripheral_clocks = { templates = [
     # stop another crypto peripheral that will be added later.
     { name = "aes_clk_template", value = "crate::peripherals::HP_SYS_CLKRST::regs().crypto_ctrl0().modify(|_, w| w.reg_crypto_sys_clk_en().set_bit().reg_crypto_aes_clk_en().bit(enable));" },
     { name = "aes_rst_template", value = "crate::peripherals::HP_SYS_CLKRST::regs().crypto_ctrl0().modify(|_, w| w.reg_crypto_aes_rst_en().bit(reset).reg_crypto_rst_en().clear_bit().reg_crypto_ds_rst_en().clear_bit());" },
+    { name = "hmac_clk_template", value = "crate::peripherals::HP_SYS_CLKRST::regs().crypto_ctrl0().modify(|_, w| w.reg_crypto_sys_clk_en().set_bit().reg_crypto_hmac_clk_en().bit(enable));" },
+    { name = "hmac_rst_template", value = "crate::peripherals::HP_SYS_CLKRST::regs().crypto_ctrl0().modify(|_, w| w.reg_crypto_hmac_rst_en().bit(reset).reg_crypto_rst_en().clear_bit());" },
     { name = "sha_clk_template", value = "crate::peripherals::HP_SYS_CLKRST::regs().crypto_ctrl0().modify(|_, w| w.reg_crypto_sys_clk_en().set_bit().reg_crypto_sha_clk_en().bit(enable));" },
     { name = "sha_rst_template", value = "crate::peripherals::HP_SYS_CLKRST::regs().crypto_ctrl0().modify(|_, w| w.reg_crypto_sha_rst_en().bit(reset));" },
     { name = "ecc_clk_template", value = "crate::peripherals::HP_SYS_CLKRST::regs().crypto_ctrl0().modify(|_, w| w.reg_crypto_sys_clk_en().set_bit().reg_crypto_ecc_clk_en().bit(enable));" },
@@ -23,6 +25,7 @@ peripheral_clocks = { templates = [
 ], peripheral_clocks = [
     { name = "Systimer", keep_enabled = true },
     { name = "Aes", template_params = { clk_en_template = "{{aes_clk_template}}", rst_template = "{{aes_rst_template}}" } },
+    { name = "Hmac", template_params = { clk_en_template = "{{hmac_clk_template}}", rst_template = "{{hmac_rst_template}}" } },
     { name = "Sha", template_params = { clk_en_template = "{{sha_clk_template}}", rst_template = "{{sha_rst_template}}" } },
     { name = "Ecc", template_params = { clk_en_template = "{{ecc_clk_template}}", rst_template = "{{ecc_rst_template}}" } },
     { name = "Ecdsa", template_params = { clk_en_template = "{{ecdsa_clk_template}}", rst_template = "{{ecdsa_rst_template}}" } },

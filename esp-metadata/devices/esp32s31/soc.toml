@@ -56,6 +56,7 @@ peripherals = [
     { name = "RNG", pac = "TRNG" },
     { name = "AXI_GDMA", pac = "AXI_DMA" },
     { name = "AES", interrupts = { peri = "AES" } },
+    { name = "HMAC" },
     { name = "SHA", interrupts = { peri = "SHA" } },
     # ECDSA verification uses the dedicated front-end plus the shared ECC
     # arithmetic engine. ECC remains hidden until its generic driver has been
@@ -163,6 +164,9 @@ key_length = { options = [
     { bits = 128, encrypt_mode = 0, decrypt_mode = 4 },
     { bits = 256, encrypt_mode = 2, decrypt_mode = 6 },
 ] }
+
+[device.hmac]
+support_status = "partial"
 
 [device.sha]
 support_status = "partial"
