@@ -547,13 +547,28 @@ fn init_axi_dma_racey() {
 
     regs.misc_conf().modify(|_, w| w.clk_en().set_bit());
 
-    // AXI-DMA can access L2MEM, L2ROM, MSPI Flash, MSPI PSRAM.
+    // AXI-DMA can access internal SRAM/ROM and external MSPI memory. The
+    // internal address window differs between P4 and S31.
+    #[cfg(esp32p4)]
     regs.intr_mem_start_addr()
         .write(|w| unsafe { w.access_intr_mem_start_addr().bits(0x4FC0_0000) });
+    #[cfg(esp32p4)]
     regs.intr_mem_end_addr()
         .write(|w| unsafe { w.access_intr_mem_end_addr().bits(0x4FFC_0000) });
+
+    #[cfg(esp32s31)]
+    regs.intr_mem_start_addr()
+        .write(|w| unsafe { w.access_intr_mem_start_addr().bits(0x2F00_0000) });
+    #[cfg(esp32s31)]
+    regs.intr_mem_end_addr()
+        .write(|w| unsafe { w.access_intr_mem_end_addr().bits(0x2F07_FFFF) });
+
     regs.extr_mem_start_addr()
         .write(|w| unsafe { w.access_extr_mem_start_addr().bits(0x4000_0000) });
+    #[cfg(esp32p4)]
     regs.extr_mem_end_addr()
         .write(|w| unsafe { w.access_extr_mem_end_addr().bits(0x4C00_0000) });
+    #[cfg(esp32s31)]
+    regs.extr_mem_end_addr()
+        .write(|w| unsafe { w.access_extr_mem_end_addr().bits(0x53FF_FFFF) });
 }

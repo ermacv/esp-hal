@@ -119,7 +119,7 @@ esp32h2 = { version = "0.19", features = ["critical-section"], optional = true, 
 esp32s2 = { version = "0.31", features = ["critical-section"], optional = true, git = "https://github.com/esp-rs/esp-pacs", rev = "14aa2c8" }
 esp32s3 = { version = "0.35", features = ["critical-section"], optional = true, git = "https://github.com/esp-rs/esp-pacs", rev = "14aa2c8" }
 esp32p4 = { version = "0.2",  features = ["critical-section"], optional = true, git = "https://github.com/esp-rs/esp-pacs", rev = "14aa2c8" }
-esp32s31 = { version = "0.1", features = ["critical-section"], optional = true, git = "https://github.com/ermacv/esp-pacs", rev = "fda3b2343" }
+esp32s31 = { version = "0.1", features = ["critical-section"], optional = true, git = "https://github.com/ermacv/esp-pacs", rev = "b790b7849" }
 
 [target.'cfg(target_arch = "riscv32")'.dependencies]
 riscv            = { version = "0.15.0" }

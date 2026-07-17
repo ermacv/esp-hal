@@ -337,6 +337,175 @@ impl crate::interrupt::InterruptConfigurable for Sha<'_> {
     }
 }
 
+/// DMA support for the SHA accelerator.
+#[cfg(sha_supports_dma)]
+#[instability::unstable]
+pub mod dma {
+    use core::{marker::PhantomData, mem::ManuallyDrop};
+
+    use super::{AlignmentHelper, Sha, ShaAlgorithm, SocDependentEndianess, h_mem};
+    use crate::{
+        Blocking,
+        dma::{Channel, DmaEligiblePeripheral, DmaError, DmaTxBuf, DmaTxBuffer},
+    };
+
+    /// Maximum input accepted by one ESP SHA-DMA operation.
+    ///
+    /// Larger messages can be split into multiple complete-block operations.
+    pub const MAX_TRANSFER_SIZE: usize = 3968;
+
+    /// Error returned when a SHA-DMA operation cannot be started.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    #[non_exhaustive]
+    pub enum Error {
+        /// The buffer is empty, not an integer number of SHA blocks, or exceeds
+        /// [`MAX_TRANSFER_SIZE`].
+        InvalidLength,
+        /// The DMA engine rejected the descriptor chain or transfer.
+        Dma(DmaError),
+    }
+
+    impl From<DmaError> for Error {
+        fn from(value: DmaError) -> Self {
+            Self::Dma(value)
+        }
+    }
+
+    /// A SHA accelerator paired with an exclusively owned DMA channel.
+    pub struct ShaDma<'d> {
+        sha: Sha<'d>,
+        channel: Channel<Blocking, ShaErased<'d>>,
+    }
+
+    impl<'d> Sha<'d> {
+        /// Pair this SHA peripheral with a compatible DMA channel.
+        pub fn with_dma(self, channel: impl ShaDmaChannel<'d>) -> ShaDma<'d> {
+            let channel = Channel::new(channel.into());
+            channel.runtime_ensure_compatible(self.sha.dma_peripheral());
+            ShaDma { sha: self, channel }
+        }
+    }
+
+    impl core::fmt::Debug for ShaDma<'_> {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.debug_struct("ShaDma").finish()
+        }
+    }
+
+    impl<'d> ShaDma<'d> {
+        /// Process complete message blocks from a DMA buffer.
+        ///
+        /// Set `first_block` for the first operation of a message. Subsequent
+        /// operations continue from the digest state retained by the hardware.
+        pub fn process<A: ShaAlgorithm>(
+            mut self,
+            mut input: DmaTxBuf,
+            first_block: bool,
+        ) -> Result<ShaDmaTransfer<'d, A>, (Error, Self, DmaTxBuf)> {
+            let len = input.len();
+            if len == 0 || len > MAX_TRANSFER_SIZE || !len.is_multiple_of(A::CHUNK_LENGTH) {
+                return Err((Error::InvalidLength, self, input));
+            }
+
+            let peripheral = self.sha.sha.dma_peripheral();
+            if let Err(error) = unsafe { self.channel.tx.prepare_transfer(peripheral, &mut input) }
+                .and_then(|_| self.channel.tx.start_transfer())
+            {
+                return Err((Error::Dma(error), self, input));
+            }
+
+            let regs = self.sha.sha.register_block();
+            regs.mode()
+                .write(|w| unsafe { w.mode().bits(A::ALGORITHM_KIND.mode_bits()) });
+            regs.dma_block_num()
+                .write(|w| unsafe { w.dma_block_num().bits((len / A::CHUNK_LENGTH) as u16) });
+
+            if first_block {
+                regs.dma_start().write(|w| w.dma_start().set_bit());
+            } else {
+                regs.dma_continue().write(|w| w.dma_continue().set_bit());
+            }
+
+            Ok(ShaDmaTransfer {
+                sha_dma: ManuallyDrop::new(self),
+                tx_view: ManuallyDrop::new(input.into_view()),
+                _algorithm: PhantomData,
+            })
+        }
+    }
+
+    /// An in-progress SHA-DMA operation.
+    pub struct ShaDmaTransfer<'d, A: ShaAlgorithm> {
+        sha_dma: ManuallyDrop<ShaDma<'d>>,
+        tx_view: ManuallyDrop<<DmaTxBuf as DmaTxBuffer>::View>,
+        _algorithm: PhantomData<A>,
+    }
+
+    impl<'d, A: ShaAlgorithm> ShaDmaTransfer<'d, A> {
+        /// Returns `true` when both SHA and DMA have consumed the input.
+        pub fn is_done(&self) -> bool {
+            !A::ALGORITHM_KIND.is_busy(&self.sha_dma.sha.sha) && self.sha_dma.channel.tx.is_done()
+        }
+
+        /// Wait for completion, read the digest state, and return all owned
+        /// resources.
+        pub fn wait(mut self, output: &mut [u8]) -> (ShaDma<'d>, DmaTxBuf) {
+            while !self.is_done() {}
+
+            self.sha_dma.channel.tx.stop_transfer();
+
+            let alignment = AlignmentHelper::<SocDependentEndianess>::default();
+            alignment.volatile_read_regset(
+                h_mem(&self.sha_dma.sha.sha, 0),
+                output,
+                core::cmp::min(output.len(), A::DIGEST_LENGTH),
+            );
+
+            unsafe {
+                let sha_dma = ManuallyDrop::take(&mut self.sha_dma);
+                let tx_view = ManuallyDrop::take(&mut self.tx_view);
+                core::mem::forget(self);
+
+                (sha_dma, DmaTxBuf::from_view(tx_view))
+            }
+        }
+    }
+
+    impl<A: ShaAlgorithm> Drop for ShaDmaTransfer<'_, A> {
+        fn drop(&mut self) {
+            self.sha_dma.channel.tx.stop_transfer();
+
+            unsafe {
+                ManuallyDrop::drop(&mut self.sha_dma);
+                let tx_view = ManuallyDrop::take(&mut self.tx_view);
+                let _ = DmaTxBuf::from_view(tx_view);
+            }
+        }
+    }
+
+    /// DMA channel trait for the SHA peripheral.
+    #[diagnostic::on_unimplemented(
+        message = "The DMA channel cannot be used with the SHA peripheral",
+        label = "This DMA channel"
+    )]
+    pub trait ShaDmaChannel<'d>: crate::private::Sealed + Into<ShaErased<'d>> {}
+
+    with_sha_dma_engine! {
+        ($engine:tt, $any_channel:ident) => {
+            type ShaErased<'d> = crate::dma::$any_channel<'d>;
+
+            crate::macros::impl_dma_channel_trait! {
+                $engine,
+                peri = SHA,
+                ($peri:path, $ch:path) => {
+                    impl<'d> ShaDmaChannel<'d> for $ch {}
+                }
+            }
+        };
+    }
+}
+
 // A few notes on this implementation with regards to 'memcpy',
 // - The registers are *not* cleared after processing, so padding needs to be written out
 // - Registers need to be written one u32 at a time, no u8 access
