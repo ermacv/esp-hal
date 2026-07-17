@@ -710,6 +710,7 @@ pub mod dma {
     #[procmacros::doc_replace(
         "dma_channel" => {
             cfg(esp32s2) => "DMA_CRYPTO",
+            cfg(esp32s31) => "DMA_AXI_CH0",
             cfg(esp32p4) => "DMA_AXI_CH0",
             _ => "DMA_CH0"
         }
@@ -779,6 +780,7 @@ pub mod dma {
         #[procmacros::doc_replace(
             "dma_channel" => {
                 cfg(esp32s2) => "DMA_CRYPTO",
+                cfg(esp32s31) => "DMA_AXI_CH0",
                 cfg(esp32p4) => "DMA_AXI_CH0",
                 _ => "DMA_CH0"
             }
@@ -811,6 +813,7 @@ pub mod dma {
         #[procmacros::doc_replace(
             "dma_channel" => {
                 cfg(esp32s2) => "DMA_CRYPTO",
+                cfg(esp32s31) => "DMA_AXI_CH0",
                 cfg(esp32p4) => "DMA_AXI_CH0",
                 _ => "DMA_CH0"
             }
@@ -1026,15 +1029,16 @@ pub mod dma {
             // by the hardware.
             let cipher_mode = unwrap!(cipher_state.hardware_cipher_mode());
 
-            let Ok(transfer) = driver.start_dma_transfer(
+            let transfer = match driver.start_dma_transfer(
                 number_of_blocks,
                 output_buffer,
                 input_buffer,
                 mode,
                 cipher_mode,
                 &work_item.key,
-            ) else {
-                panic!()
+            ) {
+                Ok(transfer) => transfer,
+                Err((error, _, _, _)) => panic!("AES DMA start failed: {error:?}"),
             };
 
             self.state = DriverState::WaitingForDma {

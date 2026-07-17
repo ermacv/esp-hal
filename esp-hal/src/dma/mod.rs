@@ -139,8 +139,10 @@ impl defmt::Format for DmaDescriptorFlags {
 /// A DMA transfer descriptor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[cfg_attr(esp32p4, repr(C, align(8)))] // TODO: only needed for GDMA_AXI
-#[cfg_attr(not(esp32p4), repr(C, align(4)))]
+// AXI GDMA requires 8-byte aligned descriptors. The alignment also pads the
+// descriptor to 16 bytes, keeping every element of a descriptor array aligned.
+#[cfg_attr(any(esp32p4, esp32s31), repr(C, align(8)))]
+#[cfg_attr(not(any(esp32p4, esp32s31)), repr(C, align(4)))]
 pub struct DmaDescriptor {
     /// Descriptor flags.
     pub flags: DmaDescriptorFlags,
@@ -153,6 +155,12 @@ pub struct DmaDescriptor {
     /// This field can only point to internal RAM.
     pub next: *mut DmaDescriptor,
 }
+
+#[cfg(any(esp32p4, esp32s31))]
+const _: () = {
+    assert!(core::mem::align_of::<DmaDescriptor>() == 8);
+    assert!(core::mem::size_of::<DmaDescriptor>() == 16);
+};
 
 impl DmaDescriptor {
     /// An empty DMA descriptor used to initialize the descriptor list.
