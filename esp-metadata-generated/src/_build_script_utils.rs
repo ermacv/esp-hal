@@ -5249,6 +5249,8 @@ impl Chip {
                     "soc_has_rng",
                     "soc_has_axi_gdma",
                     "soc_has_sha",
+                    "soc_has_ecc",
+                    "soc_has_ecdsa",
                     "soc_has_systimer",
                     "soc_has_timg0",
                     "soc_has_timg1",
@@ -5268,6 +5270,7 @@ impl Chip {
                     "soc_has_sw_interrupt",
                     "soc_has_wifi",
                     "dma_driver_supported",
+                    "ecdsa_driver_supported",
                     "gpio_driver_supported",
                     "interrupts_driver_supported",
                     "phy_driver_supported",
@@ -5341,6 +5344,8 @@ impl Chip {
                     "cargo:rustc-cfg=soc_has_rng",
                     "cargo:rustc-cfg=soc_has_axi_gdma",
                     "cargo:rustc-cfg=soc_has_sha",
+                    "cargo:rustc-cfg=soc_has_ecc",
+                    "cargo:rustc-cfg=soc_has_ecdsa",
                     "cargo:rustc-cfg=soc_has_systimer",
                     "cargo:rustc-cfg=soc_has_timg0",
                     "cargo:rustc-cfg=soc_has_timg1",
@@ -5360,6 +5365,7 @@ impl Chip {
                     "cargo:rustc-cfg=soc_has_sw_interrupt",
                     "cargo:rustc-cfg=soc_has_wifi",
                     "cargo:rustc-cfg=dma_driver_supported",
+                    "cargo:rustc-cfg=ecdsa_driver_supported",
                     "cargo:rustc-cfg=gpio_driver_supported",
                     "cargo:rustc-cfg=interrupts_driver_supported",
                     "cargo:rustc-cfg=phy_driver_supported",
@@ -7607,6 +7613,7 @@ pub fn emit_check_cfg_directives() {
     println!("cargo:rustc-check-cfg=cfg(soc_has_cpu_apm)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_iomux_mspi_pin)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_psram_mspi)");
+    println!("cargo:rustc-check-cfg=cfg(ecdsa_driver_supported)");
     println!("cargo:rustc-check-cfg=cfg(esp32s2)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_dedicated_gpio)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_pms)");

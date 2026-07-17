@@ -56,6 +56,11 @@ peripherals = [
     { name = "RNG", pac = "TRNG" },
     { name = "AXI_GDMA", pac = "AXI_DMA" },
     { name = "SHA", interrupts = { peri = "SHA" } },
+    # ECDSA verification uses the dedicated front-end plus the shared ECC
+    # arithmetic engine. ECC remains hidden until its generic driver has been
+    # qualified independently on S31.
+    { name = "ECC", hidden = true },
+    { name = "ECDSA", interrupts = { peri = "ECDSA" } },
     { name = "SYSTIMER" },
     { name = "TIMG0" },
     { name = "TIMG1" },
@@ -150,6 +155,9 @@ apb_cycle_wait_num = 16
 [device.sha]
 support_status = "partial"
 algo = { sha1 = 0, sha224 = 1, sha256 = 2, sha384 = 3, sha512 = 4, sha512_224 = 5, sha512_256 = 6, sha512_t = 7 }
+
+[device.ecdsa]
+support_status = "partial"
 
 [device.dma]
 support_status = "partial"

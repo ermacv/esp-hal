@@ -375,6 +375,8 @@ unstable_driver! {
     pub mod delay;
     #[cfg(ecc_driver_supported)]
     pub mod ecc;
+    #[cfg(ecdsa_driver_supported)]
+    pub mod ecdsa;
     #[cfg(hmac_driver_supported)]
     pub mod hmac;
     #[cfg(i2s_driver_supported)]
