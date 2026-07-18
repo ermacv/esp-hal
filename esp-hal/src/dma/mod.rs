@@ -1120,6 +1120,14 @@ where
         self.rx_impl.stop()
     }
 
+    /// Forces the channel state machine back to its idle state.
+    ///
+    /// Unlike [`Self::stop_transfer`], reset is synchronous and is therefore
+    /// required before returning a buffer from an aborted transfer.
+    pub(crate) fn reset_transfer(&mut self) {
+        self.rx_impl.reset()
+    }
+
     #[cfg(dma_supports_mem2mem)]
     pub(crate) fn set_mem2mem_mode(&mut self, value: bool) {
         self.rx_impl.set_mem2mem_mode(value);
@@ -1340,6 +1348,14 @@ where
 
     pub(crate) fn stop_transfer(&mut self) {
         self.tx_impl.stop()
+    }
+
+    /// Forces the channel state machine back to its idle state.
+    ///
+    /// Unlike [`Self::stop_transfer`], reset is synchronous and is therefore
+    /// required before returning a buffer from an aborted transfer.
+    pub(crate) fn reset_transfer(&mut self) {
+        self.tx_impl.reset()
     }
 
     pub(crate) fn listen_out(&self, interrupts: impl Into<EnumSet<DmaTxInterrupt>>) {

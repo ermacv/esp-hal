@@ -359,14 +359,14 @@ pub enum Endianness {
 /// CTR, CFB8, and CFB128.
 #[cfg(aes_supports_dma)]
 pub mod dma {
-    use core::{mem::ManuallyDrop, ptr::NonNull};
+    use core::{future::poll_fn, mem::ManuallyDrop, ptr::NonNull, task::Poll as TaskPoll};
 
     use procmacros::{handler, ram};
 
     #[cfg(dma_can_access_psram)]
     use crate::dma::ManualWritebackBuffer;
     use crate::{
-        Blocking,
+        Async,
         aes::{
             AES_WORK_QUEUE,
             AesOperation,
@@ -390,6 +390,7 @@ pub mod dma {
             DmaTxBuffer,
             NoBuffer,
             aligned::InternalMemory,
+            asynch::DmaRxFuture,
             prepare_for_rx,
             prepare_for_tx,
         },
@@ -397,6 +398,8 @@ pub mod dma {
         system::{Peripheral, PeripheralClockControl},
         work_queue::{Poll, Status, VTable, WorkQueueDriver},
     };
+
+    static AES_DMA_WAKER: crate::asynch::AtomicWaker = crate::asynch::AtomicWaker::new();
 
     /// Specifies the block cipher modes available for AES operations.
     #[derive(Clone, Copy, PartialEq, Eq)]
@@ -553,14 +556,16 @@ pub mod dma {
         /// The underlying [`Aes`](super::Aes) driver
         pub aes: super::Aes<'d>,
 
-        channel: Channel<Blocking, AesErased<'d>>,
+        channel: Channel<Async, AesErased<'d>>,
     }
 
     impl<'d> super::Aes<'d> {
         /// Enable DMA for the current instance of the AES driver
         pub fn with_dma(self, channel: impl AesDmaChannel<'d>) -> AesDma<'d> {
-            let channel = Channel::new(channel.into());
+            let channel = Channel::new(channel.into()).into_async();
             channel.runtime_ensure_compatible(self.aes.dma_peripheral());
+            self.aes.disable_peri_interrupt_on_all_cores();
+            self.aes.bind_peri_interrupt(interrupt_handler);
             AesDma { aes: self, channel }
         }
     }
@@ -812,6 +817,8 @@ pub mod dma {
         }
 
         fn finish_transform(&self) {
+            self.aes.regs().int_ena().write(|w| w.int_ena().clear_bit());
+            self.clear_interrupt();
             self.aes.regs().dma_exit().write(|w| w.dma_exit().set_bit());
             self.enable_dma(false);
             self.reset_aes();
@@ -963,12 +970,35 @@ pub mod dma {
             self.aes_dma.is_done()
         }
 
-        fn wait(mut self) -> (AesDma<'d>, DmaRxBuf, GcmDmaInput, GcmTag) {
+        fn wait(self) -> (AesDma<'d>, DmaRxBuf, GcmDmaInput, GcmTag) {
             while !self.is_done() {}
             while !self.aes_dma.channel.rx.is_done() {}
 
+            self.finish()
+        }
+
+        async fn wait_for_completion_async(&mut self) -> Result<(), DmaError> {
+            DmaRxFuture::new(&mut self.aes_dma.channel.rx).await?;
+
+            poll_fn(|cx| {
+                AES_DMA_WAKER.register(cx.waker());
+                if self.aes_dma.is_done() {
+                    TaskPoll::Ready(())
+                } else {
+                    self.aes_dma.listen();
+                    TaskPoll::Pending
+                }
+            })
+            .await;
+
+            Ok(())
+        }
+
+        fn finish(mut self) -> (AesDma<'d>, DmaRxBuf, GcmDmaInput, GcmTag) {
             self.aes_dma.channel.rx.stop_transfer();
             self.aes_dma.channel.tx.stop_transfer();
+            self.aes_dma.channel.rx.clear_interrupts();
+            self.aes_dma.channel.tx.clear_interrupts();
             let tag = self.aes_dma.read_gcm_tag();
             self.aes_dma.finish_transform();
 
@@ -990,6 +1020,35 @@ pub mod dma {
                 (aes_dma, output, input, tag)
             }
         }
+
+        fn release(mut self) -> (AesDma<'d>, DmaRxBuf, GcmDmaInput) {
+            self.aes_dma.channel.rx.stop_transfer();
+            self.aes_dma.channel.tx.stop_transfer();
+            self.aes_dma.channel.rx.reset_transfer();
+            self.aes_dma.channel.tx.reset_transfer();
+            self.aes_dma.channel.rx.clear_interrupts();
+            self.aes_dma.channel.tx.clear_interrupts();
+            self.aes_dma.finish_transform();
+
+            unsafe {
+                // SAFETY: this transfer exclusively owns all three ManuallyDrop values.
+                // Forgetting `self` prevents Drop from releasing them a second time.
+                let aes_dma = ManuallyDrop::take(&mut self.aes_dma);
+                let rx_view = ManuallyDrop::take(&mut self.rx_view);
+                let tx_view = ManuallyDrop::take(&mut self.tx_view);
+                let mut output = DmaRxBuf::from_view(rx_view);
+                output.set_length(self.data_len);
+                let input = GcmDmaInput {
+                    buffer: DmaTxBuf::from_view(tx_view),
+                    aad_blocks: self.aad_blocks,
+                    data_blocks: self.data_blocks,
+                    remainder_bits: self.remainder_bits,
+                    data_len: self.data_len,
+                };
+                core::mem::forget(self);
+                (aes_dma, output, input)
+            }
+        }
     }
 
     #[cfg(aes_dma_mode_gcm)]
@@ -997,6 +1056,10 @@ pub mod dma {
         fn drop(&mut self) {
             self.aes_dma.channel.rx.stop_transfer();
             self.aes_dma.channel.tx.stop_transfer();
+            self.aes_dma.channel.rx.reset_transfer();
+            self.aes_dma.channel.tx.reset_transfer();
+            self.aes_dma.channel.rx.clear_interrupts();
+            self.aes_dma.channel.tx.clear_interrupts();
             self.aes_dma.finish_transform();
             unsafe { ManuallyDrop::drop(&mut self.aes_dma) };
             let rx_view = unsafe { ManuallyDrop::take(&mut self.rx_view) };
@@ -1058,6 +1121,253 @@ pub mod dma {
             } else {
                 output.as_mut_slice().fill(0);
                 Err((GcmAuthenticationError, (aes, output, input)))
+            }
+        }
+    }
+
+    /// Error returned by the cancellation-safe asynchronous AES-GCM frontend.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub enum GcmError {
+        /// Hardware GCM does not accept an empty payload.
+        EmptyPayload,
+        /// AAD or payload length exceeds the supported 32-bit bit-length field.
+        LengthTooLarge,
+        /// The owned TX DMA buffer cannot hold the padded authenticated input.
+        InputBufferTooSmall,
+        /// The caller or owned RX DMA buffer cannot hold the output.
+        OutputBufferTooSmall,
+        /// AXI-GDMA rejected or failed the transfer.
+        Dma(DmaError),
+        /// The supplied authentication tag did not match the ciphertext and AAD.
+        AuthenticationFailed,
+    }
+
+    impl From<GcmInputError> for GcmError {
+        fn from(error: GcmInputError) -> Self {
+            match error {
+                GcmInputError::LengthTooLarge => Self::LengthTooLarge,
+                GcmInputError::BufferTooSmall => Self::InputBufferTooSmall,
+                GcmInputError::EmptyPayload => Self::EmptyPayload,
+            }
+        }
+    }
+
+    /// Cancellation-safe asynchronous AES-GCM frontend.
+    ///
+    /// This object exclusively owns the AES accelerator, AXI-GDMA channel and
+    /// both static DMA buffers. Its methods borrow `&mut self`, so cancelling an
+    /// operation stops and resets the hardware while retaining every resource
+    /// for the next call. Caller output is written only after the interrupt-
+    /// driven operation and, for decryption, tag verification have succeeded.
+    pub struct AesGcm<'d> {
+        aes: Option<AesDma<'d>>,
+        input: Option<DmaTxBuf>,
+        output: Option<DmaRxBuf>,
+    }
+
+    impl<'d> AesGcm<'d> {
+        /// Creates a frontend from exclusively owned DMA resources.
+        pub fn new(aes: AesDma<'d>, input: DmaTxBuf, output: DmaRxBuf) -> Self {
+            Self {
+                aes: Some(aes),
+                input: Some(input),
+                output: Some(output),
+            }
+        }
+
+        /// Returns the capacity of the internal authenticated input buffer.
+        pub fn input_capacity(&self) -> usize {
+            self.input
+                .as_ref()
+                .expect("AES-GCM input is present outside an operation")
+                .capacity()
+        }
+
+        /// Returns the capacity of the internal output buffer.
+        pub fn output_capacity(&self) -> usize {
+            self.output
+                .as_ref()
+                .expect("AES-GCM output is present outside an operation")
+                .capacity()
+        }
+
+        /// Encrypts and authenticates one complete message.
+        ///
+        /// The returned future is cancellation-safe. `ciphertext` remains
+        /// unchanged if the future is cancelled or an error is returned.
+        pub async fn encrypt<K>(
+            &mut self,
+            nonce: [u8; 12],
+            aad: &[u8],
+            plaintext: &[u8],
+            ciphertext: &mut [u8],
+            key: K,
+        ) -> Result<GcmTag, GcmError>
+        where
+            K: Into<Key>,
+        {
+            if ciphertext.len() < plaintext.len() {
+                return Err(GcmError::OutputBufferTooSmall);
+            }
+
+            let transfer = self.start(nonce, aad, plaintext, key, Operation::Encrypt)?;
+            let mut guard = GcmAsyncGuard {
+                owner: self,
+                transfer: Some(transfer),
+            };
+            guard.wait().await?;
+            guard.finish(ciphertext, None)
+        }
+
+        /// Decrypts and authenticates one complete message.
+        ///
+        /// `plaintext` is not modified unless the full 128-bit tag is valid.
+        /// The returned future is cancellation-safe.
+        pub async fn decrypt<K>(
+            &mut self,
+            nonce: [u8; 12],
+            aad: &[u8],
+            ciphertext: &[u8],
+            plaintext: &mut [u8],
+            expected_tag: [u8; BLOCK_SIZE],
+            key: K,
+        ) -> Result<(), GcmError>
+        where
+            K: Into<Key>,
+        {
+            if plaintext.len() < ciphertext.len() {
+                return Err(GcmError::OutputBufferTooSmall);
+            }
+
+            let transfer = self.start(nonce, aad, ciphertext, key, Operation::Decrypt)?;
+            let mut guard = GcmAsyncGuard {
+                owner: self,
+                transfer: Some(transfer),
+            };
+            guard.wait().await?;
+            guard
+                .finish(plaintext, Some(GcmTag(expected_tag)))
+                .map(|_| ())
+        }
+
+        /// Releases the accelerator, channel and zeroized DMA buffers.
+        pub fn release(mut self) -> (AesDma<'d>, DmaTxBuf, DmaRxBuf) {
+            self.zeroize_buffers();
+            (
+                self.aes.take().expect("AES-GCM accelerator is present"),
+                self.input.take().expect("AES-GCM input is present"),
+                self.output.take().expect("AES-GCM output is present"),
+            )
+        }
+
+        fn start<K>(
+            &mut self,
+            nonce: [u8; 12],
+            aad: &[u8],
+            payload: &[u8],
+            key: K,
+            operation: Operation,
+        ) -> Result<GcmTransfer<'d>, GcmError>
+        where
+            K: Into<Key>,
+        {
+            let input_buffer = self
+                .input
+                .take()
+                .expect("AES-GCM input is present outside an operation");
+            let input = match GcmDmaInput::new(input_buffer, aad, payload) {
+                Ok(input) => input,
+                Err((error, input)) => {
+                    self.input = Some(input);
+                    return Err(error.into());
+                }
+            };
+
+            let aes = self
+                .aes
+                .take()
+                .expect("AES-GCM accelerator is present outside an operation");
+            let output = self
+                .output
+                .take()
+                .expect("AES-GCM output is present outside an operation");
+            match aes.start_gcm(nonce, output, input, key, operation) {
+                Ok(transfer) => Ok(transfer),
+                Err((error, aes, output, input)) => {
+                    self.restore(aes, output, input.into_buffer());
+                    if error == DmaError::BufferTooSmall {
+                        Err(GcmError::OutputBufferTooSmall)
+                    } else {
+                        Err(GcmError::Dma(error))
+                    }
+                }
+            }
+        }
+
+        fn restore(&mut self, aes: AesDma<'d>, mut output: DmaRxBuf, mut input: DmaTxBuf) {
+            output.as_mut_slice().fill(0);
+            input.as_mut_slice().fill(0);
+            self.aes = Some(aes);
+            self.output = Some(output);
+            self.input = Some(input);
+        }
+
+        fn zeroize_buffers(&mut self) {
+            if let Some(output) = self.output.as_mut() {
+                output.as_mut_slice().fill(0);
+            }
+            if let Some(input) = self.input.as_mut() {
+                input.as_mut_slice().fill(0);
+            }
+        }
+    }
+
+    impl Drop for AesGcm<'_> {
+        fn drop(&mut self) {
+            self.zeroize_buffers();
+        }
+    }
+
+    struct GcmAsyncGuard<'a, 'd> {
+        owner: &'a mut AesGcm<'d>,
+        transfer: Option<GcmTransfer<'d>>,
+    }
+
+    impl GcmAsyncGuard<'_, '_> {
+        async fn wait(&mut self) -> Result<(), GcmError> {
+            self.transfer
+                .as_mut()
+                .expect("AES-GCM transfer is present")
+                .wait_for_completion_async()
+                .await
+                .map_err(GcmError::Dma)
+        }
+
+        fn finish(
+            mut self,
+            destination: &mut [u8],
+            expected_tag: Option<GcmTag>,
+        ) -> Result<GcmTag, GcmError> {
+            let transfer = self.transfer.take().expect("AES-GCM transfer is present");
+            let (aes, output, input, actual_tag) = transfer.finish();
+            let data_len = input.data_len();
+            let result = if expected_tag.is_some_and(|expected| actual_tag != expected) {
+                Err(GcmError::AuthenticationFailed)
+            } else {
+                destination[..data_len].copy_from_slice(&output.as_slice()[..data_len]);
+                Ok(actual_tag)
+            };
+            self.owner.restore(aes, output, input.into_buffer());
+            result
+        }
+    }
+
+    impl Drop for GcmAsyncGuard<'_, '_> {
+        fn drop(&mut self) {
+            if let Some(transfer) = self.transfer.take() {
+                let (aes, output, input) = transfer.release();
+                self.owner.restore(aes, output, input.into_buffer());
             }
         }
     }
@@ -1452,6 +1762,10 @@ pub mod dma {
     #[handler]
     #[ram]
     fn interrupt_handler() {
+        let regs = crate::peripherals::AES::regs();
+        regs.int_ena().write(|w| w.int_ena().clear_bit());
+        regs.int_clr().write(|w| w.int_clr().set_bit());
+        AES_DMA_WAKER.wake();
         AES_WORK_QUEUE.process();
     }
 
