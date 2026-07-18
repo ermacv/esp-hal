@@ -2,6 +2,10 @@
 
 pub(crate) use esp32s31 as pac;
 
+// External RAM is cached through the 64-byte L1 data-cache lines. Internal
+// SRAM is uncached on ESP32-S31 and therefore does not need cache maintenance.
+pub(crate) const CONFIG_DATA_CACHE_LINE_SIZE: usize = 64;
+
 pub mod clocks;
 pub(crate) mod cpu_control;
 pub(crate) mod regi2c;
@@ -123,7 +127,7 @@ pub(crate) fn enable_branch_predictor() {
 static CACHE_SYNC_LOCK: esp_sync::RawMutex = esp_sync::RawMutex::new();
 
 fn cache_aligned_range(addr: u32, size: u32) -> Option<(u32, u32)> {
-    const CACHE_LINE_SIZE: u32 = 64;
+    const CACHE_LINE_SIZE: u32 = CONFIG_DATA_CACHE_LINE_SIZE as u32;
 
     if size == 0 {
         return None;

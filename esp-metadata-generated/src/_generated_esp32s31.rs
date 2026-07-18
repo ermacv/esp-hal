@@ -173,7 +173,7 @@ macro_rules! property {
         true
     };
     ("soc.internal_memory_cached") => {
-        true
+        false
     };
     ("wifi.has_wifi6") => {
         true

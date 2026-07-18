@@ -24,7 +24,7 @@ controller = { Riscv = { flavour = "clic", interrupts = 48, priority_levels = 8 
 cpu_has_branch_predictor = true
 multi_core_enabled = true
 cpu_has_csr_pc = false
-internal_memory_cached = true
+internal_memory_cached = false
 
 # ESP-IDF soc.h defines one 512 KiB unified internal SRAM window. The ROM RAM
 # loader currently reserves the first 64 KiB during bring-up.
