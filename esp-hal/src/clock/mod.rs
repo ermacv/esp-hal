@@ -77,10 +77,9 @@ use crate::peripherals::TIMG0;
 #[instability::unstable]
 pub use crate::soc::clocks::ClockConfig;
 pub use crate::soc::clocks::CpuClock;
-use crate::{
-    soc::{clocks, clocks::ClockTree},
-    time::Rate,
-};
+#[cfg(not(esp32s31))]
+use crate::soc::clocks;
+use crate::{soc::clocks::ClockTree, time::Rate};
 
 impl CpuClock {
     #[procmacros::doc_replace]
@@ -519,15 +518,6 @@ pub fn xtal_clock() -> Rate {
 ///
 /// Written by [`calibrate_rtc_slow_clock`] during clock initialization.
 fn rtc_slow_cal_period() -> u64 {
-    cfg_select! {
-        soc_has_lp_aon => {
-            use crate::peripherals::LP_AON;
-        }
-        _ => {
-            use crate::peripherals::LPWR as LP_AON;
-        }
-    }
-
     // P4: LP_SYS (mapped as LP_AON in esp-hal) names its scratch registers
     // `lp_store0..lp_store14`, while every other chip names them `store0..N`.
     // TODO: file an esp-pacs issue/PR to rename the P4 fields to match.
@@ -538,8 +528,20 @@ fn rtc_slow_cal_period() -> u64 {
             // fixed-point format. Hardware calibration will replace this.
             (1_000_000_u64 << RtcClock::CAL_FRACT) / 32_768
         }
-        esp32p4 => { LP_AON::regs().lp_store1().read().bits() as u64 }
-        _ => { LP_AON::regs().store1().read().bits() as u64 }
+        _ => {
+            cfg_select! {
+                soc_has_lp_aon => {
+                    use crate::peripherals::LP_AON;
+                }
+                _ => {
+                    use crate::peripherals::LPWR as LP_AON;
+                }
+            }
+            cfg_select! {
+                esp32p4 => { LP_AON::regs().lp_store1().read().bits() as u64 }
+                _ => { LP_AON::regs().store1().read().bits() as u64 }
+            }
+        }
     }
 }
 

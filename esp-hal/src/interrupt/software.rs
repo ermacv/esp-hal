@@ -131,7 +131,7 @@ impl<const NUM: u8> SoftwareInterrupt<'_, NUM> {
         }
     }
 
-    #[cfg(riscv)]
+    #[cfg(all(riscv, not(esp32s31)))]
     fn is_pending(&self) -> bool {
         let interrupt;
         for_each_sw_interrupt! {

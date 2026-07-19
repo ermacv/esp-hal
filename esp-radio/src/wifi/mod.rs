@@ -77,13 +77,12 @@ unsafe extern "C" {
 // ESP-IDF 6 renamed these public constants while retaining their ABI values.
 // Keep the rest of esp-radio expressed in its existing cross-chip vocabulary.
 #[cfg(esp32s31)]
-const esp_interface_t_ESP_IF_WIFI_STA: wifi_interface_t = wifi_interface_t_WIFI_IF_STA;
-#[cfg(esp32s31)]
-const esp_interface_t_ESP_IF_WIFI_AP: wifi_interface_t = wifi_interface_t_WIFI_IF_AP;
-#[cfg(esp32s31)]
-const wifi_bandwidth_t_WIFI_BW_HT20: wifi_bandwidth_t = wifi_bandwidth_t_WIFI_BW20;
-#[cfg(esp32s31)]
-const wifi_bandwidth_t_WIFI_BW_HT40: wifi_bandwidth_t = wifi_bandwidth_t_WIFI_BW40;
+use crate::sys::include::{
+    wifi_bandwidth_t_WIFI_BW20 as wifi_bandwidth_t_WIFI_BW_HT20,
+    wifi_bandwidth_t_WIFI_BW40 as wifi_bandwidth_t_WIFI_BW_HT40,
+    wifi_interface_t_WIFI_IF_AP as esp_interface_t_ESP_IF_WIFI_AP,
+    wifi_interface_t_WIFI_IF_STA as esp_interface_t_ESP_IF_WIFI_STA,
+};
 
 pub(crate) use self::os_adapter::*;
 #[cfg(all(feature = "sniffer", feature = "unstable"))]

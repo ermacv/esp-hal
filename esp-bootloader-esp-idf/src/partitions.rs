@@ -15,6 +15,7 @@ const PARTITION_TABLE_OFFSET: u32 =
 
 const RAW_ENTRY_LEN: usize = 32;
 const ENTRY_MAGIC: u16 = 0x50aa;
+#[cfg(feature = "validation")]
 const MD5_MAGIC: u16 = 0xebeb;
 
 const OTA_SUBTYPE_OFFSET: u8 = 0x10;

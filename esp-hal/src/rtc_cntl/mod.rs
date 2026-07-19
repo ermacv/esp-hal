@@ -138,6 +138,9 @@ pub mod sleep;
 pub(crate) mod rtc;
 
 cfg_select! {
+    esp32s31 => {
+        use crate::peripherals::LP_WDT;
+    }
     soc_has_lp_wdt => {
         use crate::peripherals::LP_WDT;
         use crate::peripherals::LP_AON;
@@ -220,6 +223,7 @@ impl WakeupReason {
 
 /// RTC clock.
 pub struct Rtc<'d> {
+    #[cfg_attr(not(lp_timer_driver_supported), allow(dead_code))]
     rtc_timer: RTC_TIMER<'d>,
     /// Reset Watchdog Timer.
     pub rwdt: Rwdt,
@@ -410,6 +414,7 @@ impl<'d> Rtc<'d> {
         }
     }
 
+    #[cfg(not(esp32s31))]
     pub(crate) const RTC_DISABLE_ROM_LOG: u32 = 1;
 
     /// Temporarily disable log messages of the ROM bootloader.

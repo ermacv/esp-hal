@@ -271,7 +271,7 @@ fn setup_stack_guard() {
     }
 }
 
-#[cfg(all(init_stack_ptr_range_check, feature = "rt"))]
+#[cfg(all(init_stack_ptr_range_check, feature = "rt", not(esp32s31)))]
 pub(crate) fn ensure_stack_pointer_in_range() {
     unsafe extern "C" {
         static _stack_end_cpu0: u32;
@@ -297,7 +297,7 @@ pub(crate) fn ensure_stack_pointer_in_range() {
     );
 }
 
-#[cfg(all(feature = "rt", stack_guard_monitoring))]
+#[cfg(all(feature = "rt", stack_guard_monitoring, not(esp32s31)))]
 pub(crate) fn enable_main_stack_guard_monitoring() {
     unsafe {
         unsafe extern "C" {
@@ -348,7 +348,7 @@ pub(crate) fn setup_trap_section_protection() {
     }
 }
 
-#[cfg(all(feature = "rt", enable_pmp, riscv))]
+#[cfg(all(feature = "rt", enable_pmp, riscv, not(esp32s31)))]
 pub(crate) fn enable_pmp() {
     use core::arch::asm;
 

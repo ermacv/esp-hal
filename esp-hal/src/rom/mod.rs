@@ -25,4 +25,5 @@
 
 pub use esp_rom_sys::rom::*;
 
+#[cfg(not(esp32s31))]
 pub(crate) mod regi2c;

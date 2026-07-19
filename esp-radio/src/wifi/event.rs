@@ -491,6 +491,7 @@ impl FineTimingMeasurementReport<'_> {
     pub fn entries(&self) -> impl Iterator<Item = FineTimingMeasurementReportEntry<'_>> + '_ {
         #[cfg(not(esp32s31))]
         let ptr = self.0.ftm_report_data;
+        #[cfg(not(esp32s31))]
         let len = self.0.ftm_report_num_entries as usize;
 
         // Return an empty slice when there are no entries.

@@ -1,3 +1,7 @@
+// Helpers in this private module are shared by optional peripheral drivers.
+// A chip can legitimately compile none of their current users.
+#![allow(dead_code)]
+
 use core::{
     mem::ManuallyDrop,
     ops::{Deref, DerefMut},

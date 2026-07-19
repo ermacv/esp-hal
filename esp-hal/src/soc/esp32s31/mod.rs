@@ -8,7 +8,6 @@ pub(crate) const CONFIG_DATA_CACHE_LINE_SIZE: usize = 64;
 
 pub mod clocks;
 pub(crate) mod cpu_control;
-pub(crate) mod regi2c;
 pub(crate) mod trng;
 
 #[inline(always)]
@@ -201,6 +200,7 @@ pub(crate) unsafe fn cache_invalidate_addr(addr: u32, size: u32) {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
 pub(crate) enum CachePrepareCodeError {
     WritebackFailed,
     InvalidateFailed,

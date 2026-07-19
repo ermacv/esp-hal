@@ -1627,6 +1627,7 @@ impl<'lt> AnyPin<'lt> {
         {
             /// Workaround to make D+ and D- work when the pin is assigned to
             /// the `USB_SERIAL_JTAG` peripheral by default.
+            #[cfg(not(esp32s31))]
             fn disable_usb_pads(_gpionum: u8) {
                 crate::peripherals::USB_DEVICE::regs()
                     .conf0()
@@ -2177,7 +2178,7 @@ fn pin_does_not_support_function(pin: u8, function: &str) {
     panic!("Pin {} is not an {}", pin, function)
 }
 
-#[cfg(not(any(esp32c5, esp32c61)))]
+#[cfg(not(any(esp32c5, esp32c61, esp32s31)))]
 macro_rules! for_each_rtcio_pin {
     (@impl $ident:ident, $target:ident, $gpio:ident, $code:tt) => {
         if $ident.number() == $crate::peripherals::$gpio::NUMBER {
@@ -2200,7 +2201,7 @@ macro_rules! for_each_rtcio_pin {
     };
 }
 
-#[cfg(not(any(esp32h2, esp32c5, esp32c61)))]
+#[cfg(not(any(esp32h2, esp32c5, esp32c61, esp32s31)))]
 macro_rules! for_each_rtcio_output_pin {
     (@impl $ident:ident, $target:ident, $gpio:ident, $code:tt, $kind:literal) => {
         if $ident.number() == $crate::peripherals::$gpio::NUMBER {
@@ -2232,7 +2233,7 @@ macro_rules! for_each_rtcio_output_pin {
     };
 }
 
-#[cfg(not(any(esp32c5, esp32c61)))]
+#[cfg(not(any(esp32c5, esp32c61, esp32s31)))]
 impl RtcPin for AnyPin<'_> {
     #[cfg(any(xtensa, esp32h2))]
     fn rtc_number(&self) -> u8 {
@@ -2262,7 +2263,7 @@ impl RtcPin for AnyPin<'_> {
     }
 }
 
-#[cfg(not(any(esp32c5, esp32c61)))]
+#[cfg(not(any(esp32c5, esp32c61, esp32s31)))]
 impl RtcPinWithResistors for AnyPin<'_> {
     #[cfg(not(esp32h2))]
     fn rtcio_pullup(&self, enable: bool) {

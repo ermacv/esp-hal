@@ -18,6 +18,7 @@ pub use esp_riscv_rt::TrapFrame;
 #[cfg_attr(interrupt_controller = "clic", path = "riscv/clic.rs")]
 mod cpu_int;
 
+#[cfg(not(esp32s31))]
 pub(crate) use riscv::interrupt::free;
 
 use crate::{
