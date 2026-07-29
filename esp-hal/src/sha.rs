@@ -1317,7 +1317,7 @@ fn h_mem(sha: &crate::peripherals::SHA<'_>, index: usize) -> *mut u32 {
             sha.text(index).as_ptr()
         }
         esp32s31 => {
-            sha._2_sm_3_h_mem(index).as_ptr().cast()
+            sha.sha3_h_mem(index).as_ptr().cast()
         }
         _ => {
             sha.h_mem(index).as_ptr()
@@ -1332,7 +1332,7 @@ fn m_mem(sha: &crate::peripherals::SHA<'_>, index: usize) -> *mut u32 {
             sha.text(index).as_ptr()
         }
         esp32s31 => {
-            sha._2_sm_3_m_mem(index).as_ptr().cast()
+            sha.sha3_m_mem(index).as_ptr().cast()
         }
         _ => {
             sha.m_mem(index).as_ptr()

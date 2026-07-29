@@ -214,10 +214,7 @@ impl<'d> Aes<'d> {
 
     fn write_key(&mut self, input: &[u8]) {
         for (i, word) in read_words(input).enumerate() {
-            cfg_select! {
-                esp32s31 => self.regs().key_(i).write(|w| unsafe { w.bits(word) }),
-                _ => self.regs().key(i).write(|w| unsafe { w.bits(word) }),
-            };
+            self.regs().key(i).write(|w| unsafe { w.bits(word) });
         }
     }
 
@@ -231,10 +228,7 @@ impl<'d> Aes<'d> {
         for (i, word) in read_words(block).enumerate() {
             cfg_select! {
                 aes_has_split_text_registers => {
-                    cfg_select! {
-                        esp32s31 => self.regs().text_in_(i).write(|w| unsafe { w.bits(word) }),
-                        _ => self.regs().text_in(i).write(|w| unsafe { w.bits(word) }),
-                    };
+                    self.regs().text_in(i).write(|w| unsafe { w.bits(word) });
                 }
                 _ => {
                     self.regs().text(i).write(|w| unsafe { w.bits(word) });
@@ -246,10 +240,7 @@ impl<'d> Aes<'d> {
     fn read_block(&self, block: &mut [u8]) {
         cfg_select! {
             aes_has_split_text_registers => {
-                cfg_select! {
-                    esp32s31 => write_words(block, |i| self.regs().text_out_(i).read().bits()),
-                    _ => write_words(block, |i| self.regs().text_out(i).read().bits()),
-                }
+                write_words(block, |i| self.regs().text_out(i).read().bits())
             }
             _ => {
                 write_words(block, |i| self.regs().text(i).read().bits());
