@@ -97,6 +97,11 @@ extern "C" fn rtc_clk_xtal_freq_get() -> i32 {
             // PCR_CLK_XTAL_FREQ updates its value based on EFUSE_XTAL_48M_SEL.
             regs!(PCR).sysclk_conf().read().clk_xtal_freq().bits() as i32
         }
+        esp32s31 => {
+            // ESP-IDF asserts a 40 MHz XTAL for ESP32-S31 in
+            // components/esp_system/port/soc/esp32s31/clk.c.
+            40
+        }
         _ => {
             compile_error!("rtc_clk_xtal_freq_get not implemented for this chip");
         }

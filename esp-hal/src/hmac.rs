@@ -144,7 +144,14 @@ impl<'d> Hmac<'d> {
             .set_para_finish()
             .write(|w| w.set_para_end().set_bit());
 
-        if self.regs().query_error().read().query_check().bit_is_set() {
+        #[cfg(not(esp32s31))]
+        let key_purpose_mismatch = self.regs().query_error().read().query_check().bit_is_set();
+        // The ESP32-S31 SVD currently preserves the hardware documentation's
+        // `QUREY_CHECK` typo. Keep that PAC detail local to the driver.
+        #[cfg(esp32s31)]
+        let key_purpose_mismatch = self.regs().query_error().read().qurey_check().bit_is_set();
+
+        if key_purpose_mismatch {
             return Err(nb::Error::Other(Error::KeyPurposeMismatch));
         }
 
@@ -196,7 +203,7 @@ impl<'d> Hmac<'d> {
             #[cfg(esp32s2)]
             self.regs().rd_result_(0).as_ptr(),
             #[cfg(not(esp32s2))]
-            self.regs().rd_result_mem(0).as_ptr(),
+            self.regs().rd_result_mem(0).as_ptr().cast::<u32>(),
             output,
             core::cmp::min(output.len(), 32),
         );
@@ -235,7 +242,7 @@ impl<'d> Hmac<'d> {
             #[cfg(esp32s2)]
             self.regs().wr_message_(0).as_ptr(),
             #[cfg(not(esp32s2))]
-            self.regs().wr_message_mem(0).as_ptr(),
+            self.regs().wr_message_mem(0).as_ptr().cast::<u32>(),
             incoming,
             64,
             self.byte_written % 64,
@@ -269,7 +276,7 @@ impl<'d> Hmac<'d> {
             #[cfg(esp32s2)]
             self.regs().wr_message_(0).as_ptr(),
             #[cfg(not(esp32s2))]
-            self.regs().wr_message_mem(0).as_ptr(),
+            self.regs().wr_message_mem(0).as_ptr().cast::<u32>(),
             self.byte_written % 64,
         );
 
@@ -295,7 +302,7 @@ impl<'d> Hmac<'d> {
                 #[cfg(esp32s2)]
                 self.regs().wr_message_(0).as_ptr(),
                 #[cfg(not(esp32s2))]
-                self.regs().wr_message_mem(0).as_ptr(),
+                self.regs().wr_message_mem(0).as_ptr().cast::<u32>(),
                 0_u8,
                 pad_len,
                 mod_cursor,
@@ -317,7 +324,7 @@ impl<'d> Hmac<'d> {
             #[cfg(esp32s2)]
             self.regs().wr_message_(0).as_ptr(),
             #[cfg(not(esp32s2))]
-            self.regs().wr_message_mem(0).as_ptr(),
+            self.regs().wr_message_mem(0).as_ptr().cast::<u32>(),
             0_u8,
             pad_len,
             mod_cursor,
@@ -334,7 +341,7 @@ impl<'d> Hmac<'d> {
             #[cfg(esp32s2)]
             self.regs().wr_message_(0).as_ptr(),
             #[cfg(not(esp32s2))]
-            self.regs().wr_message_mem(0).as_ptr(),
+            self.regs().wr_message_mem(0).as_ptr().cast::<u32>(),
             &len_mem,
             64,
             64 - core::mem::size_of::<u64>(),

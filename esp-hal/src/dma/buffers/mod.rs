@@ -282,6 +282,7 @@ impl BurstConfig {
         #[cfg(dma_can_access_psram)]
         to self.internal_memory {
             pub(super) const fn min_dram_alignment(self, direction: TransferDirection) -> usize;
+            #[allow(dead_code)]
             pub(super) fn is_burst_enabled(self) -> bool;
         }
     }
@@ -619,6 +620,7 @@ impl DmaTxBuf {
     }
 
     /// Consumes the buffer and returns the scoped version.
+    #[allow(dead_code)]
     pub(crate) fn into_scoped(self) -> ScopedDmaTxBuf<'static> {
         self.0
     }
@@ -742,6 +744,7 @@ impl DmaRxBuf {
     }
 
     /// Consumes the buffer and returns the scoped version.
+    #[allow(dead_code)]
     pub(crate) fn into_scoped(self) -> ScopedDmaRxBuf<'static> {
         self.0
     }

@@ -34,11 +34,11 @@ fn hp_alive_sys() -> &'static crate::pac::hp_alive_sys::RegisterBlock {
 #[non_exhaustive]
 pub enum CpuClock {
     /// 160 MHz CPU clock.
-    #[default]
     _160MHz = 160,
     /// 240 MHz CPU clock.
     _240MHz = 240,
     /// 320 MHz CPU clock.
+    #[default]
     _320MHz = 320,
 }
 
@@ -139,13 +139,13 @@ fn update_bus_clocks() {
 
 fn enable_bbpll_clk_impl(_clocks: &mut ClockTree, en: bool) {
     if en {
-        PMU::regs().imm_hp_ck_power_1().modify(|_, w| {
+        PMU::regs().imm_hp_ck_power_1().write(|w| {
             w.tie_high_xpd_bbpll().set_bit();
             w.tie_high_xpd_bbpll_i2c().set_bit();
             w.tie_high_global_bbpll_icg().set_bit()
         });
     } else {
-        PMU::regs().imm_hp_ck_power_1().modify(|_, w| {
+        PMU::regs().imm_hp_ck_power_1().write(|w| {
             w.tie_low_global_bbpll_icg().set_bit();
             w.tie_low_xpd_bbpll().set_bit();
             w.tie_low_xpd_bbpll_i2c().set_bit()
@@ -181,13 +181,13 @@ fn configure_bbpll_clk_impl(
 
 fn enable_cpll_clk_impl(_clocks: &mut ClockTree, en: bool) {
     if en {
-        PMU::regs().imm_hp_ck_power_1().modify(|_, w| {
+        PMU::regs().imm_hp_ck_power_1().write(|w| {
             w.tie_high_xpd_pll().set_bit();
             w.tie_high_xpd_pll_i2c().set_bit();
             w.tie_high_global_pll_icg().set_bit()
         });
     } else {
-        PMU::regs().imm_hp_ck_power_1().modify(|_, w| {
+        PMU::regs().imm_hp_ck_power_1().write(|w| {
             w.tie_low_global_pll_icg().set_bit();
             w.tie_low_xpd_pll().set_bit();
             w.tie_low_xpd_pll_i2c().set_bit()

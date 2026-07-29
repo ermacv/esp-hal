@@ -101,22 +101,39 @@
 // MUST be the first module
 mod fmt;
 
-#[cfg(not(feature = "std"))]
+#[cfg(all(
+    not(feature = "std"),
+    not(feature = "esp32s31"),
+    not(feature = "descriptor-only")
+))]
 mod rom;
-#[cfg(not(feature = "std"))]
+#[cfg(all(
+    not(feature = "std"),
+    not(feature = "esp32s31"),
+    not(feature = "descriptor-only")
+))]
 pub(crate) use rom as crypto;
 
-#[cfg(feature = "std")]
+#[cfg(all(
+    any(feature = "std", feature = "esp32s31"),
+    not(feature = "descriptor-only")
+))]
 mod non_rom;
 #[cfg(embedded_test)]
 pub use crypto::Crc32 as Crc32ForTesting;
-#[cfg(feature = "std")]
+#[cfg(all(
+    any(feature = "std", feature = "esp32s31"),
+    not(feature = "descriptor-only")
+))]
 pub(crate) use non_rom as crypto;
 
+#[cfg(not(feature = "descriptor-only"))]
 pub mod partitions;
 
+#[cfg(not(feature = "descriptor-only"))]
 pub mod ota;
 
+#[cfg(not(feature = "descriptor-only"))]
 pub mod ota_updater;
 
 // We run tests on the host which happens to be MacOS machines and mach-o

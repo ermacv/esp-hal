@@ -52,7 +52,7 @@ esp_rtos::start_second_core(
 //! // let esp_radio_controller = esp_radio::init().unwrap();
 #![doc = esp_hal::after_snippet!()]
 //! ```
-//! 
+//!
 //! To write `async` code, enable the `embassy` feature, and make the main function `async`.
 //! This will create a thread-mode executor on the main thread. Note that, to create async tasks, you will need
 //! the `task` macro from the `embassy-executor` crate. Do NOT enable any of the `arch-*` features on `embassy-executor`.
@@ -164,7 +164,15 @@ mod wait_queue;
 pub mod embassy;
 
 use core::mem::MaybeUninit;
+#[cfg(all(esp32s31, multi_core, feature = "embassy"))]
+use core::{
+    future::poll_fn,
+    sync::atomic::{AtomicBool, Ordering},
+    task::Poll,
+};
 
+#[cfg(all(esp32s31, multi_core, feature = "embassy"))]
+use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "alloc")]
 pub(crate) use esp_alloc::InternalMemory;
 #[cfg(systimer_driver_supported)]
@@ -181,7 +189,7 @@ use esp_hal::{
 #[cfg(multi_core)]
 use esp_hal::{
     peripherals::CPU_CTRL,
-    system::{CpuControl, Stack},
+    system::{AppCoreGuard, CpuControl, Stack},
     time::Duration,
 };
 #[cfg(feature = "embassy")]
@@ -410,10 +418,11 @@ pub fn start_with_idle_hook(
         }
         let stack_top = &raw const _stack_start_cpu0;
         let stack_bottom = (&raw const _stack_end_cpu0).cast::<MaybeUninit<u32>>();
-        let stack_slice = core::ptr::slice_from_raw_parts_mut(
-            stack_bottom.cast_mut(),
-            stack_top as usize - stack_bottom as usize,
-        );
+        #[cfg(esp32s31)]
+        let stack_len = (stack_top as usize - stack_bottom as usize) / core::mem::size_of::<u32>();
+        #[cfg(not(esp32s31))]
+        let stack_len = stack_top as usize - stack_bottom as usize;
+        let stack_slice = core::ptr::slice_from_raw_parts_mut(stack_bottom.cast_mut(), stack_len);
 
         task::allocate_main_task(
             scheduler,
@@ -451,6 +460,26 @@ pub fn start_second_core<const STACK_SIZE: usize>(
     start_second_core_with_stack_guard_offset::<STACK_SIZE>(cpu_control, int1, stack, None, func);
 }
 
+/// Starts the scheduler on the second CPU core without synchronously polling
+/// for its initialization.
+///
+/// The returned future is woken once the second core has initialized its
+/// scheduler. No delay loop or thread yield is used by the waiting core.
+#[cfg(all(esp32s31, multi_core, feature = "embassy"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "embassy")))]
+pub async fn start_second_core_async<const STACK_SIZE: usize>(
+    cpu_control: CPU_CTRL<'static>,
+    int1: SoftwareInterrupt<'static, 1>,
+    stack: &'static mut Stack<STACK_SIZE>,
+    func: impl FnOnce() + Send + 'static,
+) {
+    SECOND_CORE_READY.reset();
+    let guard = launch_second_core::<STACK_SIZE>(cpu_control, int1, stack, None, true, func);
+    SECOND_CORE_READY.wait().await;
+    debug_assert!(SCHEDULER.with(|scheduler| scheduler.per_cpu[1].initialized));
+    core::mem::forget(guard);
+}
+
 /// Starts the scheduler on the second CPU core.
 ///
 /// Note that the scheduler must be started first, before starting the second core.
@@ -473,16 +502,95 @@ pub fn start_second_core_with_stack_guard_offset<const STACK_SIZE: usize>(
     stack_guard_offset: Option<usize>,
     func: impl FnOnce() + Send + 'static,
 ) {
+    let guard =
+        launch_second_core::<STACK_SIZE>(cpu_control, int1, stack, stack_guard_offset, false, func);
+
+    // Spin until the second core scheduler is initialized
+    let start = Instant::now();
+
+    while start.elapsed() < Duration::from_secs(1) {
+        if SCHEDULER.with(|s| s.per_cpu[1].initialized) {
+            break;
+        }
+        esp_hal::rom::ets_delay_us(1);
+    }
+
+    if !SCHEDULER.with(|s| s.per_cpu[1].initialized) {
+        panic!(
+            "Second core scheduler failed to initialize. \
+            This can happen if its main function overflowed the stack."
+        );
+    }
+
+    core::mem::forget(guard);
+}
+
+#[cfg(all(esp32s31, multi_core, feature = "embassy"))]
+static SECOND_CORE_READY: SecondCoreReady = SecondCoreReady::new();
+
+#[cfg(all(esp32s31, multi_core, feature = "embassy"))]
+struct SecondCoreReady {
+    ready: AtomicBool,
+    waker: AtomicWaker,
+}
+
+#[cfg(all(esp32s31, multi_core, feature = "embassy"))]
+impl SecondCoreReady {
+    const fn new() -> Self {
+        Self {
+            ready: AtomicBool::new(false),
+            waker: AtomicWaker::new(),
+        }
+    }
+
+    fn reset(&self) {
+        self.ready.store(false, Ordering::Release);
+    }
+
+    fn signal(&self) {
+        self.ready.store(true, Ordering::Release);
+        self.waker.wake();
+    }
+
+    async fn wait(&self) {
+        poll_fn(|context| {
+            if self.ready.load(Ordering::Acquire) {
+                return Poll::Ready(());
+            }
+            self.waker.register(context.waker());
+            if self.ready.load(Ordering::Acquire) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
+    }
+}
+
+#[cfg(multi_core)]
+fn launch_second_core<const STACK_SIZE: usize>(
+    cpu_control: CPU_CTRL,
+    int1: SoftwareInterrupt<'static, 1>,
+    stack: &'static mut Stack<STACK_SIZE>,
+    stack_guard_offset: Option<usize>,
+    notify_async_waiter: bool,
+    func: impl FnOnce() + Send + 'static,
+) -> AppCoreGuard<'static> {
     trace!("Starting scheduler for the second core");
 
     struct SecondCoreStack {
         stack: *mut [MaybeUninit<u32>],
     }
     unsafe impl Send for SecondCoreStack {}
+    #[cfg(esp32s31)]
+    let stack_len = STACK_SIZE / core::mem::size_of::<u32>();
+    #[cfg(not(esp32s31))]
+    let stack_len = STACK_SIZE;
     let stack_ptrs = SecondCoreStack {
         stack: core::ptr::slice_from_raw_parts_mut(
             stack.bottom().cast::<MaybeUninit<u32>>(),
-            STACK_SIZE,
+            stack_len,
         ),
     };
 
@@ -517,6 +625,13 @@ pub fn start_second_core_with_stack_guard_offset<const STACK_SIZE: usize>(
                 trace!("Second core scheduler initialized");
             });
 
+            #[cfg(all(esp32s31, feature = "embassy"))]
+            if notify_async_waiter {
+                SECOND_CORE_READY.signal();
+            }
+            #[cfg(not(all(esp32s31, feature = "embassy")))]
+            let _ = notify_async_waiter;
+
             func();
 
             loop {
@@ -524,25 +639,7 @@ pub fn start_second_core_with_stack_guard_offset<const STACK_SIZE: usize>(
             }
         })
         .unwrap();
-
-    // Spin until the second core scheduler is initialized
-    let start = Instant::now();
-
-    while start.elapsed() < Duration::from_secs(1) {
-        if SCHEDULER.with(|s| s.per_cpu[1].initialized) {
-            break;
-        }
-        esp_hal::rom::ets_delay_us(1);
-    }
-
-    if !SCHEDULER.with(|s| s.per_cpu[1].initialized) {
-        panic!(
-            "Second core scheduler failed to initialize. \
-            This can happen if its main function overflowed the stack."
-        );
-    }
-
-    core::mem::forget(guard);
+    guard
 }
 
 const TICK_RATE: u32 = esp_config::esp_config_int!(u32, "ESP_RTOS_CONFIG_TICK_RATE_HZ");

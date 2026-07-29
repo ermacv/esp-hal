@@ -896,6 +896,65 @@ mod tests {
     use super::*;
 
     #[test]
+    fn esp32s31_pac_git_revision_is_aligned() {
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let mut pins = Vec::new();
+
+        for entry in std::fs::read_dir(workspace).unwrap() {
+            let package_dir = entry.unwrap().path();
+            let manifest_path = package_dir.join("Cargo.toml");
+            if !manifest_path.is_file() {
+                continue;
+            }
+
+            let manifest = std::fs::read_to_string(&manifest_path)
+                .unwrap()
+                .parse::<DocumentMut>()
+                .unwrap();
+            let Some(dependency) = manifest
+                .get("dependencies")
+                .and_then(Item::as_table)
+                .and_then(|dependencies| dependencies.get("esp32s31"))
+            else {
+                continue;
+            };
+
+            let dependency = dependency.as_inline_table().unwrap_or_else(|| {
+                panic!(
+                    "{}: esp32s31 must be an inline dependency table",
+                    manifest_path.display()
+                )
+            });
+            let git = dependency
+                .get("git")
+                .and_then(Value::as_str)
+                .unwrap_or_else(|| panic!("{}: esp32s31 is missing git", manifest_path.display()));
+            let rev = dependency
+                .get("rev")
+                .and_then(Value::as_str)
+                .unwrap_or_else(|| panic!("{}: esp32s31 is missing rev", manifest_path.display()));
+
+            pins.push((
+                package_dir.file_name().unwrap().to_owned(),
+                git.to_owned(),
+                rev.to_owned(),
+            ));
+        }
+
+        pins.sort_by(|a, b| a.0.cmp(&b.0));
+        assert!(
+            pins.len() >= 5,
+            "expected the S31 PAC in at least five HAL packages, found {pins:?}"
+        );
+
+        let canonical = (&pins[0].1, &pins[0].2);
+        assert!(
+            pins.iter().all(|(_, git, rev)| (git, rev) == canonical),
+            "ESP32-S31 PAC git pins are not aligned: {pins:?}"
+        );
+    }
+
+    #[test]
     fn test_format_dependency_version() {
         // (previous requirement, new version, expected rewrite)
         //

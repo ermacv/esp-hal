@@ -133,6 +133,18 @@ where
     F: FnOnce(),
 {
     crate::soc::enable_branch_predictor();
+    // The PMA configuration is local to each hart. CPU0 installs its external
+    // memory aperture during `esp_hal::init`, but Core 1 enters here directly
+    // from ROM and must install the same aperture before the scheduler closure
+    // or its code/data can be fetched from PSRAM.
+    //
+    // Sources:
+    // - HIL: esp32s31_rust `psram-code-psram-data --open-radio-hil`,
+    //   2026-07-28. Core 1 timed out in esp-rtos before this call and reached
+    //   the scheduler after it.
+    // - Prior working ESP32-S31 implementation at esp-hal commit 6c1457e1,
+    //   `start_core1_init_impl`.
+    crate::soc::enable_external_memory_pma();
     crate::rom::ets_set_appcpu_boot_addr(0);
 
     unsafe {

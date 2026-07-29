@@ -337,21 +337,8 @@ impl<'a> ScopedDmaRxBuf<'a> {
     fn sync_received_from_dma(&self) {
         #[cfg(any(soc_internal_memory_cached, dma_can_access_psram))]
         {
-            let descriptors = &*self.descriptors.descriptors;
-            unsafe {
-                crate::soc::cache_invalidate_addr(
-                    descriptors.as_ptr() as u32,
-                    core::mem::size_of_val(descriptors) as u32,
-                );
-            }
-            for desc in self.descriptors.linked_iter() {
-                let len = desc.len();
-                if len > 0 {
-                    unsafe {
-                        crate::soc::cache_invalidate_addr(desc.buffer as u32, len as u32);
-                    }
-                }
-            }
+            self.descriptors.descriptors.invalidate();
+            self.buffer.invalidate();
         }
     }
 }

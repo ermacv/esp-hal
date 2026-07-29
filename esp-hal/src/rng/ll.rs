@@ -67,11 +67,11 @@ fn read_one(wait_cycles: usize) -> u32 {
                 *last_wait_start = now;
 
                 cfg_select! {
-                    rng_is_lp_sys => {
-                        Some(RNG::regs().rng_data().read().bits())
-                    }
                     esp32s31 => {
                         Some(RNG::regs().crc_sync_data().read().bits())
+                    }
+                    rng_is_lp_sys => {
+                        Some(RNG::regs().rng_data().read().bits())
                     }
                     _ => {
                         Some(RNG::regs().data().read().bits())
@@ -88,7 +88,23 @@ fn read_one(wait_cycles: usize) -> u32 {
 }
 
 pub(super) fn fill_ptr_range(data: *mut u8, len: usize) {
-    let cpu_to_apb_freq_ratio = clocks::cpu_clk_frequency() / clocks::apb_clk_frequency();
+    let cpu_frequency = clocks::cpu_clk_frequency();
+    let apb_frequency = clocks::apb_clk_frequency();
+    let cpu_to_apb_freq_ratio = if apb_frequency == 0 {
+        // ESP32-S31 HIL 2026-07-29: the generated clock-tree cache can still
+        // report zero after the atomic bootstrap transition even though the
+        // APB clock is physically running. Dividing by that software sentinel
+        // panicked on the first MAC delay random value. Eight CPU cycles per
+        // APB cycle is deliberately conservative for every supported S31 CPU
+        // preset and preserves the minimum inter-read delay until the clock
+        // cache initialization is fixed at its source.
+        cfg_select! {
+            esp32s31 => 8,
+            _ => 1,
+        }
+    } else {
+        cpu_frequency.div_ceil(apb_frequency).max(1)
+    };
     let wait_cycles = cpu_to_apb_freq_ratio as usize * property!("rng.apb_cycle_wait_num");
 
     let mut remaining = len;

@@ -18,6 +18,7 @@ pub use esp_riscv_rt::TrapFrame;
 #[cfg_attr(interrupt_controller = "clic", path = "riscv/clic.rs")]
 mod cpu_int;
 
+#[cfg(not(esp32s31))]
 pub(crate) use riscv::interrupt::free;
 
 use crate::{
@@ -345,7 +346,7 @@ pub fn enable_direct(
         }
     }
 
-    if crate::debugger::debugger_connected() {
+    if cfg!(esp32s31) || crate::debugger::debugger_connected() {
         unsafe { core::ptr::write_volatile(int_slot, instr) };
     } else {
         crate::debugger::DEBUGGER_LOCK.lock(|| unsafe {
@@ -418,6 +419,9 @@ pub(crate) unsafe fn change_current_runlevel(level: RunLevel) -> RunLevel {
 
 fn cpu_wait_mode_on() -> bool {
     cfg_select! {
+        esp32s31 => {
+            false
+        }
         soc_has_pcr => {
             crate::peripherals::PCR::regs().cpu_waiti_conf().read().cpu_wait_mode_force_on().bit_is_set()
         }

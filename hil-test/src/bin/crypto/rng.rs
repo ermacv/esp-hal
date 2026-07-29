@@ -28,6 +28,9 @@ mod tests {
     #[cfg(rng_trng_supported)]
     fn test_trng_returns_random_values() {
         let p = esp_hal::init(Default::default());
+        #[cfg(esp32s31)]
+        let _source = TrngSource::new(p.RNG);
+        #[cfg(not(esp32s31))]
         let _source = TrngSource::new(p.RNG, p.ADC1);
 
         let rng = Trng::try_new().unwrap();
@@ -42,6 +45,9 @@ mod tests {
     #[cfg(rng_trng_supported)]
     fn test_trng_source_cannot_be_disabled_while_in_use() {
         let p = esp_hal::init(Default::default());
+        #[cfg(esp32s31)]
+        let source = TrngSource::new(p.RNG);
+        #[cfg(not(esp32s31))]
         let source = TrngSource::new(p.RNG, p.ADC1);
 
         let trng = Trng::try_new().unwrap();
@@ -60,6 +66,9 @@ mod tests {
     #[cfg(rng_trng_supported)]
     fn test_trng_source_cannot_be_dropped_while_in_use() {
         let p = esp_hal::init(Default::default());
+        #[cfg(esp32s31)]
+        let source = TrngSource::new(p.RNG);
+        #[cfg(not(esp32s31))]
         let source = TrngSource::new(p.RNG, p.ADC1);
 
         let _trng = Trng::try_new().unwrap();
@@ -72,6 +81,9 @@ mod tests {
     fn test_trng_source_can_be_dropped_if_unsafely_enabled() {
         let p = esp_hal::init(Default::default());
 
+        #[cfg(esp32s31)]
+        let source = TrngSource::new(p.RNG);
+        #[cfg(not(esp32s31))]
         let source = TrngSource::new(p.RNG, p.ADC1);
 
         // Unsafely increase the counter. Practically, this may be done in esp-radio.
