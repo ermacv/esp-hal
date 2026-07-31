@@ -81,6 +81,10 @@ static FLASH_120MHZ_TIMING: [(u8, u8, u8); 12] = [
     (2, 1, 4),
 ];
 
+const FLASH_TUNING_XIP_PAGE_BYTES: usize = 0x1000;
+const FLASH_TUNING_XIP_PAGE_WORDS: usize = FLASH_TUNING_XIP_PAGE_BYTES / size_of::<u32>();
+const FLASH_TUNING_MAX_XIP_PAGES: usize = 31;
+
 unsafe extern "C" {
     fn esp_rom_spiflash_attach(ishspi: u32, legacy: bool);
     fn esp_rom_spi_flash_update_id();
@@ -245,7 +249,10 @@ impl Flash {
     /// can access flash. The routine disables CPU0's instruction cache and
     /// interrupts while changing the shared MSPI timing path. Its own code and
     /// timing table are explicitly placed in internal RAM. `xip` must describe
-    /// a valid, mapped flash region containing at least 15 distinct 4 KiB pages.
+    /// a valid, mapped flash region containing at least 15 distinct 4 KiB
+    /// pages. Treat that region as disposable after this call: rejected timing
+    /// candidates can leave their dedicated page cached with corrupted data,
+    /// and ESP32-S31 does not yet expose a cache invalidation primitive here.
     #[inline(never)]
     #[unsafe(link_section = ".rwtext")]
     pub unsafe fn tune_120mhz(&mut self, xip: FlashXipRegion) -> Result<FlashTiming, FlashError> {
@@ -257,15 +264,23 @@ impl Flash {
         if unsafe { esp_rom_spiflash_read(0, reference.as_mut_ptr(), 128) } != 0 {
             return Err(FlashError::ReadFailed);
         }
-        let mut mapped_reference = [0u32; 31 * 32];
+        // A 128-byte prefix was insufficient on the ESP32-S31 Function
+        // CoreBoard: a candidate could pass every prefix and still corrupt
+        // other cache lines in the same page. Keep the complete direct-read
+        // reference for each sampled page in the bootstrap's internal-SRAM
+        // stack, then require every word to survive the candidate timing.
+        let mut mapped_reference =
+            [0u32; FLASH_TUNING_MAX_XIP_PAGES * FLASH_TUNING_XIP_PAGE_WORDS];
         let mut sample = 0usize;
         while sample < page_count {
             let physical = xip.physical_start + sample as u32 * 0x1000;
             if unsafe {
                 esp_rom_spiflash_read(
                     physical,
-                    mapped_reference.as_mut_ptr().add(sample * 32),
-                    128,
+                    mapped_reference
+                        .as_mut_ptr()
+                        .add(sample * FLASH_TUNING_XIP_PAGE_WORDS),
+                    FLASH_TUNING_XIP_PAGE_BYTES as u32,
                 )
             } != 0
             {
@@ -330,9 +345,9 @@ impl Flash {
                 let mapped = (xip.virtual_start + sample * 0x1000) as *const u32;
                 let mut cache_matches = true;
                 let mut word = 0usize;
-                while cache_matches && word < 32 {
+                while cache_matches && word < FLASH_TUNING_XIP_PAGE_WORDS {
                     cache_matches = unsafe { mapped.add(word).read_volatile() }
-                        == mapped_reference[sample * 32 + word];
+                        == mapped_reference[sample * FLASH_TUNING_XIP_PAGE_WORDS + word];
                     word += 1;
                 }
                 if cache_matches {
@@ -405,9 +420,9 @@ impl Flash {
         while cache_matches && sample < page_count - FLASH_120MHZ_TIMING.len() {
             let mapped = (xip.virtual_start + sample * 0x1000) as *const u32;
             let mut word = 0usize;
-            while cache_matches && word < 32 {
+            while cache_matches && word < FLASH_TUNING_XIP_PAGE_WORDS {
                 cache_matches = unsafe { mapped.add(word).read_volatile() }
-                    == mapped_reference[sample * 32 + word];
+                    == mapped_reference[sample * FLASH_TUNING_XIP_PAGE_WORDS + word];
                 word += 1;
             }
             sample += 1;
