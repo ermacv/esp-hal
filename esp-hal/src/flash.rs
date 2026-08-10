@@ -85,6 +85,13 @@ const FLASH_TUNING_XIP_PAGE_BYTES: usize = 0x1000;
 const FLASH_TUNING_XIP_PAGE_WORDS: usize = FLASH_TUNING_XIP_PAGE_BYTES / size_of::<u32>();
 const FLASH_TUNING_MAX_XIP_PAGES: usize = 31;
 
+/// Number of words required by [`Flash::tune_120mhz`] for its XIP reference.
+///
+/// The storage must live in internal SRAM because flash cache is suspended
+/// while the tuning candidates are checked.
+pub const FLASH_TUNING_SCRATCH_WORDS: usize =
+    FLASH_TUNING_MAX_XIP_PAGES * FLASH_TUNING_XIP_PAGE_WORDS;
+
 unsafe extern "C" {
     fn esp_rom_spiflash_attach(ishspi: u32, legacy: bool);
     fn esp_rom_spi_flash_update_id();
@@ -250,14 +257,22 @@ impl Flash {
     /// interrupts while changing the shared MSPI timing path. Its own code and
     /// timing table are explicitly placed in internal RAM. `xip` must describe
     /// a valid, mapped flash region containing at least 15 distinct 4 KiB
-    /// pages. Treat that region as disposable after this call: rejected timing
-    /// candidates can leave their dedicated page cached with corrupted data,
-    /// and ESP32-S31 does not yet expose a cache invalidation primitive here.
+    /// pages. `mapped_reference` must contain at least
+    /// [`FLASH_TUNING_SCRATCH_WORDS`] words in internal SRAM. Treat the XIP
+    /// region as disposable after this call: rejected timing candidates can
+    /// leave their dedicated page cached with corrupted data, and ESP32-S31
+    /// does not yet expose a cache invalidation primitive here.
     #[inline(never)]
     #[unsafe(link_section = ".rwtext")]
-    pub unsafe fn tune_120mhz(&mut self, xip: FlashXipRegion) -> Result<FlashTiming, FlashError> {
+    pub unsafe fn tune_120mhz(
+        &mut self,
+        xip: FlashXipRegion,
+        mapped_reference: &mut [u32],
+    ) -> Result<FlashTiming, FlashError> {
         let page_count = ((xip.size.saturating_sub(128)) / 0x1000 + 1).min(31);
-        if page_count < FLASH_120MHZ_TIMING.len() + 3 {
+        if page_count < FLASH_120MHZ_TIMING.len() + 3
+            || mapped_reference.len() < FLASH_TUNING_SCRATCH_WORDS
+        {
             return Err(FlashError::TimingTuningFailed);
         }
         let mut reference = [0u32; 32];
@@ -267,10 +282,9 @@ impl Flash {
         // A 128-byte prefix was insufficient on the ESP32-S31 Function
         // CoreBoard: a candidate could pass every prefix and still corrupt
         // other cache lines in the same page. Keep the complete direct-read
-        // reference for each sampled page in the bootstrap's internal-SRAM
-        // stack, then require every word to survive the candidate timing.
-        let mut mapped_reference =
-            [0u32; FLASH_TUNING_MAX_XIP_PAGES * FLASH_TUNING_XIP_PAGE_WORDS];
+        // reference for each sampled page in caller-owned internal SRAM, then
+        // require every word to survive the candidate timing. Caller-owned
+        // storage avoids a 124-KiB stack frame during early boot.
         let mut sample = 0usize;
         while sample < page_count {
             let physical = xip.physical_start + sample as u32 * 0x1000;
