@@ -7,6 +7,7 @@
 #[cfg_attr(esp32h2, path = "esp32h2.rs")]
 #[cfg_attr(esp32s2, path = "esp32s2.rs")]
 #[cfg_attr(esp32s3, path = "esp32s3.rs")]
+#[cfg_attr(esp32s31, path = "esp32c5.rs")]
 pub(crate) mod os_adapter_chip_specific;
 
 use core::ptr::NonNull;
@@ -20,6 +21,7 @@ use crate::{
         common::{str_from_c, thread_sem_get},
         malloc::{InternalMemory, calloc_internal},
     },
+    hal::ram,
     sys::c_types::*,
     time::{blob_ticks_to_micros, millis_to_blob_ticks},
 };
@@ -138,8 +140,16 @@ pub unsafe extern "C" fn ints_off(mask: u32) {
 ///   true if in interrupt or false if not
 ///
 /// *************************************************************************
+#[cfg_attr(esp32s31, ram)]
 pub unsafe extern "C" fn is_from_isr() -> bool {
-    true
+    #[cfg(esp32s31)]
+    {
+        !crate::hal::interrupt::RunLevel::current().is_thread()
+    }
+    #[cfg(not(esp32s31))]
+    {
+        true
+    }
 }
 
 /// **************************************************************************
@@ -599,7 +609,17 @@ pub unsafe extern "C" fn task_get_current_task() -> *mut c_void {
 /// *************************************************************************
 pub unsafe extern "C" fn task_get_max_priority() -> i32 {
     trace!("task_get_max_priority");
-    crate::preempt::max_task_priority() as i32
+
+    // The closed S31 Wi-Fi library derives the driver task priority as
+    // `_task_get_max_priority() - 2`. ESP-IDF exposes FreeRTOS'
+    // `configMAX_PRIORITIES` here, which is 25 and therefore creates the
+    // driver task at priority 23. Exposing esp-rtos' wider priority range made
+    // the same binary create it at priority 29 instead.
+    if cfg!(esp32s31) {
+        25
+    } else {
+        crate::preempt::max_task_priority() as i32
+    }
 }
 
 /// **************************************************************************
@@ -1495,7 +1515,7 @@ pub unsafe extern "C" fn slowclk_cal_get() -> u32 {
     #[cfg(esp32c2)]
     return 28639;
 
-    #[cfg(any(esp32c6, esp32h2, esp32c5, esp32c61))]
+    #[cfg(any(esp32c6, esp32h2, esp32c5, esp32c61, esp32s31))]
     return 0;
 
     #[cfg(esp32)]

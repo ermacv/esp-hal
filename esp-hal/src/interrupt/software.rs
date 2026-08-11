@@ -116,7 +116,7 @@ impl<const NUM: u8> SoftwareInterrupt<'_, NUM> {
         let reg = regs.cpu_intr_from_cpu(NUM as usize);
 
         cfg_select! {
-            xtensa => {
+            any(xtensa, esp32s31) => {
                 reg.write(|w| w.cpu_intr().set_bit());
                 // Read back to ensure the write is completed.
                 _ = reg.read();
@@ -131,7 +131,7 @@ impl<const NUM: u8> SoftwareInterrupt<'_, NUM> {
         }
     }
 
-    #[cfg(riscv)]
+    #[cfg(all(riscv, not(esp32s31)))]
     fn is_pending(&self) -> bool {
         let interrupt;
         for_each_sw_interrupt! {

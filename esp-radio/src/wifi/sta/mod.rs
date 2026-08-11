@@ -1,10 +1,13 @@
 //! Wi-Fi station.
 
+#[cfg(not(esp32s31))]
 use alloc::string::String;
 use core::fmt;
 
 use procmacros::BuilderLite;
 
+#[cfg(esp32s31)]
+use super::Password;
 use super::{AuthenticationMethod, DisconnectReason, Protocols, Ssid};
 use crate::WifiError;
 
@@ -39,11 +42,23 @@ pub struct StationConfig {
     pub(crate) auth_method: AuthenticationMethod,
     /// The password for the Wi-Fi connection.
     #[builder_lite(reference)]
+    #[cfg(esp32s31)]
+    pub(crate) password: Password,
+    /// The password for the Wi-Fi connection.
+    #[builder_lite(reference)]
+    #[cfg(not(esp32s31))]
     pub(crate) password: String,
     /// The Wi-Fi channel to connect to.
     pub(crate) channel: Option<u8>,
     /// The set of protocols supported by the access point.
     pub(crate) protocols: Protocols,
+    /// Enable HE MCS8 and MCS9 when 802.11ax is selected.
+    ///
+    /// ESP-IDF leaves these rates disabled by default. Enabling them raises
+    /// the maximum 20 MHz single-stream PHY rate while retaining adaptive
+    /// rate control.
+    #[builder_lite(unstable)]
+    pub(crate) he_mcs9_enabled: bool,
     /// Interval for station to listen to beacon from access point.
     ///
     /// The unit of listen interval is one beacon interval.
@@ -99,9 +114,13 @@ impl Default for StationConfig {
             ssid: Ssid::default(),
             bssid: None,
             auth_method: AuthenticationMethod::Wpa2Personal,
+            #[cfg(esp32s31)]
+            password: Password::default(),
+            #[cfg(not(esp32s31))]
             password: String::new(),
             channel: None,
             protocols: Protocols::default(),
+            he_mcs9_enabled: false,
             listen_interval: 3,
             beacon_timeout: 6,
             failure_retry_cnt: 1,
@@ -119,6 +138,7 @@ impl fmt::Debug for StationConfig {
             .field("password", &"**REDACTED**")
             .field("channel", &self.channel)
             .field("protocols", &self.protocols)
+            .field("he_mcs9_enabled", &self.he_mcs9_enabled)
             .field("listen_interval", &self.listen_interval)
             .field("beacon_timeout", &self.beacon_timeout)
             .field("failure_retry_cnt", &self.failure_retry_cnt)
@@ -139,6 +159,7 @@ impl defmt::Format for StationConfig {
             password: **REDACTED**, \
             channel: {:?}, \
             protocols: {}, \
+            he_mcs9_enabled: {}, \
             listen_interval: {}, \
             beacon_timeout: {}, \
             failure_retry_cnt: {}, \
@@ -149,6 +170,7 @@ impl defmt::Format for StationConfig {
             self.auth_method,
             self.channel,
             self.protocols,
+            self.he_mcs9_enabled,
             self.listen_interval,
             self.beacon_timeout,
             self.failure_retry_cnt,

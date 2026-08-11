@@ -707,7 +707,13 @@ where
 }
 
 // Static instance of the waker for each component of the peripheral:
+//
+// ESP32-S31 firmware may relocate ordinary mutable state to external PSRAM.
+// These wakers are touched directly by the USB interrupt handler and must stay
+// in internal SRAM in every memory profile.
+#[cfg_attr(esp32s31, unsafe(link_section = ".critical.data.usb_serial_jtag"))]
 static WAKER_TX: AtomicWaker = AtomicWaker::new();
+#[cfg_attr(esp32s31, unsafe(link_section = ".critical.data.usb_serial_jtag"))]
 static WAKER_RX: AtomicWaker = AtomicWaker::new();
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
@@ -943,6 +949,7 @@ impl embedded_io_async_07::Read for UsbSerialJtagRx<'_, Async> {
 }
 
 #[handler]
+#[unsafe(link_section = ".rwtext.usb_serial_jtag")]
 fn async_interrupt_handler() {
     let usb = USB_DEVICE::regs();
     let interrupts = usb.int_st().read();

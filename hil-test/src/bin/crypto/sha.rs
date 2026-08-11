@@ -156,9 +156,14 @@ mod tests {
         let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
         let peripherals = esp_hal::init(config);
 
+        #[cfg(all(rng_trng_supported, esp32s31))]
+        let rng_source = TrngSource::new(peripherals.RNG);
+        #[cfg(all(rng_trng_supported, not(esp32s31)))]
+        let rng_source = TrngSource::new(peripherals.RNG, peripherals.ADC1);
+
         Context {
             #[cfg(rng_trng_supported)]
-            _rng_source: TrngSource::new(peripherals.RNG, peripherals.ADC1),
+            _rng_source: rng_source,
             sha: Sha::new(peripherals.SHA),
         }
     }
@@ -383,10 +388,15 @@ mod work_queue_tests {
         let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
         let peripherals = esp_hal::init(config);
 
+        #[cfg(all(rng_trng_supported, esp32s31))]
+        let rng_source = TrngSource::new(peripherals.RNG);
+        #[cfg(all(rng_trng_supported, not(esp32s31)))]
+        let rng_source = TrngSource::new(peripherals.RNG, peripherals.ADC1);
+
         Context {
             sha: ShaBackend::new(peripherals.SHA),
             #[cfg(rng_trng_supported)]
-            _rng_source: TrngSource::new(peripherals.RNG, peripherals.ADC1),
+            _rng_source: rng_source,
         }
     }
 

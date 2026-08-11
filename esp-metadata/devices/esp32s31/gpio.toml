@@ -119,6 +119,8 @@ input_signals = [
     { name = "I2CEXT0_SDA",         id = 69 },
     { name = "I2CEXT1_SCL",         id = 70 },
     { name = "I2CEXT1_SDA",         id = 71 },
+    # GMAC management interface
+    { name = "EMAC_MDI",            id = 107 },
     # USB JTAG
     { name = "USB_JTAG_TDO_BRIDGE", id = 140 },
     # CPU GPIO
@@ -245,6 +247,9 @@ output_signals = [
     { name = "U3TXD",               id = 137 },
     { name = "U3RTS",               id = 138 },
     { name = "U3DTR",               id = 116 },
+    # GMAC management interface
+    { name = "EMAC_MDC",             id = 108 },
+    { name = "EMAC_MDO",             id = 109 },
     # I2S0
     { name = "I2SO_BCK",            id = 25 },
     { name = "I2S_MCLK",            id = 26 },

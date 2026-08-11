@@ -28,6 +28,7 @@ cpu_has_branch_predictor = true
 cpu_has_csr_pc = false
 cpu_csr_prv_mode = 0x810
 cpu_mcause_mask = 0x3f
+internal_memory_cached = false
 
 has_swd_watchdog = true
 
@@ -49,6 +50,7 @@ peripherals = [
     { name = "CNNT_SYS" },
     { name = "ECC" },
     { name = "EFUSE" },
+    { name = "ECDSA", interrupts = { peri = "ECDSA" } },
     { name = "GPIO" },
     { name = "GPIO_SD", pac = "GPIO_EXT" },
     { name = "HP_APM" },
@@ -56,11 +58,15 @@ peripherals = [
     { name = "HP_SYS" },
     { name = "HP_ALIVE_SYS" },
     { name = "HP_SYS_CLKRST" },
+    { name = "HMAC" },
+    { name = "CPU_APM" },
     { name = "I2C0", interrupts = { peri = "I2C0" }, clock_group = "I2C", stable = true },
     { name = "I2C1", interrupts = { peri = "I2C1" }, clock_group = "I2C", stable = true },
+    { name = "I2C_ANA_MST" },
     { name = "INTERRUPT_CORE0" },
     { name = "INTERRUPT_CORE1" },
     { name = "IO_MUX" },
+    { name = "IOMUX_MSPI_PIN" },
     { name = "LP_AON_CLK_RST", pac = "LP_AON_CLKRST" },
     { name = "LP_APM" },
     { name = "LP_GPIO" },
@@ -68,6 +74,7 @@ peripherals = [
     { name = "LP_PERI", pac = "LP_PERICLKRST" },
     { name = "LP_SYS" },
     { name = "LP_TEE" },
+    { name = "LP_TSENS" },
     { name = "LP_WDT" },
     { name = "LPWR", pac = "PMU" },
     { name = "MEM_MONITOR", pac = "MEM_MONITOR0" },
@@ -75,6 +82,7 @@ peripherals = [
     { name = "MODEM_SYSCON" },
     { name = "PAU" },
     { name = "PMU" },
+    { name = "PSRAM_MSPI", pac = "PSRAM_MSPI0" },
     { name = "RTC_TIMER", pac = "LP_TIMER" },
     { name = "RNG", pac = "TRNG" },
     { name = "RSA", interrupts = { peri = "RSA" } },
@@ -83,7 +91,7 @@ peripherals = [
     { name = "SPI2", interrupts = { peri = "SPI2" }, clock_group = "SPI", stable = true },
     { name = "SPI3", interrupts = { peri = "SPI3" }, clock_group = "SPI", stable = true },
     { name = "AXI_GDMA", pac = "AXI_DMA" },
-    { name = "SHA" },
+    { name = "SHA", interrupts = { peri = "SHA" } },
     { name = "SYSTEM", pac = "HP_SYS" },
     { name = "SYSTIMER" },
     { name = "TEE" },
@@ -93,12 +101,15 @@ peripherals = [
     { name = "UART1", interrupts = { peri = "UART1" }, clock_group = "UART", stable = true },
     { name = "UART2", interrupts = { peri = "UART2" }, clock_group = "UART", stable = true },
     { name = "UART3", interrupts = { peri = "UART3" }, clock_group = "UART", stable = true },
-    { name = "USB_DEVICE" },
+    { name = "USB_DEVICE", interrupts = { peri = "USB_DEVICE" } },
     { name = "USB_HS", pac = "USB_OTG_HS", interrupts = { peri = "USB_OTG_HS" } },
 
     { name = "FLASH", virtual = true },
+    { name = "ETH", virtual = true },
+    { name = "PSRAM", virtual = true },
     { name = "SW_INTERRUPT", virtual = true },
     { name = "CPU_CTRL", virtual = true },
+    { name = "WIFI", virtual = true, stable = true },
 ]
 
 [device.soc.clocks]
@@ -177,9 +188,9 @@ has_sp_monitor = false
 has_region_monitor = true
 
 [device.rng]
-support_status = { status = "partial", issue = 5977 }
-trng_supported = false  # TODO
-apb_cycle_wait_num = 16 # TODO
+support_status = "partial"
+trng_supported = true
+apb_cycle_wait_num = 16
 is_lp_sys = false
 
 [device.sleep]
@@ -203,6 +214,26 @@ wakeup_sources = {
 
 [device.usb_otg_hs]
 fifo_depth_words = 896
+
+[device.psram]
+extmem_origin = 0x5000_0000
+
+[device.usb_serial_jtag]
+
+[device.wifi]
+support_status = "partial"
+has_wifi6 = true
+mac_version = 3
+csi_supported = true
+
+[device.phy]
+support_status = "partial"
+
+[device.hmac]
+support_status = "partial"
+
+[device.ecdsa]
+support_status = "partial"
 
 [device.spi_master]
 version = 3
@@ -241,11 +272,12 @@ engines = [
         name = "AXI_GDMA",
         max_priority = 15,
         internal_ram_burst_sizes = [8, 16, 32, 64],
-        drivers = ["spi_master", "aes"],
+        drivers = ["spi_master", "aes", "sha"],
         peripheral_instances = [
             { name = "SPI2", dma_id = 1 },
             { name = "SPI3", dma_id = 2 },
             { name = "AES",  dma_id = 4 },
+            { name = "SHA", dma_id = 5 },
         ],
         channels = [
             { name = "DMA_AXI_CH0", mem2mem = true, mem2mem_id = 6, interrupt_in = "AXI_PDMA_IN_CH0", interrupt_out = "AXI_PDMA_OUT_CH0" },
@@ -310,11 +342,7 @@ algo = {
     # TODO: sm3 = 14
 }
 
-[device.hmac]
-support_status = "not_supported"
 [device.ds]
-support_status = "not_supported"
-[device.ecdsa]
 support_status = "not_supported"
 
 # Peripherals the chip has, that no driver reaches yet.
@@ -361,9 +389,6 @@ support_status = "not_supported"
 support_status = "not_supported"
 [device.ulp_riscv]
 support_status = "not_supported"
-[device.usb_serial_jtag]
-support_status = "not_supported"
-
 [device.rmt]
 support_status = "not_supported"
 ram_start = 0x20355800
@@ -385,17 +410,9 @@ uhs = false # FIXME: placeholder
 slot_config = []
 
 ## Radio
-[device.wifi]
-support_status = "not_supported"
-mac_version = 1 # FIXME: placeholder
-csi_supported = true # FIXME: placeholder
-
 [device.bt]
 support_status = "not_supported"
 controller = "npl" # FIXME: placeholder
-
-[device.phy]
-support_status = "not_supported"
 
 [device.ledc]
 support_status = "not_supported"
@@ -405,10 +422,6 @@ channel_count = 8
 [device.lp_uart]
 support_status = "not_supported"
 ram_size = 20 # FIXME: placeholder
-
-[device.psram]
-support_status = "not_supported"
-extmem_origin = 0x5000_0000
 
 [device.pixel_accelerator]
 support_status = "not_supported"

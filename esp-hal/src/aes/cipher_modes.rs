@@ -205,15 +205,63 @@ pub struct Ctr {
     /// The key produced by the block cipher.
     pub(super) buffer: [u8; BLOCK_SIZE],
     pub(super) offset: usize,
+    increment: CounterIncrement,
 }
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CounterIncrement {
+    Inc32,
+    Inc128,
+}
+
 impl Ctr {
-    /// Creates a new context object.
-    pub fn new(nonce: [u8; BLOCK_SIZE]) -> Self {
+    /// Creates a context whose complete 128-bit counter is incremented.
+    ///
+    /// This preserves the software CTR behavior. AES DMA engines use a
+    /// 32-bit counter; use [`Self::new_inc32`] to make that choice explicit
+    /// and allow DMA acceleration.
+    pub fn new(counter: [u8; BLOCK_SIZE]) -> Self {
+        Self::new_inc128(counter)
+    }
+
+    /// Creates a context whose complete 128-bit counter is incremented.
+    pub fn new_inc128(counter: [u8; BLOCK_SIZE]) -> Self {
         Self {
-            nonce,
+            nonce: counter,
             buffer: [0; BLOCK_SIZE],
             offset: 0,
+            increment: CounterIncrement::Inc128,
         }
+    }
+
+    /// Creates a context whose low 32 bits are incremented as a big-endian
+    /// integer, while the upper 96 bits remain unchanged.
+    ///
+    /// This is the CTR counter layout supported by the AES DMA engine.
+    pub fn new_inc32(counter: [u8; BLOCK_SIZE]) -> Self {
+        Self {
+            nonce: counter,
+            buffer: [0; BLOCK_SIZE],
+            offset: 0,
+            increment: CounterIncrement::Inc32,
+        }
+    }
+
+    pub(super) fn increment_counter(&mut self) {
+        let first_counter_byte = match self.increment {
+            CounterIncrement::Inc32 => BLOCK_SIZE - 4,
+            CounterIncrement::Inc128 => 0,
+        };
+        for byte in self.nonce[first_counter_byte..].iter_mut().rev() {
+            *byte = byte.wrapping_add(1);
+            if *byte != 0 {
+                break;
+            }
+        }
+    }
+
+    pub(super) fn is_inc32(&self) -> bool {
+        self.increment == CounterIncrement::Inc32
     }
 
     pub(super) fn encrypt_decrypt(
@@ -221,15 +269,6 @@ impl Ctr {
         buffer: UnsafeCryptoBuffers,
         mut process_block: impl FnMut(NonNull<[u8]>, NonNull<[u8]>),
     ) {
-        fn increment(nonce: &mut [u8]) {
-            for byte in nonce.iter_mut().rev() {
-                *byte = byte.wrapping_add(1);
-                if *byte != 0 {
-                    break;
-                }
-            }
-        }
-
         let mut offset = self.offset;
         buffer.for_data_chunks(1, |plaintext, ciphertext, _| {
             if offset == 0 {
@@ -237,7 +276,7 @@ impl Ctr {
                 let buffer = NonNull::from(self.buffer.as_mut());
                 // Block input is feedback/IV. Block output is feedback/IV.
                 process_block(nonce, buffer);
-                increment(&mut self.nonce);
+                self.increment_counter();
             }
 
             // Calculate ciphertext by mixing the key with the plaintext.

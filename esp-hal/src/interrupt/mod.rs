@@ -47,11 +47,20 @@ pub use self::riscv::*;
 pub use self::xtensa::*;
 use crate::{peripherals::Interrupt, system::Cpu};
 
+#[cfg(esp32s31)]
+#[inline(always)]
+fn interrupt_core_base(cpu: Cpu) -> usize {
+    const CORE0_BASE: usize = 0x2058_5000;
+    const CORE_STRIDE: usize = 0x800;
+    CORE0_BASE + cpu as usize * CORE_STRIDE
+}
+
 cfg_select! {
     esp32 => {
         use crate::peripherals::{DPORT as INTERRUPT_CORE0, DPORT as INTERRUPT_CORE1};
     }
-    _ => {
+    esp32s31 => {}
+    not(esp32s31) => {
         use crate::peripherals::INTERRUPT_CORE0;
         #[cfg(multi_core)]
         use crate::peripherals::INTERRUPT_CORE1;
@@ -207,6 +216,13 @@ impl InterruptStatus {
 
     #[inline]
     fn interrupt_status_word(cpu: Cpu, word: usize) -> u32 {
+        #[cfg(esp32s31)]
+        {
+            let base = interrupt_core_base(cpu);
+            return unsafe { ((base + 0x2a8 + 4 * word) as *const u32).read_volatile() };
+        }
+
+        #[cfg(not(esp32s31))]
         match cpu {
             Cpu::ProCpu => {
                 cfg_select! {
@@ -402,6 +418,47 @@ pub fn bind_handler(interrupt: Interrupt, handler: InterruptHandler) {
     enable(interrupt, handler.priority());
 }
 
+/// Binds an interrupt source that is not yet named by the ESP32-S31 PAC.
+///
+/// This compatibility hook can be removed once the PAC exposes all modem
+/// interrupt sources.
+#[cfg(esp32s31)]
+#[doc(hidden)]
+pub fn bind_raw_handler(interrupt: u16, handler: extern "C" fn(), priority: Priority) {
+    unsafe extern "Rust" {
+        static __EXTERNAL_INTERRUPTS: pac::Vector;
+    }
+
+    unsafe {
+        let vector = (&raw const __EXTERNAL_INTERRUPTS).add(interrupt as usize);
+        let ptr = (&raw const (*vector)._handler).cast::<usize>().cast_mut();
+        ptr.write_volatile(handler as usize);
+    }
+    enable_raw(interrupt, priority);
+}
+
+/// Enables an interrupt source that is not yet named by the ESP32-S31 PAC.
+#[cfg(esp32s31)]
+#[doc(hidden)]
+pub fn enable_raw(interrupt: u16, level: Priority) {
+    // The RISC-V priority mapping is independent of the peripheral source.
+    let cpu_interrupt = priority_to_cpu_interrupt(Interrupt::USB_DEVICE, level);
+    let base = interrupt_core_base(Cpu::current());
+    unsafe {
+        ((base + 4 * interrupt as usize) as *mut u32).write_volatile(cpu_interrupt as u32 & 0x3f);
+    }
+}
+
+/// Disables an interrupt source that is not yet named by the ESP32-S31 PAC.
+#[cfg(esp32s31)]
+#[doc(hidden)]
+pub fn disable_raw(core: Cpu, interrupt: u16) {
+    let base = interrupt_core_base(core);
+    unsafe {
+        ((base + 4 * interrupt as usize) as *mut u32).write_volatile(DISABLED_CPU_INTERRUPT);
+    }
+}
+
 /// Enables a peripheral interrupt at a given priority, using vectored CPU interrupts.
 ///
 /// Note that interrupts still need to be enabled globally for interrupts
@@ -430,6 +487,15 @@ pub fn disable(core: Cpu, interrupt: Interrupt) {
 }
 
 pub(super) fn map_raw(core: Cpu, interrupt: Interrupt, cpu_interrupt: u32) {
+    #[cfg(esp32s31)]
+    {
+        let base = interrupt_core_base(core);
+        unsafe {
+            ((base + 4 * interrupt as usize) as *mut u32).write_volatile(cpu_interrupt & 0x3f)
+        };
+        return;
+    }
+    #[cfg(not(esp32s31))]
     match core {
         Cpu::ProCpu => {
             INTERRUPT_CORE0::regs()
@@ -453,6 +519,14 @@ pub(crate) fn mapped_to(cpu: Cpu, interrupt: Interrupt) -> Option<CpuInterrupt> 
 
 #[cfg(feature = "rt")]
 pub(crate) fn mapped_to_raw(cpu: Cpu, interrupt: u32) -> Option<CpuInterrupt> {
+    #[cfg(esp32s31)]
+    {
+        let base = interrupt_core_base(cpu);
+        let cpu_intr =
+            unsafe { ((base + 4 * interrupt as usize) as *const u32).read_volatile() } & 0x3f;
+        return CpuInterrupt::from_u32(cpu_intr);
+    }
+    #[cfg(not(esp32s31))]
     let cpu_intr = match cpu {
         Cpu::ProCpu => INTERRUPT_CORE0::regs()
             .core_0_intr_map(interrupt as usize)
@@ -466,6 +540,7 @@ pub(crate) fn mapped_to_raw(cpu: Cpu, interrupt: u32) -> Option<CpuInterrupt> {
             .map()
             .bits() as u32,
     };
+    #[cfg(not(esp32s31))]
     CpuInterrupt::from_u32(cpu_intr)
 }
 
@@ -606,6 +681,23 @@ pub(crate) fn setup_interrupts() {
     }
 
     unsafe { crate::interrupt::init_vectoring() };
+}
+
+/// Reinitializes this core's interrupt controller and vector tables.
+///
+/// This is intended for a post-bootstrap image that installs a different
+/// vector table after the normal Rust startup has already run. All existing
+/// peripheral interrupt mappings on both cores are disabled; drivers must be
+/// initialized only after this function returns.
+///
+/// # Safety
+///
+/// Interrupts must be globally disabled, the other core must be stopped, and
+/// no initialized peripheral driver may still rely on the previous mappings.
+#[cfg(feature = "rt")]
+#[instability::unstable]
+pub unsafe fn reinitialize_vectoring_after_handoff() {
+    setup_interrupts();
 }
 
 #[inline(always)]

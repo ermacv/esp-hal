@@ -337,6 +337,10 @@ pub mod interrupt;
 unstable_module! {
     pub mod asynch;
     pub mod debugger;
+    #[cfg(esp32s31)]
+    pub mod flash;
+    #[cfg(esp32s31)]
+    pub mod gmac;
     pub mod rom;
     #[doc(hidden)]
     pub mod sync;
@@ -371,6 +375,8 @@ unstable_driver! {
     pub mod delay;
     #[cfg(ecc_driver_supported)]
     pub mod ecc;
+    #[cfg(ecdsa_driver_supported)]
+    pub mod ecdsa;
     #[cfg(hmac_driver_supported)]
     pub mod hmac;
     #[cfg(i2s_driver_supported)]
@@ -734,6 +740,9 @@ With the `unstable` feature enabled, this function accepts both [`ClockConfig`] 
 #[cfg(feature = "rt")]
 pub fn init(config: Config) -> Peripherals {
     crate::soc::pre_init();
+
+    #[cfg(esp32s31)]
+    crate::soc::enable_external_memory_pma();
 
     let min_rev = esp_config::esp_config_int!(u16, "ESP_HAL_CONFIG_MIN_CHIP_REVISION");
     assert!(

@@ -6,23 +6,36 @@ static TRNG_ENABLED: AtomicUsize = AtomicUsize::new(0);
 static TRNG_USERS: AtomicUsize = AtomicUsize::new(0);
 
 use super::Rng;
-use crate::peripherals::{ADC1, RNG};
+#[cfg(not(esp32s31))]
+use crate::peripherals::ADC1;
+use crate::peripherals::RNG;
 
 /// Ensures random numbers are cryptographically secure.
 #[instability::unstable]
 pub struct TrngSource<'d> {
     _rng: RNG<'d>,
+    #[cfg(not(esp32s31))]
     _adc: ADC1<'d>,
 }
 
 impl<'d> TrngSource<'d> {
     /// Enables the SAR ADC entropy source.
     // TODO: this is not final. A single ADC channel should be sufficient.
+    #[cfg(not(esp32s31))]
     #[instability::unstable]
     pub fn new(_rng: RNG<'d>, _adc: ADC1<'d>) -> Self {
         crate::soc::trng::ensure_randomness();
         unsafe { Self::increase_entropy_source_counter() }
         Self { _rng, _adc }
+    }
+
+    /// Enables the ESP32-S31 independent LP TRNG entropy source.
+    #[cfg(esp32s31)]
+    #[instability::unstable]
+    pub fn new(_rng: RNG<'d>) -> Self {
+        crate::soc::trng::ensure_randomness();
+        unsafe { Self::increase_entropy_source_counter() }
+        Self { _rng }
     }
 
     /// Increases the internal entropy source counter.
@@ -132,7 +145,9 @@ pub enum TrngError {
 /// the randomness from the hardware RNG and an ADC. This struct provides
 /// methods to generate random numbers and fill buffers with random bytes.
 /// Due to pulling the entropy source from the ADC, it uses the associated
-/// registers, so to use TRNG we need to "occupy" the ADC peripheral.
+/// registers, so on chips which use ADC noise the TRNG needs to "occupy" the
+/// ADC peripheral. ESP32-S31 has an independent LP TRNG and only occupies the
+/// RNG peripheral token.
 ///
 /// To generate true random numbers, an instance of [`TrngSource`] is required. Once created, you
 /// can create [`Trng`] instances at any time, as long as the [`TrngSource`] is alive.
@@ -146,7 +161,9 @@ pub enum TrngError {
 ///
 /// ```rust, no_run
 /// # {before_snippet}
+/// # #[cfg(not(esp32s31))]
 /// # use esp_hal::peripherals::ADC1;
+/// # #[cfg(not(esp32s31))]
 /// # use esp_hal::analog::adc::{AdcConfig, Attenuation, Adc};
 /// #
 /// use esp_hal::rng::{Trng, TrngSource};
@@ -154,7 +171,10 @@ pub enum TrngError {
 /// let mut buf = [0u8; 16];
 ///
 /// // ADC is not available from now
+/// # #[cfg(not(esp32s31))]
 /// let trng_source = TrngSource::new(peripherals.RNG, peripherals.ADC1.reborrow());
+/// # #[cfg(esp32s31)]
+/// let trng_source = TrngSource::new(peripherals.RNG);
 ///
 /// let trng = Trng::try_new()?;
 ///
@@ -168,9 +188,13 @@ pub enum TrngError {
 /// // Drop the true random number source. ADC is available now.
 /// core::mem::drop(trng_source);
 ///
+/// # #[cfg(not(esp32s31))]
 /// let mut adc1_config = AdcConfig::new();
+/// # #[cfg(not(esp32s31))]
 /// let mut adc1_pin = adc1_config.enable_pin(peripherals.__analog_pin__, Attenuation::_11dB);
+/// # #[cfg(not(esp32s31))]
 /// let mut adc1 = Adc::new(peripherals.ADC1, adc1_config);
+/// # #[cfg(not(esp32s31))]
 /// let pin_value = adc1.read_oneshot(&mut adc1_pin)?;
 ///
 /// // Now we can only generate pseudo-random numbers...
@@ -178,6 +202,7 @@ pub enum TrngError {
 /// let pseudo_random_number = rng.random();
 ///
 /// // ... but the ADC is available for use.
+/// # #[cfg(not(esp32s31))]
 /// let pin_value: u16 = adc1.read_oneshot(&mut adc1_pin)?;
 /// # {after_snippet}
 /// ```

@@ -1136,7 +1136,7 @@ pub mod dma {
                 #[cfg(aes_dma_mode_ofb)]
                 Self::Ofb(_) => Some(CipherMode::Ofb),
                 #[cfg(aes_dma_mode_ctr)]
-                Self::Ctr(_) => Some(CipherMode::Ctr),
+                Self::Ctr(ctr) if ctr.is_inc32() => Some(CipherMode::Ctr),
                 #[cfg(aes_dma_mode_cfb8)]
                 Self::Cfb8(_) => Some(CipherMode::Cfb8),
                 #[cfg(aes_dma_mode_cfb128)]

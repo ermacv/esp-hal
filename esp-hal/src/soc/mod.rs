@@ -34,12 +34,26 @@ cfg_select! {
 
 #[allow(unused)]
 pub(crate) fn is_valid_ram_address(address: usize) -> bool {
-    addr_in_range(address, memory_range!("DRAM"))
+    if addr_in_range(address, memory_range!("DRAM")) {
+        return true;
+    }
+    #[cfg(esp32s31)]
+    if addr_in_range(address, memory_range!("DRAM2_UNINIT")) {
+        return true;
+    }
+    false
 }
 
 #[allow(unused)]
 pub(crate) fn is_slice_in_dram<T>(slice: &[T]) -> bool {
-    slice_in_range(slice, memory_range!("DRAM"))
+    if slice_in_range(slice, memory_range!("DRAM")) {
+        return true;
+    }
+    #[cfg(esp32s31)]
+    if slice_in_range(slice, memory_range!("DRAM2_UNINIT")) {
+        return true;
+    }
+    false
 }
 
 #[allow(unused)]
@@ -345,7 +359,7 @@ pub(crate) fn setup_trap_section_protection() {
     }
 }
 
-#[cfg(all(feature = "rt", enable_pmp, riscv))]
+#[cfg(all(feature = "rt", enable_pmp, riscv, not(esp32s31)))]
 pub(crate) fn enable_pmp() {
     use core::arch::asm;
 

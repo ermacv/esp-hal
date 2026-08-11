@@ -65,8 +65,29 @@ use esp_hal::system::Cpu;
 use esp_hal::time::{Duration, Instant};
 use esp_sync::NonReentrantMutex;
 use event::EVENT_CHANNEL;
+#[cfg(esp32s31)]
+use portable_atomic::AtomicBool;
+#[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+use portable_atomic::AtomicI32;
 use portable_atomic::{AtomicU8, AtomicUsize, Ordering};
 use procmacros::BuilderLite;
+
+#[cfg(esp32s31)]
+unsafe extern "C" {
+    // ESP-IDF applies CONFIG_ESP_WIFI_TX_BA_WIN separately from
+    // wifi_init_config_t, which only contains the RX window.
+    fn esp_wifi_internal_set_baw(rx_ba_win: i32, tx_ba_win: i32);
+}
+
+// ESP-IDF 6 renamed these public constants while retaining their ABI values.
+// Keep the rest of esp-radio expressed in its existing cross-chip vocabulary.
+#[cfg(esp32s31)]
+use crate::sys::include::{
+    wifi_bandwidth_t_WIFI_BW20 as wifi_bandwidth_t_WIFI_BW_HT20,
+    wifi_bandwidth_t_WIFI_BW40 as wifi_bandwidth_t_WIFI_BW_HT40,
+    wifi_interface_t_WIFI_IF_AP as esp_interface_t_ESP_IF_WIFI_AP,
+    wifi_interface_t_WIFI_IF_STA as esp_interface_t_ESP_IF_WIFI_STA,
+};
 
 pub(crate) use self::os_adapter::*;
 #[cfg(all(feature = "sniffer", feature = "unstable"))]
@@ -408,9 +429,15 @@ impl AuthenticationMethod {
             AuthenticationMethod::Wpa3EntSuiteB192Bit => {
                 include::wifi_auth_mode_t_WIFI_AUTH_WPA3_ENT_192
             }
+            #[cfg(not(esp32s31))]
             AuthenticationMethod::Wpa3ExtPsk => include::wifi_auth_mode_t_WIFI_AUTH_WPA3_EXT_PSK,
+            #[cfg(esp32s31)]
+            AuthenticationMethod::Wpa3ExtPsk => include::wifi_auth_mode_t_WIFI_AUTH_DUMMY_1,
             AuthenticationMethod::Wpa3ExtPskMixed => {
-                include::wifi_auth_mode_t_WIFI_AUTH_WPA3_EXT_PSK_MIXED_MODE
+                cfg_select! {
+                    esp32s31 => { include::wifi_auth_mode_t_WIFI_AUTH_DUMMY_2 }
+                    _ => { include::wifi_auth_mode_t_WIFI_AUTH_WPA3_EXT_PSK_MIXED_MODE }
+                }
             }
             AuthenticationMethod::Dpp => include::wifi_auth_mode_t_WIFI_AUTH_DPP,
             AuthenticationMethod::Wpa3Enterprise => {
@@ -446,10 +473,16 @@ impl AuthenticationMethod {
             include::wifi_auth_mode_t_WIFI_AUTH_WPA3_ENT_192 => {
                 AuthenticationMethod::Wpa3EntSuiteB192Bit
             }
+            #[cfg(not(esp32s31))]
             include::wifi_auth_mode_t_WIFI_AUTH_WPA3_EXT_PSK => AuthenticationMethod::Wpa3ExtPsk,
+            #[cfg(esp32s31)]
+            include::wifi_auth_mode_t_WIFI_AUTH_DUMMY_1 => AuthenticationMethod::Wpa3ExtPsk,
+            #[cfg(not(esp32s31))]
             include::wifi_auth_mode_t_WIFI_AUTH_WPA3_EXT_PSK_MIXED_MODE => {
                 AuthenticationMethod::Wpa3ExtPskMixed
             }
+            #[cfg(esp32s31)]
+            include::wifi_auth_mode_t_WIFI_AUTH_DUMMY_2 => AuthenticationMethod::Wpa3ExtPskMixed,
             include::wifi_auth_mode_t_WIFI_AUTH_DPP => AuthenticationMethod::Dpp,
             include::wifi_auth_mode_t_WIFI_AUTH_WPA3_ENTERPRISE => {
                 AuthenticationMethod::Wpa3Enterprise
@@ -809,7 +842,84 @@ impl From<&[u8]> for Ssid {
     }
 }
 
+/// Fixed-capacity WPA-Personal credential.
+///
+/// Keeping the ordinary AP/STA password inline avoids pulling a heap
+/// allocation into controller configuration. The vendor ABI accepts at most
+/// 63 password bytes; validation still reports a 64-byte value as invalid.
+#[cfg(esp32s31)]
+#[derive(Clone, PartialEq, Eq, Hash, Default)]
+pub struct Password(heapless::String<64>);
+
+#[cfg(esp32s31)]
+impl Password {
+    pub(crate) fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
+#[cfg(esp32s31)]
+impl From<&str> for Password {
+    fn from(password: &str) -> Self {
+        Self(
+            password
+                .try_into()
+                .expect("Wi-Fi password exceeds fixed 64-byte capacity"),
+        )
+    }
+}
+
+#[cfg(esp32s31)]
+impl From<alloc::string::String> for Password {
+    fn from(password: alloc::string::String) -> Self {
+        Self::from(password.as_str())
+    }
+}
+
 static TX_QUEUE_SIZE: AtomicUsize = AtomicUsize::new(0);
+#[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+static RX_CALLBACKS: AtomicUsize = AtomicUsize::new(0);
+#[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+static RX_QUEUE_DROPS: AtomicUsize = AtomicUsize::new(0);
+#[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+static RX_QUEUE_HIGH_WATER: AtomicUsize = AtomicUsize::new(0);
+#[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+static TX_CAPACITY_BLOCKS: AtomicUsize = AtomicUsize::new(0);
+#[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+static TX_SUBMITTED: AtomicUsize = AtomicUsize::new(0);
+#[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+static TX_IMMEDIATE_ERRORS: AtomicUsize = AtomicUsize::new(0);
+#[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+static TX_LAST_IMMEDIATE_ERROR: AtomicI32 = AtomicI32::new(0);
+#[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+static TX_STATE_REJECTS: AtomicUsize = AtomicUsize::new(0);
+#[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+static TX_DONE_OK: AtomicUsize = AtomicUsize::new(0);
+#[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+static TX_DONE_FAILED: AtomicUsize = AtomicUsize::new(0);
+#[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+static TX_INFLIGHT_HIGH_WATER: AtomicUsize = AtomicUsize::new(0);
+#[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+static TX_COMPLETION_WAKES: AtomicUsize = AtomicUsize::new(0);
+#[cfg(esp32s31)]
+static TX_CAPACITY_WAITING: AtomicBool = AtomicBool::new(false);
+#[cfg(esp32s31)]
+const TX_COMPLETION_WAKE_BATCH: usize = 8;
+
+#[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+fn record_high_water(counter: &AtomicUsize, value: usize) {
+    let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+        (value > current).then_some(value)
+    });
+}
 
 /// A receive packet queue.
 ///
@@ -832,6 +942,7 @@ impl PacketQueue {
         }
     }
 
+    #[cfg(not(all(esp32s31, feature = "no-heap")))]
     fn change_capacity(&mut self, new_capacity: usize) -> Result<(), WifiError> {
         // If we've allocated more memory already than configured, use that instead of shrinking the
         // queue. We do not trim the queue if it's over capacity.
@@ -876,6 +987,67 @@ static DATA_QUEUE_RX_AP: NonReentrantMutex<PacketQueue> =
 static DATA_QUEUE_RX_STA: NonReentrantMutex<PacketQueue> =
     NonReentrantMutex::new(PacketQueue::new());
 
+#[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+/// Snapshot of the Wi-Fi packet handoff path counters.
+///
+/// These counters distinguish vendor-driver failures from congestion in the
+/// queue between the Wi-Fi callback and the upper network stack.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+#[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+pub struct DataPathDiagnostics {
+    /// Frames delivered by the vendor RX callback.
+    pub rx_callbacks: usize,
+    /// Frames rejected because the esp-radio RX queue was full.
+    pub rx_queue_drops: usize,
+    /// Highest observed number of frames in the esp-radio RX queue.
+    pub rx_queue_high_water: usize,
+    /// Current number of frames in the station RX queue.
+    pub rx_queue_len: usize,
+    /// Polls that found the esp-radio TX in-flight limit exhausted.
+    pub tx_capacity_blocks: usize,
+    /// Frames submitted to the vendor TX function.
+    pub tx_submitted: usize,
+    /// Immediate errors returned by the vendor TX function.
+    pub tx_immediate_errors: usize,
+    /// Most recent non-zero result returned by the vendor TX function.
+    pub tx_last_immediate_error: i32,
+    /// Frames rejected because the interface stopped being connected.
+    pub tx_state_rejects: usize,
+    /// Successful vendor TX completion callbacks.
+    pub tx_done_ok: usize,
+    /// Failed vendor TX completion callbacks.
+    pub tx_done_failed: usize,
+    /// Current number of frames owned by the vendor TX path.
+    pub tx_inflight: usize,
+    /// Highest observed number of in-flight vendor TX frames.
+    pub tx_inflight_high_water: usize,
+    /// Executor wakes caused by a full-to-available TX transition.
+    pub tx_completion_wakes: usize,
+}
+
+#[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+/// Returns a snapshot of Wi-Fi data-path diagnostics.
+pub fn data_path_diagnostics() -> DataPathDiagnostics {
+    DataPathDiagnostics {
+        rx_callbacks: RX_CALLBACKS.load(Ordering::Relaxed),
+        rx_queue_drops: RX_QUEUE_DROPS.load(Ordering::Relaxed),
+        rx_queue_high_water: RX_QUEUE_HIGH_WATER.load(Ordering::Relaxed),
+        rx_queue_len: DATA_QUEUE_RX_STA.with(|queue| queue.len()),
+        tx_capacity_blocks: TX_CAPACITY_BLOCKS.load(Ordering::Relaxed),
+        tx_submitted: TX_SUBMITTED.load(Ordering::Relaxed),
+        tx_immediate_errors: TX_IMMEDIATE_ERRORS.load(Ordering::Relaxed),
+        tx_last_immediate_error: TX_LAST_IMMEDIATE_ERROR.load(Ordering::Relaxed),
+        tx_state_rejects: TX_STATE_REJECTS.load(Ordering::Relaxed),
+        tx_done_ok: TX_DONE_OK.load(Ordering::Relaxed),
+        tx_done_failed: TX_DONE_FAILED.load(Ordering::Relaxed),
+        tx_inflight: WIFI_TX_INFLIGHT.load(Ordering::Relaxed),
+        tx_inflight_high_water: TX_INFLIGHT_HIGH_WATER.load(Ordering::Relaxed),
+        tx_completion_wakes: TX_COMPLETION_WAKES.load(Ordering::Relaxed),
+    }
+}
+
 /// Common errors.
 #[derive(Display, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -901,6 +1073,10 @@ pub enum WifiError {
 
     /// Station still in disconnect status.
     NotConnected,
+
+    /// Wi-Fi was initialized but its asynchronous start event has not yet run.
+    #[cfg(esp32s31)]
+    NotStarted,
 }
 
 impl WifiError {
@@ -915,6 +1091,8 @@ impl WifiError {
             crate::sys::include::ESP_ERR_WIFI_SSID => WifiError::InvalidSsid,
             crate::sys::include::ESP_ERR_WIFI_PASSWORD => WifiError::InvalidPassword,
             crate::sys::include::ESP_ERR_WIFI_NOT_CONNECT => WifiError::NotConnected,
+            #[cfg(esp32s31)]
+            crate::sys::include::ESP_ERR_WIFI_NOT_STARTED => WifiError::NotStarted,
             _ => panic!("Unknown error code: {}", code),
         }
     }
@@ -960,6 +1138,10 @@ pub(crate) fn wifi_init(_wifi: crate::hal::peripherals::WIFI<'_>) -> Result<(), 
         esp_wifi_result!(coex_init())?;
 
         esp_wifi_result!(esp_wifi_init_internal(addr_of!(internal::G_CONFIG)))?;
+        #[cfg(esp32s31)]
+        if let Some(hook) = WIFI_POST_INIT_HOOK {
+            hook();
+        }
         esp_wifi_result!(esp_wifi_set_mode(wifi_mode_t_WIFI_MODE_NULL))?;
 
         esp_wifi_result!(esp_supplicant_init())?;
@@ -976,6 +1158,14 @@ pub(crate) fn wifi_init(_wifi: crate::hal::peripherals::WIFI<'_>) -> Result<(), 
             esp_interface_t_ESP_IF_WIFI_AP,
             Some(recv_cb_ap)
         ))?;
+
+        // The supplicant owns the WPA callback table, while AP/STA start can
+        // consume it immediately from `set_config`. Alternative runtimes need
+        // one serialized boundary between those two operations.
+        #[cfg(esp32s31)]
+        if let Some(hook) = WIFI_PRE_START_HOOK {
+            hook();
+        }
 
         Ok(())
     }
@@ -1036,6 +1226,8 @@ unsafe extern "C" fn recv_cb_sta(
     len: u16,
     eb: *mut c_types::c_void,
 ) -> esp_err_t {
+    #[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+    RX_CALLBACKS.fetch_add(1, Ordering::Relaxed);
     let packet = PacketBuffer { buffer, len, eb };
     // We must handle the result outside of the lock because
     // PacketBuffer::drop must not be called in a critical section.
@@ -1044,8 +1236,17 @@ unsafe extern "C" fn recv_cb_sta(
     // the function will try to trigger a context switch, which will fail if we
     // are in an interrupt-free context.
     match DATA_QUEUE_RX_STA.with(|queue| queue.push_back(packet)) {
-        Ok(()) => include::ESP_OK as esp_err_t,
+        Ok(()) => {
+            #[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+            {
+                let queue_len = DATA_QUEUE_RX_STA.with(|queue| queue.len());
+                record_high_water(&RX_QUEUE_HIGH_WATER, queue_len);
+            }
+            include::ESP_OK as esp_err_t
+        }
         _ => {
+            #[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+            RX_QUEUE_DROPS.fetch_add(1, Ordering::Relaxed);
             debug!("RX QUEUE FULL");
             include::ESP_ERR_NO_MEM as esp_err_t
         }
@@ -1075,12 +1276,12 @@ unsafe extern "C" fn recv_cb_ap(
 
 pub(crate) static WIFI_TX_INFLIGHT: AtomicUsize = AtomicUsize::new(0);
 
-fn decrement_inflight_counter() {
+fn decrement_inflight_counter() -> usize {
     unwrap!(
         WIFI_TX_INFLIGHT.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
             Some(x.saturating_sub(1))
         })
-    );
+    )
 }
 
 #[ram]
@@ -1088,13 +1289,45 @@ unsafe extern "C" fn esp_wifi_tx_done_cb(
     _ifidx: u8,
     _data: *mut u8,
     _data_len: *mut u16,
-    _tx_status: bool,
+    tx_status: bool,
 ) {
     trace!("esp_wifi_tx_done_cb");
 
-    decrement_inflight_counter();
+    let previous_inflight = decrement_inflight_counter();
+    #[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+    if tx_status {
+        TX_DONE_OK.fetch_add(1, Ordering::Relaxed);
+    } else {
+        TX_DONE_FAILED.fetch_add(1, Ordering::Relaxed);
+    }
 
-    TRANSMIT_WAKER.wake();
+    #[cfg(all(esp32s31, not(feature = "esp32s31-diagnostics")))]
+    let _ = tx_status;
+
+    // Refill several released slots at once. Waking immediately after every
+    // full-to-available transition makes the two cores exchange one packet
+    // per software interrupt and shortens the vendor AMPDU batches.
+    #[cfg(esp32s31)]
+    let queue_size = TX_QUEUE_SIZE.load(Ordering::Relaxed);
+    // Preserve low latency for the small default queues while still batching
+    // completion wakeups for throughput-oriented configurations.
+    #[cfg(esp32s31)]
+    let wake_batch = TX_COMPLETION_WAKE_BATCH.min((queue_size / 2).max(1));
+    #[cfg(esp32s31)]
+    let wake_level = queue_size.saturating_sub(wake_batch);
+    #[cfg(esp32s31)]
+    if previous_inflight.saturating_sub(1) <= wake_level
+        && TX_CAPACITY_WAITING.swap(false, Ordering::AcqRel)
+    {
+        #[cfg(feature = "esp32s31-diagnostics")]
+        TX_COMPLETION_WAKES.fetch_add(1, Ordering::Relaxed);
+        TRANSMIT_WAKER.wake();
+    }
+    #[cfg(not(esp32s31))]
+    {
+        let _ = (previous_inflight, tx_status);
+        TRANSMIT_WAKER.wake();
+    }
 }
 
 pub(crate) fn wifi_start_scan(
@@ -1235,16 +1468,26 @@ impl InterfaceType {
     }
 
     fn increase_in_flight_counter(&self) {
-        WIFI_TX_INFLIGHT.fetch_add(1, Ordering::SeqCst);
+        let inflight = WIFI_TX_INFLIGHT.fetch_add(1, Ordering::SeqCst) + 1;
+        #[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+        record_high_water(&TX_INFLIGHT_HIGH_WATER, inflight);
+        #[cfg(not(all(esp32s31, feature = "esp32s31-diagnostics")))]
+        let _ = inflight;
     }
 
     fn tx_token(&self) -> Option<WifiTxToken> {
         if !self.can_send() {
+            #[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+            TX_CAPACITY_BLOCKS.fetch_add(1, Ordering::Relaxed);
+            #[cfg(esp32s31)]
+            TX_CAPACITY_WAITING.store(true, Ordering::Release);
             // TODO: perhaps we can use a counting semaphore with a short blocking timeout
             crate::preempt::yield_task();
         }
 
         if self.can_send() {
+            #[cfg(esp32s31)]
+            TX_CAPACITY_WAITING.store(false, Ordering::Release);
             // even checking for !Uninitialized would be enough to not crash
             if self.link_state() == LinkState::Up {
                 return Some(WifiTxToken { mode: *self });
@@ -1832,6 +2075,10 @@ pub(crate) fn esp_wifi_send_data(interface: wifi_interface_t, data: &mut [u8]) {
             || (interface == wifi_interface_t_WIFI_IF_AP
                 && !matches!(access_point_state(), WifiAccessPointState::Started))
         {
+            #[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+            TX_STATE_REJECTS.fetch_add(1, Ordering::Relaxed);
+            #[cfg(esp32s31)]
+            decrement_inflight_counter();
             return;
         }
 
@@ -1841,9 +2088,16 @@ pub(crate) fn esp_wifi_send_data(interface: wifi_interface_t, data: &mut [u8]) {
         let len = data.len() as u16;
         let ptr = data.as_mut_ptr().cast();
 
+        #[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+        TX_SUBMITTED.fetch_add(1, Ordering::Relaxed);
         let res = unsafe { esp_wifi_internal_tx(interface, ptr, len) };
 
         if res != include::ESP_OK as i32 {
+            #[cfg(all(esp32s31, feature = "esp32s31-diagnostics"))]
+            {
+                TX_IMMEDIATE_ERRORS.fetch_add(1, Ordering::Relaxed);
+                TX_LAST_IMMEDIATE_ERROR.store(res, Ordering::Relaxed);
+            }
             warn!("esp_wifi_internal_tx returned error: {}", res);
             decrement_inflight_counter();
         }
@@ -1888,12 +2142,7 @@ static STA_LINK_STATE_WAKER: AtomicWaker = AtomicWaker::new();
 // (but 0.1 clashes with embassy-time-driver)
 pub(crate) mod embassy_02 {
     use embassy_net_driver_02::{
-        Capabilities,
-        Driver,
-        HardwareAddress,
-        LinkState,
-        RxToken,
-        TxToken,
+        Capabilities, Driver, HardwareAddress, LinkState, RxToken, TxToken,
     };
 
     use super::*;
@@ -2227,9 +2476,75 @@ pub struct ControllerConfig {
     #[builder_lite(unstable)]
     rx_ba_win: u8,
 
+    /// Set the size of the Wi-Fi Block Ack TX window.
+    ///
+    /// A larger value can improve aggregate TX throughput but consumes more
+    /// memory in the vendor driver. ESP-IDF defaults to 6 and recommends
+    /// changing it only after measuring the target and access point.
+    #[builder_lite(unstable)]
+    tx_ba_win: u8,
+
     /// Initial Wi-Fi configuration.
     #[builder_lite(reference)]
     initial_config: Config,
+}
+
+/// Exclusive hook invoked after the vendor init configuration is materialized
+/// and immediately before `esp_wifi_init_internal`.
+///
+/// The two opaque pointers address `wifi_init_config_t` and
+/// `wifi_osi_funcs_t`, respectively. This low-level hook exists for runtimes
+/// that replace the OS adapter before the vendor can create tasks or queues.
+#[cfg(esp32s31)]
+pub type WifiPreInitHook = unsafe fn(*mut core::ffi::c_void, *mut core::ffi::c_void);
+
+/// Exclusive hook invoked immediately after `esp_wifi_init_internal` and
+/// before the first API that consumes its queued startup events.
+#[cfg(esp32s31)]
+pub type WifiPostInitHook = unsafe fn();
+
+/// Exclusive hook invoked after supplicant and RX/TX callback initialization,
+/// immediately before `WifiController::new` applies and starts its initial
+/// interface configuration.
+#[cfg(esp32s31)]
+pub type WifiPreStartHook = unsafe fn();
+
+#[cfg(esp32s31)]
+static mut WIFI_PRE_INIT_HOOK: Option<WifiPreInitHook> = None;
+#[cfg(esp32s31)]
+static mut WIFI_POST_INIT_HOOK: Option<WifiPostInitHook> = None;
+#[cfg(esp32s31)]
+static mut WIFI_PRE_START_HOOK: Option<WifiPreStartHook> = None;
+
+/// Register the one composition-root hook used by an alternative Wi-Fi
+/// runtime. It must be called before [`WifiController::new`].
+///
+/// # Safety
+/// The hook must accept the exact target ABI types, must not retain mutable
+/// references after it returns, and registration must be exclusive with Wi-Fi
+/// initialization and teardown.
+#[cfg(esp32s31)]
+pub unsafe fn set_pre_init_hook(hook: WifiPreInitHook) {
+    unsafe { WIFI_PRE_INIT_HOOK = Some(hook) };
+}
+
+/// Register the cold-start event-drain hook used by a taskless Wi-Fi runtime.
+///
+/// # Safety
+/// Registration must be exclusive with Wi-Fi initialization and teardown.
+#[cfg(esp32s31)]
+pub unsafe fn set_post_init_hook(hook: WifiPostInitHook) {
+    unsafe { WIFI_POST_INIT_HOOK = Some(hook) };
+}
+
+/// Register the serialized pre-start hook used by an alternative WPA runtime.
+///
+/// # Safety
+/// Registration must be exclusive with Wi-Fi initialization and teardown. The
+/// hook must not start another interface or retain mutable vendor references.
+#[cfg(esp32s31)]
+pub unsafe fn set_pre_start_hook(hook: WifiPreStartHook) {
+    unsafe { WIFI_PRE_START_HOOK = Some(hook) };
 }
 
 impl Default for ControllerConfig {
@@ -2249,6 +2564,7 @@ impl Default for ControllerConfig {
             amsdu_tx_enable: false,
 
             rx_ba_win: 6,
+            tx_ba_win: 6,
 
             country_info: CountryInfo::from(*b"CN"),
 
@@ -2264,6 +2580,10 @@ impl ControllerConfig {
         }
         if self.rx_ba_win as u16 >= 2 * (self.static_rx_buf_num as u16) {
             warn!("RX BA window size should be less than twice the number of static RX buffers.");
+        }
+        #[cfg(esp32s31)]
+        if !(2..=64).contains(&self.tx_ba_win) {
+            warn!("TX BA window size should be in the range 2..=64.");
         }
     }
 }
@@ -2353,7 +2673,16 @@ impl<'d> WifiController<'d> {
 
         unsafe {
             internal::G_CONFIG = wifi_init_config_t {
-                osi_funcs: (&raw const internal::__ESP_RADIO_G_WIFI_OSI_FUNCS).cast_mut(),
+                osi_funcs: {
+                    #[cfg(esp32s31)]
+                    {
+                        &raw mut internal::__ESP_RADIO_G_WIFI_OSI_FUNCS
+                    }
+                    #[cfg(not(esp32s31))]
+                    {
+                        (&raw const internal::__ESP_RADIO_G_WIFI_OSI_FUNCS).cast_mut()
+                    }
+                },
 
                 wpa_crypto_funcs: g_wifi_default_wpa_crypto_funcs,
                 static_rx_buf_num: config.static_rx_buf_num as _,
@@ -2382,12 +2711,32 @@ impl<'d> WifiController<'d> {
                 tx_hetb_queue_num: 3,
                 dump_hesigb_enable: false,
 
+                #[cfg(esp32s31)]
+                privacy_enhancements: false,
+                #[cfg(esp32s31)]
+                rmac_auto_reset_int: 0,
+
                 magic: WIFI_INIT_CONFIG_MAGIC as i32,
             };
+
+            #[cfg(esp32s31)]
+            if let Some(hook) = WIFI_PRE_INIT_HOOK {
+                hook(
+                    (&raw mut internal::G_CONFIG).cast(),
+                    (&raw mut internal::__ESP_RADIO_G_WIFI_OSI_FUNCS).cast(),
+                );
+            }
         }
 
-        DATA_QUEUE_RX_AP.with(|queue| queue.change_capacity(config.rx_queue_size))?;
-        DATA_QUEUE_RX_STA.with(|queue| queue.change_capacity(config.rx_queue_size))?;
+        #[cfg(not(all(esp32s31, feature = "no-heap")))]
+        {
+            DATA_QUEUE_RX_AP.with(|queue| queue.change_capacity(config.rx_queue_size))?;
+            DATA_QUEUE_RX_STA.with(|queue| queue.change_capacity(config.rx_queue_size))?;
+        }
+        // In `no-heap` mode an external radio owner replaces both data RX
+        // callbacks before start. Keep esp-radio's fallback queues at their
+        // const empty capacity: an unexpected callback then rejects the frame
+        // instead of allocating.
 
         TX_QUEUE_SIZE.store(config.tx_queue_size, Ordering::Relaxed);
 
@@ -2415,8 +2764,26 @@ impl<'d> WifiController<'d> {
 
         controller.set_config(&config.initial_config)?;
 
+        // wifi_init_config_t carries only RX BA. ESP-IDF applies its TX BA
+        // Kconfig value through this vendor entry point; direct users of
+        // esp_wifi_init_internal must reproduce that step explicitly. Apply it
+        // after interface configuration, once the blob state is initialized.
+        #[cfg(esp32s31)]
+        unsafe {
+            esp_wifi_internal_set_baw(config.rx_ba_win as i32, config.tx_ba_win as i32);
+        }
+
         // Set a default TX power
         esp_wifi_result!(unsafe { esp_wifi_set_max_tx_power(20) })?;
+
+        // The S31 driver builds its initial station rate-control table from the
+        // station capabilities and protocol mask only after Wi-Fi has started
+        // and the BA state is initialized. Without this final application the
+        // config readback contains he_mcs9_enabled=1, but the active table is
+        // still capped at MCS7. ESP-IDF's S31 iperf path likewise applies the
+        // station config after esp_wifi_start() and immediately before connect.
+        #[cfg(esp32s31)]
+        controller.set_config(&config.initial_config)?;
 
         Ok(controller)
     }
@@ -2689,6 +3056,7 @@ impl WifiController<'_> {
 
         esp_wifi_result!(unsafe { esp_wifi_set_mode(mode) })?;
 
+        #[cfg(esp32s31)]
         match conf {
             Config::Station(config) => {
                 self.apply_sta_config(config)?;
@@ -2717,6 +3085,43 @@ impl WifiController<'_> {
 
             // `esp_wifi_start` is actually not async - i.e. we get the even before it returns
             esp_wifi_result!(unsafe { esp_wifi_start() })?;
+        }
+
+        // `esp_wifi_set_inactive_time` requires the corresponding interface to
+        // be started, so apply the configuration only after `esp_wifi_start`.
+        // This timeout is independent of `esp_wifi_set_config` and is not
+        // persisted by the vendor driver.
+        match conf {
+            Config::Station(config) => {
+                esp_wifi_result!(unsafe {
+                    esp_wifi_set_inactive_time(wifi_interface_t_WIFI_IF_STA, config.beacon_timeout)
+                })?;
+            }
+            Config::AccessPoint(config) => {
+                esp_wifi_result!(unsafe {
+                    esp_wifi_set_inactive_time(wifi_interface_t_WIFI_IF_AP, config.beacon_timeout)
+                })?;
+            }
+            Config::AccessPointStation(sta_config, ap_config) => {
+                esp_wifi_result!(unsafe {
+                    esp_wifi_set_inactive_time(
+                        wifi_interface_t_WIFI_IF_STA,
+                        sta_config.beacon_timeout,
+                    )
+                })?;
+                esp_wifi_result!(unsafe {
+                    esp_wifi_set_inactive_time(
+                        wifi_interface_t_WIFI_IF_AP,
+                        ap_config.beacon_timeout,
+                    )
+                })?;
+            }
+            #[cfg(feature = "wifi-eap")]
+            Config::EapStation(config) => {
+                esp_wifi_result!(unsafe {
+                    esp_wifi_set_inactive_time(wifi_interface_t_WIFI_IF_STA, config.beacon_timeout)
+                })?;
+            }
         }
 
         reset_mode_on_error.defuse();
@@ -3178,6 +3583,11 @@ ignored."
         Self::TOTAL_HW_ENCRYPT_KEYS.saturating_sub(CONFIG_ESP_WIFI_ESPNOW_MAX_ENCRYPT_NUM as u8);
 
     fn apply_ap_config(&mut self, config: &AccessPointConfig) -> Result<(), WifiError> {
+        // BSS Max Idle uses units of 1000 TUs (1.024 seconds). Keep it aligned
+        // with the vendor driver's inactivity timeout; the default 300 seconds
+        // therefore becomes the ESP-IDF default of 292 BSS idle units.
+        #[cfg(esp32s31)]
+        let bss_max_idle_period = ((u32::from(config.beacon_timeout) * 1000) / 1024).max(10) as u16;
         let mut cfg = wifi_config_t {
             ap: wifi_ap_config_t {
                 ssid: [0; 32],
@@ -3199,10 +3609,24 @@ ignored."
                 sae_pwe_h2e: 0,
                 csa_count: 3,
                 dtim_period: config.dtim_period,
+                #[cfg(not(esp32s31))]
                 transition_disable: 0,
+                #[cfg(not(esp32s31))]
                 sae_ext: 0,
+                #[cfg(esp32s31)]
+                _bitfield_align_1: [],
+                #[cfg(esp32s31)]
+                _bitfield_1: wifi_ap_config_t::new_bitfield_1(0, 0, 0, 0),
                 bss_max_idle_cfg: include::wifi_bss_max_idle_config_t {
+                    #[cfg(esp32s31)]
+                    period: bss_max_idle_period,
+                    #[cfg(not(esp32s31))]
                     period: 0,
+                    // An open BSS has no key with which a station could protect
+                    // its keep-alive management frames.
+                    #[cfg(esp32s31)]
+                    protected_keep_alive: config.auth_method != AuthenticationMethod::None,
+                    #[cfg(not(esp32s31))]
                     protected_keep_alive: false,
                 },
                 gtk_rekey_interval: 0,
@@ -3220,7 +3644,9 @@ ignored."
 
             // Compare the new ap config with the current. Only update if something is changing.
             // This avoids unnecessary connection issues.
+            #[cfg(not(esp32s31))]
             let mut current: wifi_config_t = core::mem::zeroed();
+            #[cfg(not(esp32s31))]
             if esp_wifi_get_config(wifi_interface_t_WIFI_IF_AP, &mut current)
                 == include::ESP_OK as i32
                 && current.ap == cfg.ap
@@ -3255,9 +3681,13 @@ ignored."
                 sae_pwe_h2e: 3,
                 _bitfield_align_1: [0; 0],
                 _bitfield_1: __BindgenBitfieldUnit::new([0; 4]),
+                #[cfg(esp32s31)]
+                _bitfield_tail_1: [0; 2],
                 failure_retry_cnt: config.failure_retry_cnt,
                 _bitfield_align_2: [0; 0],
                 _bitfield_2: __BindgenBitfieldUnit::new([0; 4]),
+                #[cfg(esp32s31)]
+                _bitfield_tail_2: [0; 2],
                 sae_pk_mode: 0, // ??
                 sae_h2e_identifier: [0; 32],
             },
@@ -3271,10 +3701,15 @@ ignored."
             cfg.sta.ssid[0..(config.ssid.len())].copy_from_slice(config.ssid.as_bytes());
             cfg.sta.password[0..(config.password.len())]
                 .copy_from_slice(config.password.as_bytes());
+            #[cfg(esp32s31)]
+            cfg.sta
+                .set_he_mcs9_enabled(u32::from(config.he_mcs9_enabled));
 
             // Compare the new sta config with the current. Only update if something is changing.
             // This avoids unnecessary connection issues.
+            #[cfg(not(esp32s31))]
             let mut current: wifi_config_t = core::mem::zeroed();
+            #[cfg(not(esp32s31))]
             if esp_wifi_get_config(wifi_interface_t_WIFI_IF_STA, &mut current)
                 == include::ESP_OK as i32
                 && current.sta == cfg.sta
@@ -3310,9 +3745,13 @@ ignored."
                 sae_pwe_h2e: 3,
                 _bitfield_align_1: [0; 0],
                 _bitfield_1: __BindgenBitfieldUnit::new([0; 4]),
+                #[cfg(esp32s31)]
+                _bitfield_tail_1: [0; 2],
                 failure_retry_cnt: config.failure_retry_cnt,
                 _bitfield_align_2: [0; 0],
                 _bitfield_2: __BindgenBitfieldUnit::new([0; 4]),
+                #[cfg(esp32s31)]
+                _bitfield_tail_2: [0; 2],
                 sae_pk_mode: 0, // ??
                 sae_h2e_identifier: [0; 32],
             },

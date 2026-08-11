@@ -148,6 +148,8 @@ mod macros;
 #[cfg(feature = "compat")]
 mod malloc;
 
+#[cfg(feature = "esp32s31")]
+use core::sync::atomic::{AtomicBool, Ordering};
 use core::{
     alloc::{GlobalAlloc, Layout},
     fmt::Display,
@@ -168,6 +170,25 @@ use crate::heap::Heap;
 /// The global allocator instance
 #[cfg_attr(feature = "global-allocator", global_allocator)]
 pub static HEAP: EspHeap = EspHeap::empty();
+
+#[cfg(feature = "esp32s31")]
+static ALLOCATIONS_FORBIDDEN: AtomicBool = AtomicBool::new(false);
+
+/// Permanently deny allocations and deallocations through every [`EspHeap`].
+///
+/// This is intended for a one-way bootstrap-to-runtime handoff. Existing
+/// bootstrap allocations remain valid, but the runtime cannot enter the heap
+/// mutex or mutate allocator metadata.
+#[cfg(feature = "esp32s31")]
+pub fn forbid_allocations() {
+    ALLOCATIONS_FORBIDDEN.store(true, Ordering::Release);
+}
+
+/// Returns whether the one-way allocation gate has closed.
+#[cfg(feature = "esp32s31")]
+pub fn allocations_forbidden() -> bool {
+    ALLOCATIONS_FORBIDDEN.load(Ordering::Acquire)
+}
 
 #[cfg(feature = "alloc-hooks")]
 unsafe extern "Rust" {
@@ -648,6 +669,10 @@ impl EspHeap {
         capabilities: EnumSet<MemoryCapability>,
         layout: Layout,
     ) -> *mut u8 {
+        #[cfg(feature = "esp32s31")]
+        if allocations_forbidden() {
+            return ptr::null_mut();
+        }
         let ptr = self
             .inner
             .with(|heap| unsafe { heap.alloc_caps(capabilities, layout) });
@@ -662,6 +687,10 @@ impl EspHeap {
 
     /// Deallocate memory.
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        #[cfg(feature = "esp32s31")]
+        if allocations_forbidden() {
+            return;
+        }
         #[cfg(feature = "alloc-hooks")]
         unsafe {
             _esp_alloc_dealloc(self, ptr.addr(), layout.size());

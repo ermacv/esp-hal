@@ -20,7 +20,7 @@ mod cpu_int;
 
 // The software-interrupt driver is the only caller on this architecture, and that driver is
 // unstable.
-#[cfg(feature = "unstable")]
+#[cfg(all(feature = "unstable", not(esp32s31)))]
 pub(crate) use riscv::interrupt::free;
 
 use crate::{
@@ -348,7 +348,7 @@ pub fn enable_direct(
         }
     }
 
-    if crate::debugger::debugger_connected() {
+    if cfg!(esp32s31) || crate::debugger::debugger_connected() {
         unsafe { core::ptr::write_volatile(int_slot, instr) };
     } else {
         crate::debugger::DEBUGGER_LOCK.lock(|| unsafe {
@@ -421,6 +421,7 @@ pub(crate) unsafe fn change_current_runlevel(level: RunLevel) -> RunLevel {
 
 fn cpu_wait_mode_on() -> bool {
     cfg_select! {
+        esp32s31 => false,
         soc_has_pcr => crate::peripherals::PCR::regs()
             .cpu_waiti_conf()
             .read()

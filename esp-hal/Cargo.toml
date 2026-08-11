@@ -175,6 +175,9 @@ rt = [
 ## Enable a simple exception handler turning exceptions into panics.
 exception-handler = []
 
+## Expose low-level ESP32-S31 bring-up counters and register snapshots.
+esp32s31-diagnostics = []
+
 ## Save and restore the floating point co-processor context.
 ##
 ## This feature enables the floating-point coprocessor in interrupt contexts, and adds code to save and restore the relevant registers.
@@ -305,6 +308,7 @@ esp32s3 = [
 ##
 esp32s31 = [
     "dep:esp32s31",
+    "dep:embassy-net-driver-02",
     "esp-riscv-rt/rtc-ram",
     "esp-riscv-rt/clic-48",
     "procmacros/rtc-fast",

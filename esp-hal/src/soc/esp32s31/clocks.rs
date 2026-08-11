@@ -35,11 +35,11 @@ fn hp_alive_sys() -> &'static crate::pac::hp_alive_sys::RegisterBlock {
 #[non_exhaustive]
 pub enum CpuClock {
     /// 160 MHz CPU clock.
-    #[default]
     _160MHz = 160,
     /// 240 MHz CPU clock.
     _240MHz = 240,
     /// 320 MHz CPU clock.
+    #[default]
     _320MHz = 320,
 }
 
@@ -140,13 +140,13 @@ fn update_bus_clocks() {
 
 fn enable_bbpll_clk_impl(_clocks: &mut ClockTree, en: bool) {
     if en {
-        PMU::regs().imm_hp_ck_power_1().modify(|_, w| {
+        PMU::regs().imm_hp_ck_power_1().write(|w| {
             w.tie_high_xpd_bbpll().set_bit();
             w.tie_high_xpd_bbpll_i2c().set_bit();
             w.tie_high_global_bbpll_icg().set_bit()
         });
     } else {
-        PMU::regs().imm_hp_ck_power_1().modify(|_, w| {
+        PMU::regs().imm_hp_ck_power_1().write(|w| {
             w.tie_low_global_bbpll_icg().set_bit();
             w.tie_low_xpd_bbpll().set_bit();
             w.tie_low_xpd_bbpll_i2c().set_bit()
@@ -182,13 +182,13 @@ fn configure_bbpll_clk_impl(
 
 fn enable_cpll_clk_impl(_clocks: &mut ClockTree, en: bool) {
     if en {
-        PMU::regs().imm_hp_ck_power_1().modify(|_, w| {
+        PMU::regs().imm_hp_ck_power_1().write(|w| {
             w.tie_high_xpd_pll().set_bit();
             w.tie_high_xpd_pll_i2c().set_bit();
             w.tie_high_global_pll_icg().set_bit()
         });
     } else {
-        PMU::regs().imm_hp_ck_power_1().modify(|_, w| {
+        PMU::regs().imm_hp_ck_power_1().write(|w| {
             w.tie_low_global_pll_icg().set_bit();
             w.tie_low_xpd_pll().set_bit();
             w.tie_low_xpd_pll_i2c().set_bit()
@@ -421,16 +421,54 @@ fn configure_timg_calibration_clock_impl(
 }
 
 impl TimgInstance {
-    fn enable_function_clock_impl(self, _clocks: &mut ClockTree, _en: bool) {
-        // TODO: Control the selected timer's function-clock gate.
+    fn enable_function_clock_impl(self, _clocks: &mut ClockTree, en: bool) {
+        match self {
+            Self::Timg0 => HP_SYS_CLKRST::regs().timergrp0_ctrl0().modify(|_, w| {
+                w.t0_clk_en()
+                    .bit(en)
+                    .t1_clk_en()
+                    .bit(en)
+            }),
+            Self::Timg1 => HP_SYS_CLKRST::regs().timergrp1_ctrl0().modify(|_, w| {
+                w.t0_clk_en()
+                    .bit(en)
+                    .t1_clk_en()
+                    .bit(en)
+            }),
+        };
     }
     fn configure_function_clock_impl(
         self,
         _clocks: &mut ClockTree,
         _old: Option<TimgFunctionClockConfig>,
-        _new: TimgFunctionClockConfig,
+        new: TimgFunctionClockConfig,
     ) {
-        // TODO: Configure the selected timer's function-clock source.
+        // ESP32-S31 GPTimer uses the vendor selector encoding XTAL=0,
+        // RC_FAST=1, REF_F80M=2. Keep both timers in one group consistent
+        // with the group-level clock-tree capability represented by `self`.
+        let source = match new {
+            TimgFunctionClockConfig::XtalClk => 0,
+            TimgFunctionClockConfig::RcFastClk => 1,
+            TimgFunctionClockConfig::PllF80m => 2,
+        };
+        match self {
+            Self::Timg0 => HP_SYS_CLKRST::regs()
+                .timergrp0_ctrl0()
+                .modify(|_, w| unsafe {
+                    w.t0_src_sel()
+                        .bits(source)
+                        .t1_src_sel()
+                        .bits(source)
+                }),
+            Self::Timg1 => HP_SYS_CLKRST::regs()
+                .timergrp1_ctrl0()
+                .modify(|_, w| unsafe {
+                    w.t0_src_sel()
+                        .bits(source)
+                        .t1_src_sel()
+                        .bits(source)
+                }),
+        };
     }
 
     fn enable_wdt_clock_impl(self, _clocks: &mut ClockTree, _en: bool) {

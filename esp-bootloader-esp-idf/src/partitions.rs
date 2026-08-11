@@ -433,6 +433,24 @@ impl<'a> PartitionTable<'a> {
                     (((0x60002000 + 0x37c) as *const u32).read_volatile() & 0xff) << 16
                 };
             }
+            feature = "esp32s31" => {
+                let regs = esp_hal::peripherals::SPI0::regs();
+                regs.mmu_item_index().write(|w| unsafe {
+                    w.spi_mmu_item_index().bits(0)
+                });
+                let raw = regs
+                    .mmu_item_content()
+                    .read()
+                    .spi_mmu_item_content()
+                    .bits();
+                let page_code = regs
+                    .mmu_power_ctrl()
+                    .read()
+                    .spi_mmu_page_size()
+                    .bits();
+                let page_size = 0x4_0000u32 >> page_code;
+                let paddr = (raw & 0x7ff) * page_size;
+            }
             _ => {}
         }
 

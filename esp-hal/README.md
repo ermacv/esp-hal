@@ -105,14 +105,14 @@ For help getting started with this HAL, please refer to [The Rust on ESP Book] a
 | CANFD           |       |          |          | [❌][5163] [^1] |          |           |          |          |          |          | ❌        |
 | USB OTG FS      |       |          |          |          |          |           |          | ⚒️      | ⚒️      | ⚒️      |           |
 | USB OTG HS      |       |          |          |          |          |           |          | ⚒️      |          |          | ⚒️       |
-| USB Serial/JTAG |       |          | ⚒️      | ⚒️      | ⚒️      | ⚒️       | ⚒️      | ⚒️      |          | ⚒️      | ❌        |
+| USB Serial/JTAG |       |          | ⚒️      | ⚒️      | ⚒️      | ⚒️       | ⚒️      | ⚒️      |          | ⚒️      | ⚒️       |
 
 ### Wireless and networking
 
 | Driver        | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-H2 | ESP32-P4 | ESP32-S2 | ESP32-S3 | ESP32-S31 |
 | ------------- |:-----:|:--------:|:--------:|:--------:|:--------:|:---------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | Bluetooth     | ⚒️   | ⚒️      | ⚒️      | ⚒️      | ⚒️      | ⚒️       | ⚒️      |          |          | ⚒️      | ❌        |
-| WIFI          | ⚒️   | ⚒️      | ⚒️      | ⚒️      | ⚒️      | ⚒️       |          |          | ⚒️      | ⚒️      | ❌        |
+| WIFI          | ⚒️   | ⚒️      | ⚒️      | ⚒️      | ⚒️      | ⚒️       |          |          | ⚒️      | ⚒️      | ⚒️       |
 | IEEE 802.15.4 |       |          |          | ⚒️      | ⚒️      |           | ⚒️      |          |          |          | ❌        |
 | Ethernet      | ⚒️   |          |          |          |          |           |          | ⚒️      |          |          | ❌        |
 
@@ -167,11 +167,11 @@ For help getting started with this HAL, please refer to [The Rust on ESP Book] a
 | ----------------------- |:-----:|:--------:|:--------:|:--------:|:--------:|:---------:|:--------:|:--------:|:--------:|:--------:|:---------:|
 | AES                     | ⚒️   |          | ⚒️      | ⚒️      | ⚒️      |           | ⚒️      | ⚒️      | ⚒️      | ⚒️      | ⚒️       |
 | RSA Digital Signature   |       |          | [❌][884] [^1] | [❌][884] [^1] | [❌][884] [^1] |           | [❌][884] [^1] | ❌       | [❌][884] [^1] | [❌][884] [^1] | ❌        |
-| ECDSA Digital Signature |       |          |          | [❌][5444] [^1] |          | [❌][5444] [^1] | [❌][5444] [^1] | ❌       |          |          | ❌        |
+| ECDSA Digital Signature |       |          |          | [❌][5444] [^1] |          | [❌][5444] [^1] | [❌][5444] [^1] | ❌       |          |          | ⚒️       |
 | ECC                     |       | ⚒️      |          | ⚒️      | ⚒️      | ⚒️       | ⚒️      | ⚒️      |          |          | [⚒️][5972] [^1] |
-| HMAC                    |       |          | ⚒️      | [❌][5166] [^1] | ⚒️      |           | ⚒️      | ❌       | ⚒️      | ⚒️      | ❌        |
+| HMAC                    |       |          | ⚒️      | [❌][5166] [^1] | ⚒️      |           | ⚒️      | ❌       | ⚒️      | ⚒️      | ⚒️       |
 | Key Manager             |       |          |          | [❌][5171] [^1] |          |           |          | ❌       |          |          | ❌        |
-| RNG                     | [⚒️][5979] [^1] | [⚒️][5979] [^1] | [⚒️][5979] [^1] | [⚒️][5980] [^1] | [⚒️][5979] [^1] | [⚒️][5981] [^1] | [⚒️][5979] [^1] | [⚒️][5982] [^1] | [⚒️][5979] [^1] | [⚒️][5979] [^1] | [⚒️][5977] [^1] |
+| RNG                     | [⚒️][5979] [^1] | [⚒️][5979] [^1] | [⚒️][5979] [^1] | [⚒️][5980] [^1] | [⚒️][5979] [^1] | [⚒️][5981] [^1] | [⚒️][5979] [^1] | [⚒️][5982] [^1] | [⚒️][5979] [^1] | [⚒️][5979] [^1] | ⚒️       |
 | RSA                     | ⚒️   |          | ⚒️      | ⚒️      | ⚒️      |           | ⚒️      | ⚒️      | ⚒️      | ⚒️      | ⚒️       |
 | SHA                     | ⚒️   | ⚒️      | ⚒️      | ⚒️      | ⚒️      | ⚒️       | ⚒️      | ⚒️      | ⚒️      | ⚒️      | [⚒️][5973] [^1] |
 
@@ -191,7 +191,7 @@ For help getting started with this HAL, please refer to [The Rust on ESP Book] a
 | DMA          | ⚒️   | ⚒️      | ⚒️      | ⚒️      | ⚒️      | ⚒️       | ⚒️      | ⚒️      | ⚒️      | ⚒️      | ⚒️       |
 | ETM          |       |          |          | [❌][5167] [^1] | ⚒️      | [❌][5419] [^1] | ⚒️      | ❌       |          |          | ❌        |
 | Interrupts   | ⚒️   | ⚒️      | ⚒️      | ⚒️      | ⚒️      | ⚒️       | ⚒️      | ⚒️      | ⚒️      | ⚒️      | ⚒️       |
-| PSRAM        | ⚒️   |          |          | ⚒️      |          | ⚒️       |          | ⚒️      | ⚒️      | ⚒️      | ❌        |
+| PSRAM        | ⚒️   |          |          | ⚒️      |          | ⚒️       |          | ⚒️      | ⚒️      | ⚒️      | ⚒️       |
 
 [^1]: This cell is clickable and will open the peripheral's issue on GitHub
 
@@ -222,7 +222,6 @@ For help getting started with this HAL, please refer to [The Rust on ESP Book] a
 [5444]: https://github.com/esp-rs/esp-hal/issues/5444
 [5972]: https://github.com/esp-rs/esp-hal/issues/5972
 [5973]: https://github.com/esp-rs/esp-hal/issues/5973
-[5977]: https://github.com/esp-rs/esp-hal/issues/5977
 [5979]: https://github.com/esp-rs/esp-hal/issues/5979
 [5980]: https://github.com/esp-rs/esp-hal/issues/5980
 [5981]: https://github.com/esp-rs/esp-hal/issues/5981

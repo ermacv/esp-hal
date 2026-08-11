@@ -1,8 +1,11 @@
 use crate::{
-    hal::{interrupt::Priority, peripherals::WIFI},
+    hal::interrupt::Priority,
     interrupt_dispatch::Handler,
     sys::c_types::{c_int, c_void},
 };
+
+#[cfg(not(esp32s31))]
+use crate::hal::peripherals::WIFI;
 
 static ISR_INTERRUPT_1: Handler = Handler::new();
 
@@ -66,9 +69,17 @@ pub unsafe extern "C" fn set_isr(n: i32, f: *mut c_void, arg: *mut c_void) {
         _ => panic!("set_isr - unsupported interrupt number {}", n),
     }
 
+    #[cfg(not(esp32s31))]
     unsafe {
         WIFI::steal().enable_mac_interrupt(Priority::Priority1);
         WIFI::steal().enable_pwr_interrupt(Priority::Priority1);
+    }
+    #[cfg(esp32s31)]
+    {
+        const WIFI_MAC_INTERRUPT: u16 = 120;
+        const WIFI_PWR_INTERRUPT: u16 = 122;
+        crate::hal::interrupt::bind_raw_handler(WIFI_MAC_INTERRUPT, WIFI_MAC, Priority::Priority1);
+        crate::hal::interrupt::bind_raw_handler(WIFI_PWR_INTERRUPT, WIFI_PWR, Priority::Priority1);
     }
 }
 
@@ -85,8 +96,14 @@ extern "C" fn WIFI_PWR() {
 }
 
 pub(crate) fn shutdown_wifi_isr() {
+    #[cfg(not(esp32s31))]
     unsafe {
         WIFI::steal().disable_mac_interrupt_on_all_cores();
         WIFI::steal().disable_pwr_interrupt_on_all_cores();
+    }
+    #[cfg(esp32s31)]
+    for core in crate::hal::system::Cpu::all() {
+        crate::hal::interrupt::disable_raw(core, 120);
+        crate::hal::interrupt::disable_raw(core, 122);
     }
 }

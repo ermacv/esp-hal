@@ -75,7 +75,7 @@ if let Ok(controller) = BleConnector::new(peripherals.BT, Default::default()) {}
 //! [dependencies.esp-alloc]
 #![doc = concat!(r#"features = [""#, chip!(), r#""]"#)]
 //! ```
-//! 
+//!
 //! ## Examples
 //!
 //! We have a number of [examples] in the esp-hal repository. We use
@@ -87,7 +87,7 @@ if let Ok(controller) = BleConnector::new(peripherals.BT, Default::default()) {}
 //! ```bash
 //! cargo xtask help
 //! ```
-//! 
+//!
 //! We have a [book] that explains the full esp-hal ecosystem
 //! and how to get started, and a [training] that covers some common
 //! scenarios with examples.
@@ -102,7 +102,7 @@ if let Ok(controller) = BleConnector::new(peripherals.BT, Default::default()) {}
 //! [profile.dev.package.esp-radio]
 //! opt-level = 3
 //! ```
-//! 
+//!
 //! ## Disabling logging
 //!
 //! `esp-radio` contains trace-level logging statements that may impact
@@ -205,6 +205,8 @@ pub(crate) mod sys {
     pub use esp_wifi_sys_esp32s2::*;
     #[cfg(esp32s3)]
     pub use esp_wifi_sys_esp32s3::*;
+    #[cfg(esp32s31)]
+    pub use esp_wifi_sys_esp32s31::*;
 }
 
 use crate::refcount::Refcount;
@@ -426,8 +428,7 @@ pub fn wifi_set_log_verbose() {
     #[cfg(all(feature = "print-logs-from-driver", not(esp32h2)))]
     unsafe {
         use crate::sys::include::{
-            esp_wifi_internal_set_log_level,
-            wifi_log_level_t_WIFI_LOG_VERBOSE,
+            esp_wifi_internal_set_log_level, wifi_log_level_t_WIFI_LOG_VERBOSE,
         };
 
         esp_wifi_internal_set_log_level(wifi_log_level_t_WIFI_LOG_VERBOSE);

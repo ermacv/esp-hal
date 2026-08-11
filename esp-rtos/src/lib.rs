@@ -171,7 +171,15 @@ mod wait_queue;
 pub mod embassy;
 
 use core::mem::MaybeUninit;
+#[cfg(all(esp32s31, multi_core, feature = "embassy"))]
+use core::{
+    future::poll_fn,
+    sync::atomic::{AtomicBool, Ordering},
+    task::Poll,
+};
 
+#[cfg(all(esp32s31, multi_core, feature = "embassy"))]
+use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "alloc")]
 pub(crate) use esp_alloc::InternalMemory;
 #[cfg(systimer_driver_supported)]
@@ -188,7 +196,7 @@ use esp_hal::{
 #[cfg(multi_core)]
 use esp_hal::{
     peripherals::CPU_CTRL,
-    system::{CpuControl, Stack},
+    system::{AppCoreGuard, CpuControl, Stack},
     time::Duration,
 };
 #[cfg(feature = "embassy")]
@@ -465,6 +473,26 @@ pub fn start_second_core<const STACK_SIZE: usize>(
     start_second_core_with_stack_guard_offset::<STACK_SIZE>(cpu_control, int1, stack, None, func);
 }
 
+/// Starts the scheduler on the second CPU core without synchronously polling
+/// for its initialization.
+///
+/// The returned future is woken once the second core has initialized its
+/// scheduler. No delay loop or thread yield is used by the waiting core.
+#[cfg(all(esp32s31, multi_core, feature = "embassy"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "embassy")))]
+pub async fn start_second_core_async<const STACK_SIZE: usize>(
+    cpu_control: CPU_CTRL<'static>,
+    int1: SoftwareInterrupt<'static, 1>,
+    stack: &'static mut Stack<STACK_SIZE>,
+    func: impl FnOnce() + Send + 'static,
+) {
+    SECOND_CORE_READY.reset();
+    let guard = launch_second_core(cpu_control, int1, stack, None, true, func);
+    SECOND_CORE_READY.wait().await;
+    debug_assert!(SCHEDULER.with(|scheduler| scheduler.active_cores.contains(Cpu::AppCpu)));
+    core::mem::forget(guard);
+}
+
 /// The stack of the second core, in a form that can be moved into the second core's main function.
 #[cfg(multi_core)]
 struct SecondCoreStack {
@@ -532,6 +560,49 @@ fn suspend_main_task() {
     }
 }
 
+#[cfg(all(esp32s31, multi_core, feature = "embassy"))]
+static SECOND_CORE_READY: SecondCoreReady = SecondCoreReady::new();
+
+#[cfg(all(esp32s31, multi_core, feature = "embassy"))]
+struct SecondCoreReady {
+    ready: AtomicBool,
+    waker: AtomicWaker,
+}
+
+#[cfg(all(esp32s31, multi_core, feature = "embassy"))]
+impl SecondCoreReady {
+    const fn new() -> Self {
+        Self {
+            ready: AtomicBool::new(false),
+            waker: AtomicWaker::new(),
+        }
+    }
+
+    fn reset(&self) {
+        self.ready.store(false, Ordering::Release);
+    }
+
+    fn signal(&self) {
+        self.ready.store(true, Ordering::Release);
+        self.waker.wake();
+    }
+
+    async fn wait(&self) {
+        poll_fn(|context| {
+            if self.ready.load(Ordering::Acquire) {
+                return Poll::Ready(());
+            }
+            self.waker.register(context.waker());
+            if self.ready.load(Ordering::Acquire) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
+    }
+}
+
 /// Starts the scheduler on the second CPU core.
 ///
 /// Note that the scheduler must be started first, before starting the second core.
@@ -554,6 +625,22 @@ pub fn start_second_core_with_stack_guard_offset<const STACK_SIZE: usize>(
     stack_guard_offset: Option<usize>,
     func: impl FnOnce() + Send + 'static,
 ) {
+    let guard = launch_second_core(cpu_control, int1, stack, stack_guard_offset, false, func);
+
+    wait_for_second_core_scheduler();
+
+    core::mem::forget(guard);
+}
+
+#[cfg(multi_core)]
+fn launch_second_core<const STACK_SIZE: usize>(
+    cpu_control: CPU_CTRL,
+    int1: SoftwareInterrupt<'static, 1>,
+    stack: &'static mut Stack<STACK_SIZE>,
+    stack_guard_offset: Option<usize>,
+    notify_async_waiter: bool,
+    func: impl FnOnce() + Send + 'static,
+) -> AppCoreGuard<'static> {
     trace!("Starting scheduler for the second core");
 
     match SCHEDULER.with(|scheduler| scheduler.active_cores) {
@@ -582,14 +669,19 @@ pub fn start_second_core_with_stack_guard_offset<const STACK_SIZE: usize>(
                 trace!("Second core scheduler initialized");
             });
 
+            #[cfg(all(esp32s31, feature = "embassy"))]
+            if notify_async_waiter {
+                SECOND_CORE_READY.signal();
+            }
+            #[cfg(not(all(esp32s31, feature = "embassy")))]
+            let _ = notify_async_waiter;
+
             func();
             suspend_main_task();
         })
         .unwrap();
 
-    wait_for_second_core_scheduler();
-
-    core::mem::forget(guard);
+    guard
 }
 
 /// Starts the scheduler on the second CPU core only.

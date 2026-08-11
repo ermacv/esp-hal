@@ -1,5 +1,6 @@
 //! Wi-Fi access point.
 
+#[cfg(not(esp32s31))]
 use alloc::string::String;
 use core::fmt;
 
@@ -7,6 +8,8 @@ use procmacros::BuilderLite;
 
 #[cfg(feature = "unstable")]
 use super::CountryInfo;
+#[cfg(esp32s31)]
+use super::Password;
 use super::{AuthenticationMethod, DisconnectReason, Protocols, SecondaryChannel, Ssid};
 use crate::{WifiError, sys::include::wifi_ap_record_t};
 
@@ -51,6 +54,11 @@ pub struct AccessPointConfig {
     pub(crate) auth_method: AuthenticationMethod,
     /// The password for securing the access point (if applicable).
     #[builder_lite(reference)]
+    #[cfg(esp32s31)]
+    pub(crate) password: Password,
+    /// The password for securing the access point (if applicable).
+    #[builder_lite(reference)]
+    #[cfg(not(esp32s31))]
     pub(crate) password: String,
     /// The maximum number of connections allowed on the access point.
     /// When set, this number can be clipped to a true upper limit because
@@ -86,6 +94,11 @@ impl AccessPointConfig {
             return Err(WifiError::InvalidArguments);
         }
 
+        #[cfg(esp32s31)]
+        if self.beacon_timeout < 10 {
+            return Err(WifiError::InvalidArguments);
+        }
+
         Ok(())
     }
 }
@@ -99,6 +112,9 @@ impl Default for AccessPointConfig {
             secondary_channel: None,
             protocols: Protocols::default(),
             auth_method: AuthenticationMethod::None,
+            #[cfg(esp32s31)]
+            password: Password::default(),
+            #[cfg(not(esp32s31))]
             password: String::new(),
             max_connections: 255,
             dtim_period: 2,

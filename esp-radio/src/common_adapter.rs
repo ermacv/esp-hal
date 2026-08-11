@@ -376,6 +376,9 @@ pub(crate) fn enable_wifi_power_domain() {
     // but leaves the modem power domain untouched, so without this the radio
     // would inherit whatever state the previously-used radio left.
     cfg_select! {
+        esp32s31 => {
+            crate::radio_clocks::clocks_ll::reset_wifi_subsystem();
+        }
         not(wifi_mac_version = "1") => {
             regs!(MODEM_SYSCON).modem_rst_conf().modify(|_, w| {
                 w.rst_fe().set_bit();
