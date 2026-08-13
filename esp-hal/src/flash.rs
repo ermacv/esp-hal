@@ -118,12 +118,12 @@ unsafe extern "C" {
 fn set_flash_clock_120mhz() {
     unsafe {
         HP_SYS_CLKRST::regs().flash_ctrl0().modify(|_, w| {
-            w.sys_clk_en().set_bit();
-            w.pll_clk_en().set_bit();
-            w.core_clk_en().set_bit();
-            w.clk_src_sel().bits(1);
+            w.flash_sys_clk_en().set_bit();
+            w.flash_pll_clk_en().set_bit();
+            w.flash_core_clk_en().set_bit();
+            w.flash_clk_src_sel().bits(1);
             // SPLL is 480 MHz: divider field stores divisor minus one.
-            w.core_clk_div_num().bits(3)
+            w.flash_core_clk_div_num().bits(3)
         });
         SPI0::regs().clock().write(|w| w.bits(1 << 31));
         SPI1::regs().clock().write(|w| w.bits(1 << 31));

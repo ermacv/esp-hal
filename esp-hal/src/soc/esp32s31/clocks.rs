@@ -165,19 +165,19 @@ fn configure_bbpll_clk_impl(
     // The S31 BBPLL is fixed at 480 MHz. Program its documented divider taps.
     HP_SYS_CLKRST::regs()
         .ref_20m_ctrl0()
-        .modify(|_, w| unsafe { w.clk_div_num().bits(23) });
+        .modify(|_, w| unsafe { w.ref_20m_clk_div_num().bits(23) });
     HP_SYS_CLKRST::regs()
         .ref_80m_ctrl0()
-        .modify(|_, w| unsafe { w.clk_div_num().bits(5) });
+        .modify(|_, w| unsafe { w.ref_80m_clk_div_num().bits(5) });
     HP_SYS_CLKRST::regs()
         .ref_120m_ctrl0()
-        .modify(|_, w| unsafe { w.clk_div_num().bits(3) });
+        .modify(|_, w| unsafe { w.ref_120m_clk_div_num().bits(3) });
     HP_SYS_CLKRST::regs()
         .ref_160m_ctrl0()
-        .modify(|_, w| unsafe { w.clk_div_num().bits(2) });
+        .modify(|_, w| unsafe { w.ref_160m_clk_div_num().bits(2) });
     HP_SYS_CLKRST::regs()
         .ref_240m_ctrl0()
-        .modify(|_, w| unsafe { w.clk_div_num().bits(1) });
+        .modify(|_, w| unsafe { w.ref_240m_clk_div_num().bits(1) });
 }
 
 fn enable_cpll_clk_impl(_clocks: &mut ClockTree, en: bool) {
@@ -263,20 +263,20 @@ fn enable_rc_slow_clk_impl(_clocks: &mut ClockTree, en: bool) {
 }
 
 macro_rules! pll_gate {
-    ($name:ident, $register:ident) => {
+    ($name:ident, $register:ident, $field:ident) => {
         fn $name(_clocks: &mut ClockTree, en: bool) {
             HP_SYS_CLKRST::regs()
                 .$register()
-                .modify(|_, w| w.clk_en().bit(en));
+                .modify(|_, w| w.$field().bit(en));
         }
     };
 }
 
-pll_gate!(enable_pll_f20m_impl, ref_20m_ctrl0);
-pll_gate!(enable_pll_f80m_impl, ref_80m_ctrl0);
-pll_gate!(enable_pll_f120m_impl, ref_120m_ctrl0);
-pll_gate!(enable_pll_f160m_impl, ref_160m_ctrl0);
-pll_gate!(enable_pll_f240m_impl, ref_240m_ctrl0);
+pll_gate!(enable_pll_f20m_impl, ref_20m_ctrl0, ref_20m_clk_en);
+pll_gate!(enable_pll_f80m_impl, ref_80m_ctrl0, ref_80m_clk_en);
+pll_gate!(enable_pll_f120m_impl, ref_120m_ctrl0, ref_120m_clk_en);
+pll_gate!(enable_pll_f160m_impl, ref_160m_ctrl0, ref_160m_clk_en);
+pll_gate!(enable_pll_f240m_impl, ref_240m_ctrl0, ref_240m_clk_en);
 
 fn enable_xtal_d2_clk_impl(_clocks: &mut ClockTree, _en: bool) {
     // Nothing to do here
@@ -399,7 +399,7 @@ fn configure_lp_slow_clk_impl(
 fn enable_timg_calibration_clock_impl(_clocks: &mut ClockTree, en: bool) {
     HP_SYS_CLKRST::regs()
         .timergrp0_tgrt_ctrl0()
-        .modify(|_, w| w.clk_en().bit(en));
+        .modify(|_, w| w.timergrp0_tgrt_clk_en().bit(en));
 }
 
 fn configure_timg_calibration_clock_impl(
@@ -415,8 +415,8 @@ fn configure_timg_calibration_clock_impl(
     HP_SYS_CLKRST::regs()
         .timergrp0_tgrt_ctrl0()
         .modify(|_, w| unsafe {
-            w.clk_src_sel().bits(source);
-            w.clk_div_num().bits(divider - 1)
+            w.timergrp0_tgrt_clk_src_sel().bits(source);
+            w.timergrp0_tgrt_clk_div_num().bits(divider - 1)
         });
 }
 
@@ -424,15 +424,15 @@ impl TimgInstance {
     fn enable_function_clock_impl(self, _clocks: &mut ClockTree, en: bool) {
         match self {
             Self::Timg0 => HP_SYS_CLKRST::regs().timergrp0_ctrl0().modify(|_, w| {
-                w.t0_clk_en()
+                w.timergrp0_t0_clk_en()
                     .bit(en)
-                    .t1_clk_en()
+                    .timergrp0_t1_clk_en()
                     .bit(en)
             }),
             Self::Timg1 => HP_SYS_CLKRST::regs().timergrp1_ctrl0().modify(|_, w| {
-                w.t0_clk_en()
+                w.timergrp1_t0_clk_en()
                     .bit(en)
-                    .t1_clk_en()
+                    .timergrp1_t1_clk_en()
                     .bit(en)
             }),
         };
@@ -455,17 +455,17 @@ impl TimgInstance {
             Self::Timg0 => HP_SYS_CLKRST::regs()
                 .timergrp0_ctrl0()
                 .modify(|_, w| unsafe {
-                    w.t0_src_sel()
+                    w.timergrp0_t0_src_sel()
                         .bits(source)
-                        .t1_src_sel()
+                        .timergrp0_t1_src_sel()
                         .bits(source)
                 }),
             Self::Timg1 => HP_SYS_CLKRST::regs()
                 .timergrp1_ctrl0()
                 .modify(|_, w| unsafe {
-                    w.t0_src_sel()
+                    w.timergrp1_t0_src_sel()
                         .bits(source)
-                        .t1_src_sel()
+                        .timergrp1_t1_src_sel()
                         .bits(source)
                 }),
         };

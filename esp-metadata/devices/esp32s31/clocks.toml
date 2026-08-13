@@ -97,28 +97,28 @@ peripheral_clocks = { templates = [
     { name = "crypto_clk",            value = ".crypto_{{peripheral}}_clk_en().bit(enable)" },
     { name = "clk_en",                value = "{{sys_clk}} {{apb_clk}}" },
     
-    { name = "sys_clk",               value = ".sys_clk_en().bit(enable)" },
-    { name = "apb_clk",               value = ".apb_clk_en().bit(enable)" },
-    { name = "peri_clk",              value = ".clk_en().bit(enable)" },
+    { name = "sys_clk",               value = ".{{peripheral}}_sys_clk_en().bit(enable)" },
+    { name = "apb_clk",               value = ".{{peripheral}}_apb_clk_en().bit(enable)" },
+    { name = "peri_clk",              value = ".{{peripheral}}_clk_en().bit(enable)" },
 
     # Reset
     { name = "default_rst_template",  value = "{{base}}.{{ctrl_reg}}.modify(|_, w| w {{rst_en}});" },
-    { name = "rst_en",                value = ".rst_en().bit(reset)" },
+    { name = "rst_en",                value = ".{{peripheral}}_rst_en().bit(reset)" },
     { name = "crypto_rst",            value = ".crypto_{{peripheral}}_rst_en().bit(reset)" },
 
     { name = "no_rst",                value = "let _ = reset;" },
     { name = "no_clk",                value = "let _ = enable;" },
     { name = "uart_rst",              value = ".core_rst_en().bit(reset).apb_rst_en().bit(reset)" },
 ], peripheral_clocks = [
-    { name = "Uart0", template_params = { rst_en = "{{uart_rst}}", ctrl_reg = "uart_ctrl0(0)" }, keep_enabled = true },
-    { name = "Uart1", template_params = { rst_en = "{{uart_rst}}", ctrl_reg = "uart_ctrl0(1)" } },
-    { name = "Uart2", template_params = { rst_en = "{{uart_rst}}", ctrl_reg = "uart_ctrl0(2)" } },
-    { name = "Uart3", template_params = { rst_en = "{{uart_rst}}", ctrl_reg = "uart_ctrl0(3)" } },
+    { name = "Uart0", template_params = { clk_en = ".sys_clk_en().bit(enable) .apb_clk_en().bit(enable)", rst_en = "{{uart_rst}}", ctrl_reg = "uart_ctrl0(0)" }, keep_enabled = true },
+    { name = "Uart1", template_params = { clk_en = ".sys_clk_en().bit(enable) .apb_clk_en().bit(enable)", rst_en = "{{uart_rst}}", ctrl_reg = "uart_ctrl0(1)" } },
+    { name = "Uart2", template_params = { clk_en = ".sys_clk_en().bit(enable) .apb_clk_en().bit(enable)", rst_en = "{{uart_rst}}", ctrl_reg = "uart_ctrl0(2)" } },
+    { name = "Uart3", template_params = { clk_en = ".sys_clk_en().bit(enable) .apb_clk_en().bit(enable)", rst_en = "{{uart_rst}}", ctrl_reg = "uart_ctrl0(3)" } },
 
     { name = "Spi2", template_params = { peripheral = "gpspi2" } },
     { name = "Spi3", template_params = { peripheral = "gpspi3" } },
-    { name = "I2c0", template_params = { clk_en = "{{apb_clk}} {{peri_clk}}", ctrl_reg = "i2c_ctrl0(0)" } },
-    { name = "I2c1", template_params = { clk_en = "{{apb_clk}} {{peri_clk}}", ctrl_reg = "i2c_ctrl0(1)" } },
+    { name = "I2c0", template_params = { clk_en = ".apb_clk_en().bit(enable) .clk_en().bit(enable)", rst_en = ".rst_en().bit(reset)", ctrl_reg = "i2c_ctrl0(0)" } },
+    { name = "I2c1", template_params = { clk_en = ".apb_clk_en().bit(enable) .clk_en().bit(enable)", rst_en = ".rst_en().bit(reset)", ctrl_reg = "i2c_ctrl0(1)" } },
     # DMA engines
     { name = "AxiGdma", template_params = { peripheral = "axi_pdma", clk_en = "{{sys_clk}}" } },
     # USB

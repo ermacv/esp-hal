@@ -113,12 +113,12 @@ unsafe extern "C" {
 pub(crate) fn init_psram(config: &mut PsramConfig) -> bool {
     let clocks = HP_SYS_CLKRST::regs();
     clocks.psram_ctrl0().modify(|_, w| {
-        w.sys_clk_en().set_bit();
-        w.pll_clk_en().set_bit();
-        w.core_clk_en().set_bit();
+        w.psram_sys_clk_en().set_bit();
+        w.psram_pll_clk_en().set_bit();
+        w.psram_core_clk_en().set_bit();
         unsafe {
-            w.clk_src_sel().bits(0);
-            w.core_clk_div_num().bits(0);
+            w.psram_clk_src_sel().bits(0);
+            w.psram_core_clk_div_num().bits(0);
         }
         w
     });
@@ -132,12 +132,12 @@ pub(crate) fn init_psram(config: &mut PsramConfig) -> bool {
         return false;
     }
     clocks.psram_ctrl0().modify(|_, w| {
-        w.axi_rst_en().set_bit();
-        w.apb_rst_en().set_bit()
+        w.psram_axi_rst_en().set_bit();
+        w.psram_apb_rst_en().set_bit()
     });
     clocks.psram_ctrl0().modify(|_, w| {
-        w.axi_rst_en().clear_bit();
-        w.apb_rst_en().clear_bit()
+        w.psram_axi_rst_en().clear_bit();
+        w.psram_apb_rst_en().clear_bit()
     });
 
     if mpll_mhz != 0 {
@@ -357,10 +357,10 @@ fn configure_psram_clock(divider: u32) {
     };
     unsafe {
         HP_SYS_CLKRST::regs().psram_ctrl0().modify(|_, w| {
-            w.core_clk_en().set_bit();
-            w.sys_clk_en().set_bit();
-            w.clk_src_sel().bits(1);
-            w.core_clk_div_num().bits(0);
+            w.psram_core_clk_en().set_bit();
+            w.psram_sys_clk_en().set_bit();
+            w.psram_clk_src_sel().bits(1);
+            w.psram_core_clk_div_num().bits(0);
             w
         });
         PSRAM_MSPI::regs().sram_clk().write(|w| w.bits(value));
@@ -549,10 +549,10 @@ pub(crate) fn map_psram(config: PsramConfig) -> Range<usize> {
 
         let clocks = HP_SYS_CLKRST::regs();
         clocks.psram_ctrl0().modify(|_, w| {
-            w.core_clk_en().set_bit();
-            w.sys_clk_en().set_bit();
-            w.clk_src_sel().bits(1);
-            w.core_clk_div_num().bits(0);
+            w.psram_core_clk_en().set_bit();
+            w.psram_sys_clk_en().set_bit();
+            w.psram_clk_src_sel().bits(1);
+            w.psram_core_clk_div_num().bits(0);
             w
         });
 

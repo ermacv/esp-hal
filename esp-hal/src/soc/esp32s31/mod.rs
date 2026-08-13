@@ -97,10 +97,10 @@ pub(crate) fn pre_init() {
 
     // The S31 ROM leaves both SYSTIMER clock gates disabled.
     let systimer = crate::peripherals::HP_SYS_CLKRST::regs().systimer_ctrl0();
-    systimer.modify(|_, w| w.apb_clk_en().set_bit());
-    systimer.modify(|_, w| w.rst_en().set_bit());
-    systimer.modify(|_, w| w.rst_en().clear_bit());
-    systimer.modify(|_, w| w.clk_en().set_bit());
+    systimer.modify(|_, w| w.systimer_apb_clk_en().set_bit());
+    systimer.modify(|_, w| w.systimer_rst_en().set_bit());
+    systimer.modify(|_, w| w.systimer_rst_en().clear_bit());
+    systimer.modify(|_, w| w.systimer_clk_en().set_bit());
 }
 
 /// Permit cached accesses to the external-memory virtual address aperture.

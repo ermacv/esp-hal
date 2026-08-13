@@ -3299,7 +3299,7 @@ macro_rules! implement_peripheral_clocks {
                 Peripheral::AxiGdma => {
                     crate::peripherals::HP_SYS_CLKRST::regs()
                         .axi_pdma_ctrl0()
-                        .modify(|_, w| w.sys_clk_en().bit(enable));
+                        .modify(|_, w| w.axi_pdma_sys_clk_en().bit(enable));
                 }
                 Peripheral::Ecc => {
                     crate::peripherals::HP_SYS_CLKRST::regs()
@@ -3335,27 +3335,42 @@ macro_rules! implement_peripheral_clocks {
                 Peripheral::Spi2 => {
                     crate::peripherals::HP_SYS_CLKRST::regs()
                         .gpspi2_ctrl0()
-                        .modify(|_, w| w.sys_clk_en().bit(enable).apb_clk_en().bit(enable));
+                        .modify(|_, w| {
+                            w.gpspi2_sys_clk_en()
+                                .bit(enable)
+                                .gpspi2_apb_clk_en()
+                                .bit(enable)
+                        });
                 }
                 Peripheral::Spi3 => {
                     crate::peripherals::HP_SYS_CLKRST::regs()
                         .gpspi3_ctrl0()
-                        .modify(|_, w| w.sys_clk_en().bit(enable).apb_clk_en().bit(enable));
+                        .modify(|_, w| {
+                            w.gpspi3_sys_clk_en()
+                                .bit(enable)
+                                .gpspi3_apb_clk_en()
+                                .bit(enable)
+                        });
                 }
                 Peripheral::Systimer => {
                     crate::peripherals::HP_SYS_CLKRST::regs()
                         .systimer_ctrl0()
-                        .modify(|_, w| w.apb_clk_en().bit(enable).clk_en().bit(enable));
+                        .modify(|_, w| {
+                            w.systimer_apb_clk_en()
+                                .bit(enable)
+                                .systimer_clk_en()
+                                .bit(enable)
+                        });
                 }
                 Peripheral::Timg0 => {
                     crate::peripherals::HP_SYS_CLKRST::regs()
                         .timergrp0_ctrl0()
-                        .modify(|_, w| w.apb_clk_en().bit(enable));
+                        .modify(|_, w| w.timergrp0_apb_clk_en().bit(enable));
                 }
                 Peripheral::Timg1 => {
                     crate::peripherals::HP_SYS_CLKRST::regs()
                         .timergrp1_ctrl0()
-                        .modify(|_, w| w.apb_clk_en().bit(enable));
+                        .modify(|_, w| w.timergrp1_apb_clk_en().bit(enable));
                 }
                 Peripheral::Uart0 => {
                     crate::peripherals::HP_SYS_CLKRST::regs()
@@ -3380,12 +3395,17 @@ macro_rules! implement_peripheral_clocks {
                 Peripheral::UsbDevice => {
                     crate::peripherals::HP_SYS_CLKRST::regs()
                         .usb_device_ctrl0()
-                        .modify(|_, w| w.apb_clk_en().bit(enable));
+                        .modify(|_, w| w.usb_device_apb_clk_en().bit(enable));
                 }
                 Peripheral::UsbHs => {
                     crate::peripherals::HP_SYS_CLKRST::regs()
                         .usb_otghs_ctrl0()
-                        .modify(|_, w| w.sys_clk_en().bit(enable).apb_clk_en().bit(enable));
+                        .modify(|_, w| {
+                            w.usb_otghs_sys_clk_en()
+                                .bit(enable)
+                                .usb_otghs_apb_clk_en()
+                                .bit(enable)
+                        });
                 }
             }
         }
@@ -3399,7 +3419,7 @@ macro_rules! implement_peripheral_clocks {
                 Peripheral::AxiGdma => {
                     crate::peripherals::HP_SYS_CLKRST::regs()
                         .axi_pdma_ctrl0()
-                        .modify(|_, w| w.rst_en().bit(reset));
+                        .modify(|_, w| w.axi_pdma_rst_en().bit(reset));
                 }
                 Peripheral::Ecc => {
                     crate::peripherals::HP_SYS_CLKRST::regs()
@@ -3435,27 +3455,27 @@ macro_rules! implement_peripheral_clocks {
                 Peripheral::Spi2 => {
                     crate::peripherals::HP_SYS_CLKRST::regs()
                         .gpspi2_ctrl0()
-                        .modify(|_, w| w.rst_en().bit(reset));
+                        .modify(|_, w| w.gpspi2_rst_en().bit(reset));
                 }
                 Peripheral::Spi3 => {
                     crate::peripherals::HP_SYS_CLKRST::regs()
                         .gpspi3_ctrl0()
-                        .modify(|_, w| w.rst_en().bit(reset));
+                        .modify(|_, w| w.gpspi3_rst_en().bit(reset));
                 }
                 Peripheral::Systimer => {
                     crate::peripherals::HP_SYS_CLKRST::regs()
                         .systimer_ctrl0()
-                        .modify(|_, w| w.rst_en().bit(reset));
+                        .modify(|_, w| w.systimer_rst_en().bit(reset));
                 }
                 Peripheral::Timg0 => {
                     crate::peripherals::HP_SYS_CLKRST::regs()
                         .timergrp0_ctrl0()
-                        .modify(|_, w| w.rst_en().bit(reset));
+                        .modify(|_, w| w.timergrp0_rst_en().bit(reset));
                 }
                 Peripheral::Timg1 => {
                     crate::peripherals::HP_SYS_CLKRST::regs()
                         .timergrp1_ctrl0()
-                        .modify(|_, w| w.rst_en().bit(reset));
+                        .modify(|_, w| w.timergrp1_rst_en().bit(reset));
                 }
                 Peripheral::Uart0 => {
                     crate::peripherals::HP_SYS_CLKRST::regs()

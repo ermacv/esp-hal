@@ -444,7 +444,7 @@ impl Gmac {
             .read();
         HP_SYS_CLKRST::regs()
             .emac_ctrl0()
-            .modify(|_, w| w.sys_clk_en().set_bit());
+            .modify(|_, w| w.emac_sys_clk_en().set_bit());
         cnnt_sys_regs()
             .sys_hp_emac_ctrl()
             .modify(|_, w| w.sys_emac_rst_en().set_bit());
