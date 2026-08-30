@@ -157,6 +157,30 @@ impl Psram {
         Self { _peri: peri }
     }
 
+    /// Adopts a PSRAM mapping initialized by an earlier execution stage.
+    ///
+    /// This does not configure the PSRAM device, cache, or MMU. It only makes
+    /// the existing mapping known to this program so address validation in DMA
+    /// drivers and [`Self::raw_parts`] use the correct range. This is intended
+    /// for a second-stage program entered without resetting the chip.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `mapped_range` is empty.
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee that `mapped_range` is the exact, live PSRAM
+    /// mapping configured by an earlier execution stage and remains mapped for
+    /// the lifetime of the returned owner. No other [`Psram`] owner may exist
+    /// in the current execution stage, and the mapping must not be changed
+    /// while the returned owner is alive.
+    pub unsafe fn from_existing_mapping(peri: PSRAM<'static>, mapped_range: Range<usize>) -> Self {
+        assert!(!mapped_range.is_empty(), "PSRAM mapping must not be empty");
+        unsafe { set_psram_range(mapped_range) };
+        Self { _peri: peri }
+    }
+
     /// Returns the address and size of the available in external memory.
     pub fn raw_parts(&self) -> (*mut u8, usize) {
         let range = psram_range();
