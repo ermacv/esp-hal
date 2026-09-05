@@ -8,9 +8,15 @@
 crate::unstable_module! {
     pub mod clocks;
 }
+mod cache;
 pub(crate) mod cpu_control;
 pub(crate) mod regi2c;
+#[cfg(rng_trng_supported)]
+pub(crate) mod trng;
 
+pub(crate) use cache::cache_prepare_code_addr;
+#[doc(hidden)]
+pub use cache::{cache_invalidate_addr, cache_writeback_addr};
 pub(crate) use esp32s31 as pac;
 
 pub(crate) fn enable_branch_predictor() {
@@ -31,6 +37,7 @@ pub(crate) fn enable_branch_predictor() {
 pub(crate) fn riscv_preinit() {}
 
 pub(crate) fn pre_init() {
+    enable_external_memory_pma();
     if crate::system::Cpu::current() == crate::system::Cpu::ProCpu {
         // The ROM may enter on either core. Only the designated primary core
         // should park and gate its sibling during HAL startup.
@@ -89,28 +96,31 @@ fn write_pms_ctrl_range(base: usize, start: usize, end: usize) {
     }
 }
 
-const CACHE_MAP_L1_DCACHE: u32 = 1 << 4;
+// ESP-IDF reserves PMA entry 7 for the SoC's 64 MiB external-memory aperture.
+// These are CPU CSRs, not peripheral MMIO registers.
+const EXTERNAL_MEMORY_PMA_ADDRESS: u32 = (0x5000_0000 | ((0x0400_0000 / 2) - 1)) >> 2;
+const EXTERNAL_MEMORY_PMA_CONFIG: u32 = 0xc000_0000 // NAPOT
+    | 0x2000_0000 // locked
+    | 1 // enabled
+    | (1 << 4) // read
+    | (1 << 3) // write
+    | (1 << 2); // execute
 
-/// Writes back a specific range of data in the cache.
-#[doc(hidden)]
+// Run from internal RAM: a boot stage may already execute from PSRAM while
+// this updates the PMA entry. The locked entry survives subsequent calls.
 #[crate::ram]
-pub unsafe fn cache_writeback_addr(addr: u32, size: u32) {
-    unsafe extern "C" {
-        fn Cache_WriteBack_Addr(map: u32, addr: u32, size: u32);
-    }
+fn enable_external_memory_pma() {
     unsafe {
-        Cache_WriteBack_Addr(CACHE_MAP_L1_DCACHE, addr, size);
-    }
-}
-
-/// Invalidate a specific range of addresses in the cache.
-#[doc(hidden)]
-#[crate::ram]
-pub unsafe fn cache_invalidate_addr(addr: u32, size: u32) {
-    unsafe extern "C" {
-        fn Cache_Invalidate_Addr(map: u32, addr: u32, size: u32);
-    }
-    unsafe {
-        Cache_Invalidate_Addr(CACHE_MAP_L1_DCACHE, addr, size);
+        core::arch::asm!(
+            "csrw 0xbc7, zero",
+            "csrw 0xbd7, zero",
+            "csrw 0xbd7, {address}",
+            "csrw 0xbc7, {config}",
+            "fence rw, rw",
+            "fence.i",
+            address = in(reg) EXTERNAL_MEMORY_PMA_ADDRESS,
+            config = in(reg) EXTERNAL_MEMORY_PMA_CONFIG,
+            options(nostack),
+        );
     }
 }

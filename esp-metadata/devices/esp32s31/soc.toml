@@ -63,6 +63,7 @@ peripherals = [
     { name = "HP_ALIVE_SYS" },
     { name = "HP_SYS_CLKRST" },
     { name = "I2C0", interrupts = { peri = "I2C0" }, clock_group = "I2C", stable = true },
+    { name = "I2C_ANA_MST" },
     { name = "I2C1", interrupts = { peri = "I2C1" }, clock_group = "I2C", stable = true },
     { name = "I2S0", interrupts = { peri = "I2S0" }, clock_group = "I2S" },
     { name = "I2S1", interrupts = { peri = "I2S1" }, clock_group = "I2S" },
@@ -78,6 +79,7 @@ peripherals = [
     { name = "LP_PERI", pac = "LP_PERICLKRST" },
     { name = "LP_SYS" },
     { name = "LP_TEE" },
+    { name = "LP_TSENS" },
     { name = "LP_WDT" },
     { name = "LPWR", pac = "PMU" },
     { name = "MEM_MONITOR", pac = "MEM_MONITOR0" },
@@ -117,6 +119,7 @@ peripherals = [
     { name = "ADC1", virtual = true },
     { name = "ADC2", virtual = true },
     { name = "FLASH", virtual = true },
+    { name = "WIFI", virtual = true, stable = true },
     { name = "PSRAM", virtual = true, clock_group = "PSRAM" },
     { name = "GPIO_DEDICATED", virtual = true },
     { name = "CPU_CTRL", virtual = true },
@@ -206,7 +209,7 @@ has_region_monitor = true
 
 [device.rng]
 support_status = { status = "partial", issue = 5977 }
-trng_supported = false  # TODO
+trng_supported = true
 apb_cycle_wait_num = 16 # TODO
 is_lp_sys = false
 

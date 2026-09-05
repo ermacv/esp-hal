@@ -606,6 +606,35 @@ pub(crate) fn setup_interrupts() {
     unsafe { crate::interrupt::init_vectoring() };
 }
 
+/// Reinitializes this core's interrupt controller and vector table after handoff.
+///
+/// All named peripheral interrupt mappings on both cores are disabled and their
+/// pass levels are reset to zero. This permits a separately linked second-stage
+/// image to install its own handlers with a known interrupt-matrix baseline.
+/// Peripheral drivers must be initialized after this function returns.
+///
+/// # Safety
+///
+/// Interrupts must be globally disabled, the other core must be stopped, and
+/// no live peripheral driver may rely on the previous interrupt mappings.
+#[cfg(all(esp32s31, feature = "rt"))]
+#[instability::unstable]
+pub unsafe fn reinitialize_vectoring_after_handoff() {
+    // Normal interrupt routing preserves pass levels. A second-stage image
+    // instead takes ownership of both matrices and establishes its baseline.
+    for peripheral_interrupt in 0..255 {
+        if let Ok(interrupt) = Interrupt::try_from(peripheral_interrupt) {
+            INTERRUPT_CORE0::regs()
+                .core_0_intr_map(interrupt as usize)
+                .modify(|_, w| unsafe { w.pass_level().bits(0) });
+            INTERRUPT_CORE1::regs()
+                .core_1_intr_map(interrupt as usize)
+                .modify(|_, w| unsafe { w.pass_level().bits(0) });
+        }
+    }
+    setup_interrupts();
+}
+
 #[inline(always)]
 #[cfg(feature = "rt")]
 fn should_handle(core: Cpu, interrupt_nr: u32, level: u32) -> bool {

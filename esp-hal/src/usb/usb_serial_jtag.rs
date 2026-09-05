@@ -707,11 +707,16 @@ where
 }
 
 // Static instance of the waker for each component of the peripheral:
+// The interrupt handler must retain internal-SRAM access when an S31
+// application places ordinary mutable state in external PSRAM.
+#[cfg_attr(esp32s31, unsafe(link_section = ".critical.data.usb_serial_jtag"))]
 static WAKER_TX: AtomicWaker = AtomicWaker::new();
+#[cfg_attr(esp32s31, unsafe(link_section = ".critical.data.usb_serial_jtag"))]
 static WAKER_RX: AtomicWaker = AtomicWaker::new();
 // TX and RX interrupts are enabled independently. Once either is enabled, its
 // handler can preempt the other side's INT_ENA read-modify-write and cause
 // stale enable bits to be restored. Serialize all INT_ENA updates.
+#[cfg_attr(esp32s31, unsafe(link_section = ".critical.data.usb_serial_jtag"))]
 static INT_ENA_LOCK: RawMutex = RawMutex::new();
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
@@ -962,6 +967,7 @@ impl embedded_io_async_07::Read for UsbSerialJtagRx<'_, Async> {
 }
 
 #[handler]
+#[cfg_attr(esp32s31, unsafe(link_section = ".rwtext.usb_serial_jtag"))]
 fn async_interrupt_handler() {
     let usb = USB_DEVICE::regs();
     let interrupts = usb.int_st().read();

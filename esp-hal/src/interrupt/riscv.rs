@@ -20,7 +20,7 @@ mod cpu_int;
 
 // The software-interrupt driver is the only caller on this architecture, and that driver is
 // unstable.
-#[cfg(feature = "unstable")]
+#[cfg(all(feature = "unstable", not(esp32s31)))]
 pub(crate) use riscv::interrupt::free;
 
 use crate::{

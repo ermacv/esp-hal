@@ -96,9 +96,11 @@ impl<'d, const NUM: u8> SoftwareInterrupt<'d, NUM> {
         let reg = regs.cpu_intr_from_cpu(NUM as usize);
 
         cfg_select! {
-            xtensa => {
+            any(xtensa, esp32s31) => {
                 reg.write(|w| w.cpu_intr().set_bit());
-                // Read back to ensure the write is completed.
+                // Read back to complete publication. On ESP32-S31 the source
+                // can be consumed by the other core before a pending-status
+                // observation, so waiting for that transient state can hang.
                 _ = reg.read();
             }
             _ => {
@@ -111,7 +113,7 @@ impl<'d, const NUM: u8> SoftwareInterrupt<'d, NUM> {
         }
     }
 
-    #[cfg(riscv)]
+    #[cfg(all(riscv, not(esp32s31)))]
     fn is_pending(&self) -> bool {
         let interrupt;
         for_each_sw_interrupt! {

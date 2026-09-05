@@ -43,6 +43,9 @@
 
 use core::ops::Range;
 
+#[cfg(esp32s31)]
+mod mapping;
+
 #[cfg(any(esp32s2, esp32s3))]
 mod quad_xtensa;
 
@@ -122,9 +125,69 @@ impl Psram {
         Self { _peri: peri }
     }
 
+    /// Adopts PSRAM initialized and mapped by an earlier boot stage.
+    ///
+    /// This records the mapping without resetting the device, clocks or caches.
+    ///
+    /// # Safety
+    ///
+    /// `range` must be a nonempty, live PSRAM mapping that remains valid while
+    /// this driver is in use. PSRAM must not have been initialized or adopted
+    /// by another owner in this image, and the previous boot stage must have
+    /// relinquished its peripheral ownership.
+    pub unsafe fn from_existing_mapping(peri: PSRAM<'static>, range: Range<usize>) -> Self {
+        assert!(range.start < range.end, "PSRAM mapping must be nonempty");
+        unsafe { set_psram_range(range) };
+        Self { _peri: peri }
+    }
+
     /// Returns the address and size of the available in external memory.
     pub fn raw_parts(&self) -> (*mut u8, usize) {
         let range = psram_range();
         (range.start as *mut u8, range.end - range.start)
     }
+}
+
+/// Failure to synchronize executable PSRAM.
+#[cfg(esp32s31)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum PsramCacheError {
+    /// The requested bytes are outside the live PSRAM mapping.
+    InvalidAddress,
+}
+
+/// Publishes copied PSRAM code to both instruction caches.
+///
+/// # Safety
+///
+/// The bytes must contain valid code and must not be modified or executed
+/// during synchronization. Other cores must remain quiescent until the caller
+/// publishes the entry point; each executing core needs an instruction fence
+/// before entering code it could previously have fetched.
+#[cfg(esp32s31)]
+#[crate::ram]
+pub unsafe fn prepare_code(ptr: *const u8, size: usize) -> Result<(), PsramCacheError> {
+    let start = ptr as usize;
+    if !mapping::contains(psram_range(), start, size) {
+        return Err(PsramCacheError::InvalidAddress);
+    }
+    unsafe { crate::soc::cache_prepare_code_addr(start as u32, size as u32) };
+    unsafe { core::arch::asm!("fence.i") };
+    Ok(())
+}
+
+/// Writes dirty PSRAM cache lines back before a non-coherent peripheral reads them.
+///
+/// Uses the same cross-core sync-engine lock as HAL DMA and [`prepare_code`].
+///
+/// # Safety
+///
+/// The range must be live mapped PSRAM. The complete cache lines containing it
+/// must be exclusively owned by the caller and cannot be modified until the
+/// peripheral has finished reading. Cache-line alignment may extend the range.
+#[cfg(esp32s31)]
+#[crate::ram]
+pub unsafe fn writeback_for_dma(ptr: *const u8, size: usize) {
+    unsafe { crate::soc::cache_writeback_addr(ptr as u32, size as u32) };
 }

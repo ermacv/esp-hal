@@ -120,9 +120,21 @@ where
         "csrw fcsr, t0",
         "li t0, 0x2000",
         "csrc mstatus, t0",
+        // PMA is per-core. Enable PSRAM before installing a stack that may
+        // itself live in external memory, and before any Rust prologue runs.
+        "csrw 0xbc7, zero",
+        "csrw 0xbd7, zero",
+        "li t0, {pma_address}",
+        "csrw 0xbd7, t0",
+        "li t0, {pma_config}",
+        "csrw 0xbc7, t0",
+        "fence rw, rw",
+        "fence.i",
         "la t0, {stack_top}",
         "lw sp, 0(t0)",
         "j {init}",
+        pma_address = const super::EXTERNAL_MEMORY_PMA_ADDRESS,
+        pma_config = const super::EXTERNAL_MEMORY_PMA_CONFIG,
         stack_top = sym multi_core::APP_CORE_STACK_TOP,
         init = sym start_core1_init_impl::<F>,
     )
