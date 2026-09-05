@@ -4,7 +4,10 @@
 //!
 //! Collection of struct which helps you write to registers.
 
-#[cfg(any(ethernet_driver_supported, mipi_dsi_driver_supported))]
+#[cfg(any(
+    all(ethernet_driver_supported, feature = "__ethernet"),
+    mipi_dsi_driver_supported
+))]
 mod volatile_cell {
     use core::cell::UnsafeCell;
 
@@ -40,7 +43,10 @@ mod volatile_cell {
     unsafe impl<T: Copy + Send> Send for VolatileCell<T> {}
     unsafe impl<T: Copy + Sync> Sync for VolatileCell<T> {}
 }
-#[cfg(any(ethernet_driver_supported, mipi_dsi_driver_supported))]
+#[cfg(any(
+    all(ethernet_driver_supported, feature = "__ethernet"),
+    mipi_dsi_driver_supported
+))]
 pub(crate) use volatile_cell::*;
 
 #[cfg(any(hmac_driver_supported, sha_driver_supported))]

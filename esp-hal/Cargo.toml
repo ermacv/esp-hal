@@ -310,11 +310,12 @@ esp32s3 = [
     "esp-metadata-generated/esp32s3",
 ]
 ##
+# ESP32-S31 Ethernet is opt-in: also enable `__ethernet` to include its
+# driver and network-stack dependencies. The peripheral ownership token remains available.
 esp32s31 = [
     "dep:esp32s31",
     "__sdmmc",
     "__usb_otg",
-    "__ethernet",
     "esp-riscv-rt/rtc-ram",
     "esp-riscv-rt/clic-48",
     "procmacros/rtc-fast",

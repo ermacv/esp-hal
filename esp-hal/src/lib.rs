@@ -303,7 +303,7 @@ pub mod peripherals;
     any(
         hmac_driver_supported,
         sha_driver_supported,
-        ethernet_driver_supported,
+        all(ethernet_driver_supported, feature = "__ethernet"),
         mipi_dsi_driver_supported
     )
 ))]
@@ -415,7 +415,7 @@ unstable_driver! {
         usb_serial_jtag_driver_supported,
     ))]
     pub mod usb;
-    #[cfg(ethernet_driver_supported)]
+    #[cfg(all(ethernet_driver_supported, feature = "__ethernet"))]
     pub mod ethernet;
     #[cfg(mipi_dsi_driver_supported)]
     pub mod mipi_dsi;
