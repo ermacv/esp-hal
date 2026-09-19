@@ -658,6 +658,13 @@ where
                 .modify(|_, w| w.wdt_conf_update_en().set_bit());
         }
 
+        // S31 latches watchdog configuration asynchronously, including disable.
+        // Commit before removing its clock or restoring write protection.
+        #[cfg(esp32s31)]
+        reg_block
+            .wdtconfig0()
+            .modify(|_, w| w.wdt_conf_update_en().set_bit());
+
         #[cfg(soc_has_clock_node_timg_wdt_clock)]
         if !enabled {
             clocks::ClockTree::with(|clocks| TG::clock_instance().release_wdt_clock(clocks));
@@ -731,7 +738,7 @@ where
 
         config_register.write(|w| unsafe { w.hold().bits(timeout) });
 
-        #[cfg(any(esp32c2, esp32c3, esp32c6))]
+        #[cfg(any(esp32c2, esp32c3, esp32c6, esp32s31))]
         reg_block
             .wdtconfig0()
             .modify(|_, w| w.wdt_conf_update_en().set_bit());
@@ -758,6 +765,11 @@ where
                 MwdtStage::Stage3 => w.wdt_stg3().bits(action as u8),
             }
         });
+
+        #[cfg(esp32s31)]
+        reg_block
+            .wdtconfig0()
+            .modify(|_, w| w.wdt_conf_update_en().set_bit());
 
         self.set_write_protection(true);
     }

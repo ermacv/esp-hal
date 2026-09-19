@@ -614,16 +614,40 @@ impl TimgInstance {
         };
     }
 
-    fn enable_wdt_clock_impl(self, _clocks: &mut ClockTree, _en: bool) {
-        // TODO: Control the selected timer group's watchdog-clock gate.
+    fn enable_wdt_clock_impl(self, _clocks: &mut ClockTree, en: bool) {
+        // ESP-IDF's ESP32-S31 mwdt_ll_enable_clock controls these gates
+        // independently of the two general-purpose timers in each group.
+        match self {
+            Self::Timg0 => HP_SYS_CLKRST::regs()
+                .timergrp0_ctrl0()
+                .modify(|_, w| w.wdt_clk_en().bit(en)),
+            Self::Timg1 => HP_SYS_CLKRST::regs()
+                .timergrp1_ctrl0()
+                .modify(|_, w| w.wdt_clk_en().bit(en)),
+        };
     }
     fn configure_wdt_clock_impl(
         self,
         _clocks: &mut ClockTree,
         _old: Option<TimgWdtClockConfig>,
-        _new: TimgWdtClockConfig,
+        new: TimgWdtClockConfig,
     ) {
-        // TODO: Configure the selected timer group's watchdog-clock source.
+        // S31 selectors match the GPTimer mux: XTAL=0, RC_FAST=1,
+        // REF_F80M=2. An ECO0 expiry measurement with 4,000,000 WDT
+        // ticks gives respectively 100 ms, about 230 ms and 50 ms.
+        let source = match new {
+            TimgWdtClockConfig::XtalClk => 0,
+            TimgWdtClockConfig::RcFastClk => 1,
+            TimgWdtClockConfig::PllF80m => 2,
+        };
+        match self {
+            Self::Timg0 => HP_SYS_CLKRST::regs()
+                .timergrp0_ctrl0()
+                .modify(|_, w| unsafe { w.wdt_src_sel().bits(source) }),
+            Self::Timg1 => HP_SYS_CLKRST::regs()
+                .timergrp1_ctrl0()
+                .modify(|_, w| unsafe { w.wdt_src_sel().bits(source) }),
+        };
     }
 }
 
