@@ -1,3 +1,5 @@
+use esp_sync::NonReentrantMutex;
+
 use crate::{
     peripherals::{MODEM_LPCON, MODEM_SYSCON},
     rom::regi2c::{RawRegI2cField, RegI2cMaster, RegI2cRegister, define_regi2c},
@@ -219,19 +221,56 @@ const REGI2C_RTC_ADDR_SHIFT: u32 = 8;
 const REGI2C_RTC_ADDR_MASK: u32 = 0xFF;
 const REGI2C_RTC_SLAVE_ID_MASK: u32 = 0xFF;
 
+/// References to the analog-I2C master clock.
+///
+/// This is ESP-IDF's `ANALOG_CLOCK_ENABLE`/`ANALOG_CLOCK_DISABLE` reference
+/// count (`regi2c_ctrl.h` with `ANA_I2C_MST_CLK_HAS_ROOT_GATING`): the clock
+/// is enabled on the first reference and disabled when the last one is
+/// released. Register accesses and radio PHY calibration share it.
+static ANALOG_I2C_MASTER_CLOCK_REFS: NonReentrantMutex<u16> = NonReentrantMutex::new(0);
+
+/// Acquire one reference to the analog-I2C master clock.
+///
+/// Radio drivers hold a reference while their PHY uses the analog-I2C
+/// master; this crate holds one around every regi2c access.
+pub fn acquire_analog_i2c_master_clock() {
+    ANALOG_I2C_MASTER_CLOCK_REFS.with(|refs| {
+        if *refs == 0 {
+            MODEM_LPCON::regs()
+                .clk_conf()
+                .modify(|_, w| w.clk_i2c_mst_en().set_bit());
+        }
+        *refs = unwrap!(refs.checked_add(1));
+    });
+}
+
+/// Release one reference to the analog-I2C master clock.
+///
+/// # Panics
+///
+/// Panics if no reference is held.
+pub fn release_analog_i2c_master_clock() {
+    ANALOG_I2C_MASTER_CLOCK_REFS.with(|refs| {
+        *refs = unwrap!(refs.checked_sub(1));
+        if *refs == 0 {
+            MODEM_LPCON::regs()
+                .clk_conf()
+                .modify(|_, w| w.clk_i2c_mst_en().clear_bit());
+        }
+    });
+}
+
 fn regi2c_enable_block(block: u8) -> usize {
     // Match the S31 bootloader setup explicitly instead of relying on a
     // previous-stage bootloader to leave the analog-I2C source and force bit
-    // configured for us.
+    // configured for us. The force bit stays set, as the vendor bootloader
+    // leaves it; the gated enable is reference-counted by the callers.
     MODEM_SYSCON::regs()
         .clk_conf()
         .modify(|_, w| w.clk_i2c_mst_sel_160m().set_bit());
     MODEM_LPCON::regs()
         .clk_conf_force_on()
         .modify(|_, w| w.clk_i2c_mst_fo().set_bit());
-    MODEM_LPCON::regs()
-        .clk_conf()
-        .modify(|_, w| w.clk_i2c_mst_en().set_bit());
 
     let bit_mask: u32 = match block {
         v if v == REGI2C_BB.master => REGI2C_BB_MASK,
@@ -282,7 +321,14 @@ fn wait_i2c_idle(ctrl: u32) {
     }
 }
 
-pub(crate) fn regi2c_read(block: u8, _host_id: u8, reg_add: u8) -> u8 {
+pub(crate) fn regi2c_read(block: u8, host_id: u8, reg_add: u8) -> u8 {
+    acquire_analog_i2c_master_clock();
+    let value = regi2c_read_clocked(block, host_id, reg_add);
+    release_analog_i2c_master_clock();
+    value
+}
+
+fn regi2c_read_clocked(block: u8, _host_id: u8, reg_add: u8) -> u8 {
     let master = regi2c_enable_block(block);
     let ctrl = i2c_ctrl_reg(master);
 
@@ -301,7 +347,13 @@ pub(crate) fn regi2c_read(block: u8, _host_id: u8, reg_add: u8) -> u8 {
     ((val >> REGI2C_RTC_DATA_SHIFT) & REGI2C_RTC_DATA_MASK) as u8
 }
 
-pub(crate) fn regi2c_write(block: u8, _host_id: u8, reg_add: u8, data: u8) {
+pub(crate) fn regi2c_write(block: u8, host_id: u8, reg_add: u8, data: u8) {
+    acquire_analog_i2c_master_clock();
+    regi2c_write_clocked(block, host_id, reg_add, data);
+    release_analog_i2c_master_clock();
+}
+
+fn regi2c_write_clocked(block: u8, _host_id: u8, reg_add: u8, data: u8) {
     let master = regi2c_enable_block(block);
     let ctrl = i2c_ctrl_reg(master);
 

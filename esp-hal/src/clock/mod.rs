@@ -66,6 +66,12 @@ pub(crate) mod dividers;
 pub mod ll {
     #[instability::unstable]
     pub use crate::soc::clocks::*;
+    #[cfg(esp32s31)]
+    #[instability::unstable]
+    pub use crate::soc::regi2c::{
+        acquire_analog_i2c_master_clock,
+        release_analog_i2c_master_clock,
+    };
 }
 
 #[cfg(timergroup_rc_fast_calibration_divider)]
