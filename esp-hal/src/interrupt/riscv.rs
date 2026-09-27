@@ -594,9 +594,20 @@ pub(crate) mod rt {
         }
     }
 
+    /// The trap frame of the context each hart's running interrupt handler
+    /// preempted; 0 outside interrupt handlers.
+    pub(super) static INTERRUPTED_FRAME: [core::sync::atomic::AtomicUsize; 2] =
+        [const { core::sync::atomic::AtomicUsize::new(0) }; 2];
+
+    /// `frame` is the trap frame the interrupt trampoline stored at the
+    /// preempted stack pointer, passed by the vector stub.
     #[unsafe(no_mangle)]
     #[crate::ram]
-    unsafe fn handle_interrupts(cpu_intr: CpuInterrupt) {
+    unsafe fn handle_interrupts(cpu_intr: CpuInterrupt, frame: *const TrapFrame) {
+        use core::sync::atomic::Ordering;
+        let hart = Cpu::current() as usize;
+        // A nested handler replaces the frame and restores its preempted one.
+        let preempted = INTERRUPTED_FRAME[hart].swap(frame as usize, Ordering::Relaxed);
         let status = InterruptStatus::current();
 
         // this has no effect on level interrupts, but the interrupt may be an edge one
@@ -653,5 +664,38 @@ pub(crate) mod rt {
                 unsafe { change_current_runlevel(level) };
             }
         }
+        INTERRUPTED_FRAME[hart].store(preempted, Ordering::Relaxed);
     }
+}
+
+/// Registers of the code the running interrupt handler preempted, taken from
+/// the trap frame the interrupt trampoline stored. The program counter is
+/// `mepc`, which the handler reads itself.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[instability::unstable]
+pub struct InterruptedContext {
+    /// The preempted code's return address.
+    pub ra: usize,
+    /// The preempted code's stack pointer.
+    pub sp: usize,
+}
+
+/// The context this hart's running interrupt handler preempted; `None`
+/// outside an interrupt handler.
+#[cfg(feature = "rt")]
+#[instability::unstable]
+pub fn interrupted_context() -> Option<InterruptedContext> {
+    let hart = Cpu::current() as usize;
+    let frame = rt::INTERRUPTED_FRAME[hart].load(core::sync::atomic::Ordering::Relaxed)
+        as *const TrapFrame;
+    if frame.is_null() {
+        return None;
+    }
+    // SAFETY: the frame stays on this hart's stack until the handler that
+    // published it returns, which is after this call.
+    let ra = unsafe { (*frame).ra };
+    Some(InterruptedContext {
+        ra,
+        sp: frame as usize + core::mem::size_of::<TrapFrame>(),
+    })
 }

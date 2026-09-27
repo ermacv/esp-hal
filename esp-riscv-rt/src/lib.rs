@@ -222,6 +222,7 @@ macro_rules! define_interrupt {
                 concat!(
                 "
                 li a0,",$num,"
+                mv a1, sp
                 j handle_interrupts
                 "
                 )
