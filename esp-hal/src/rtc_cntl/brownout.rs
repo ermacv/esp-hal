@@ -8,8 +8,8 @@
 //! `esp32s31/include/hal/brownout_ll.h`).
 //!
 //! Mode 0 resets the digital system through the hardware reset after its
-//! reset wait; this is ESP-IDF's variant without the brownout interrupt, so
-//! no handler is installed.
+//! reset wait; this is ESP-IDF's variant without the brownout interrupt: no
+//! handler is installed, and `LP_ANA.INT_ENA` is left as found.
 
 use crate::{peripherals::LP_ANA, soc::regi2c};
 

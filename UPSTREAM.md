@@ -53,7 +53,8 @@ only the ESP32-S31 support that needs:
 - **Brownout detector.** `rtc_cntl::brownout::configure` replaces the
   ESP-IDF bootloader's armed mode-1 brownout reset with the mode-0 detector,
   in the order of ESP-IDF's `esp_brownout_init`/`brownout_hal_config`
-  (hardware system reset after the reset wait, no interrupt). Upstream
+  (hardware system reset after the reset wait, no interrupt handler;
+  `LP_ANA.INT_ENA` is left as found). Upstream
   configures no brownout detector. `LP_ANA` is declared in metadata for it.
 - **Internal-SRAM placement.** USB Serial/JTAG interrupt state and code stay
   in internal SRAM when ordinary mutable state lives in PSRAM.
