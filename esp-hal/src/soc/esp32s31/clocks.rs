@@ -46,7 +46,8 @@ impl CpuClock {
         apb_clk: Some(ApbClkConfig::new(1)), // MAX ~320/6MHz
         lp_fast_clk: Some(LpFastClkConfig::RcFast),
         lp_slow_clk: Some(xtal32k::default_lp_slow_clk()),
-        ble_lp_clk: Some(BleLpClkConfig::Xtal),
+        // The radio selects the Bluetooth low-power timer clock; see `BLE_LP_CLK`.
+        ble_lp_clk: None,
         crypto_clk: Some(CryptoClkConfig::PllF240m),
         iomux_function_clock: Some(IomuxFunctionClockConfig::new(
             IomuxFunctionClockSource::PllF80m,
@@ -62,7 +63,8 @@ impl CpuClock {
         apb_clk: Some(ApbClkConfig::new(1)), // MAX ~320/6MHz
         lp_fast_clk: Some(LpFastClkConfig::RcFast),
         lp_slow_clk: Some(xtal32k::default_lp_slow_clk()),
-        ble_lp_clk: Some(BleLpClkConfig::Xtal),
+        // The radio selects the Bluetooth low-power timer clock; see `BLE_LP_CLK`.
+        ble_lp_clk: None,
         crypto_clk: Some(CryptoClkConfig::PllF240m),
         iomux_function_clock: Some(IomuxFunctionClockConfig::new(
             IomuxFunctionClockSource::PllF80m,
@@ -78,7 +80,8 @@ impl CpuClock {
         apb_clk: Some(ApbClkConfig::new(1)), // MAX ~320/6MHz
         lp_fast_clk: Some(LpFastClkConfig::RcFast),
         lp_slow_clk: Some(xtal32k::default_lp_slow_clk()),
-        ble_lp_clk: Some(BleLpClkConfig::Xtal),
+        // The radio selects the Bluetooth low-power timer clock; see `BLE_LP_CLK`.
+        ble_lp_clk: None,
         crypto_clk: Some(CryptoClkConfig::PllF240m),
         iomux_function_clock: Some(IomuxFunctionClockConfig::new(
             IomuxFunctionClockSource::PllF80m,
@@ -824,11 +827,23 @@ fn enable_ble_lp_xtal_clk_impl(_clocks: &mut ClockTree, _en: bool) {
 }
 
 // BLE_LP_CLK
+//
+// The presets leave this node unconfigured: the radio driver selects the
+// Bluetooth low-power timer source and divider in `LP_TIMER_CONF` itself, as
+// ESP-IDF's `modem_clock` does, and requests the gate through
+// `clock::ll::acquire_modem_low_power_timer_clock`. An application that
+// configures the node takes over `LP_TIMER_CONF` and must not run such a
+// radio driver.
 
 fn enable_ble_lp_clk_impl(_clocks: &mut ClockTree, en: bool) {
-    MODEM_LPCON::regs()
-        .clk_conf()
-        .modify(|_, w| w.clk_lp_timer_en().bit(en));
+    // The gate shares `MODEM_LPCON.CLK_CONF` with the analog-I2C master,
+    // coexistence and Wi-Fi power gates; take a counted reference under the
+    // word's lock instead of writing it.
+    if en {
+        crate::soc::regi2c::acquire_modem_low_power_timer_clock();
+    } else {
+        crate::soc::regi2c::release_modem_low_power_timer_clock();
+    }
 }
 
 fn configure_ble_lp_clk_impl(

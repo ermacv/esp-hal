@@ -43,6 +43,13 @@ only the ESP32-S31 support that needs:
 - **Interrupted context.** `interrupt::interrupted_context()` returns the
   return address and stack pointer the running handler preempted, for a
   hang watchdog without a debugger.
+- **Changed in fork: `BLE_LP_CLK` on ESP32-S31.** The ESP32-S31 presets set
+  `ble_lp_clk: None`, so `esp_hal::init` writes neither `LP_TIMER_CONF`,
+  `TEST_CONF` nor `RST_CONF`: the radio driver owns the Bluetooth low-power
+  timer selection, and a second writer of those fields would race it. The
+  node's gate goes through the counted `CLK_CONF` lock
+  (`acquire_modem_low_power_timer_clock`) instead of writing the word. An
+  upstream change to the S31 presets conflicts here at the next merge.
 - **Internal-SRAM placement.** USB Serial/JTAG interrupt state and code stay
   in internal SRAM when ordinary mutable state lives in PSRAM.
 - **Smaller fixes.** TIMG watchdog configuration is latched with
