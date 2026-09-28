@@ -33,6 +33,17 @@ pub(crate) fn enable_branch_predictor() {
     }
 }
 
+#[cfg(feature = "unstable")]
+pub(crate) fn disable_branch_predictor() {
+    // Clears the bits set by `enable_branch_predictor`.
+    const MHCR_RS: u32 = 1 << 4;
+    const MHCR_BFE: u32 = 1 << 5;
+    const MHCR_BTB: u32 = 1 << 12;
+    unsafe {
+        core::arch::asm!("csrrc x0, 0x7c1, {0}", in(reg) MHCR_RS | MHCR_BFE | MHCR_BTB);
+    }
+}
+
 #[cfg(feature = "rt")]
 pub(crate) fn riscv_preinit() {}
 
@@ -98,8 +109,8 @@ fn write_pms_ctrl_range(base: usize, start: usize, end: usize) {
 
 // ESP-IDF reserves PMA entry 7 for the SoC's 64 MiB external-memory aperture.
 // These are CPU CSRs, not peripheral MMIO registers.
-const EXTERNAL_MEMORY_PMA_ADDRESS: u32 = (0x5000_0000 | ((0x0400_0000 / 2) - 1)) >> 2;
-const EXTERNAL_MEMORY_PMA_CONFIG: u32 = 0xc000_0000 // NAPOT
+pub(crate) const EXTERNAL_MEMORY_PMA_ADDRESS: u32 = (0x5000_0000 | ((0x0400_0000 / 2) - 1)) >> 2;
+pub(crate) const EXTERNAL_MEMORY_PMA_CONFIG: u32 = 0xc000_0000 // NAPOT
     | 0x2000_0000 // locked
     | 1 // enabled
     | (1 << 4) // read

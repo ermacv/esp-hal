@@ -259,7 +259,7 @@ use core::marker::PhantomData;
 
 pub use esp_metadata_generated::chip;
 use esp_rom_sys as _;
-#[cfg_attr(esp32s31, allow(unused))]
+#[allow(unused)]
 pub(crate) use unstable_driver;
 pub(crate) use unstable_module;
 
@@ -341,8 +341,6 @@ pub mod interrupt;
 unstable_module! {
     pub mod asynch;
     pub mod debugger;
-    #[cfg(esp32s31)]
-    pub mod flash;
     pub mod rom;
     #[doc(hidden)]
     pub mod sync;
@@ -377,6 +375,8 @@ unstable_driver! {
     pub mod delay;
     #[cfg(ecc_driver_supported)]
     pub mod ecc;
+    #[cfg(flash_driver_supported)]
+    pub mod flash;
     #[cfg(hmac_driver_supported)]
     pub mod hmac;
     #[cfg(i2s_driver_supported)]
@@ -795,6 +795,9 @@ pub fn init(config: Config) -> Peripherals {
 
     #[cfg(all(riscv, write_vec_table_monitoring))]
     crate::soc::setup_trap_section_protection();
+
+    #[cfg(all(feature = "unstable", multi_core))]
+    crate::interrupt::ipc::install();
 
     peripherals
 }

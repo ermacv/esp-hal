@@ -4,6 +4,17 @@
 //! - gets an ip address via DHCP
 //! - performs an HTTP get request to some "random" server
 //! - does BLE advertising and allows to connect
+//!
+//! The example also shows how to save power. Change these constants to compare:
+//!
+//! - `POWER_SAVE` selects the Wi-Fi modem power save mode. With power save, the radio is off
+//!   between beacons.
+//! - `MODEM_SLEEP` lets the BLE controller turn the radio off between its events.
+//! - `LIGHT_SLEEP` lets the chip enter automatic light sleep when all tasks are idle. The chip
+//!   sleeps only while both radios allow it. On the ESP32, Wi-Fi keeps the chip awake.
+//!
+//! The USB Serial/JTAG console stops while the chip is in light sleep. Use the UART port to see
+//! the output.
 
 //% CHIP_FILTER: wifi_driver_supported && bt_driver_supported
 
@@ -11,7 +22,7 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_futures::join::join;
+use embassy_futures::{join::join, select::select};
 use embassy_net::{
     Runner,
     StackResources,
@@ -21,7 +32,12 @@ use embassy_net::{
 use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
-use esp_hal::{clock::CpuClock, ram, rng::Rng, timer::timg::TimerGroup};
+use esp_hal::{
+    clock::{ClockConfig, CpuClock},
+    ram,
+    rng::Rng,
+    timer::timg::TimerGroup,
+};
 use esp_println::println;
 use esp_radio::{
     ble::controller::BleConnector,
@@ -30,6 +46,7 @@ use esp_radio::{
         Config,
         ControllerConfig,
         Interface,
+        PowerSaveMode,
         WifiController,
         scan::ScanConfig,
         sta::StationConfig,
@@ -54,6 +71,15 @@ macro_rules! mk_static {
 
 const SSID: &str = env!("SSID");
 const PASSWORD: &str = env!("PASSWORD");
+
+/// The Wi-Fi modem power save mode. [`PowerSaveMode::None`] keeps the radio on and prevents
+/// light-sleep.
+const POWER_SAVE: PowerSaveMode = PowerSaveMode::Minimum;
+/// Whether the BLE controller turns the radio off between its events.
+const MODEM_SLEEP: bool = true;
+/// Whether the chip enters automatic light sleep when all tasks are idle. Requires [`POWER_SAVE`]
+/// and [`MODEM_SLEEP`] to be enabled.
+const LIGHT_SLEEP: bool = true;
 
 /// Max number of connections
 const CONNECTIONS_MAX: usize = 1;
@@ -81,8 +107,22 @@ struct BatteryService {
 #[esp_hal::main]
 async fn main(spawner: Spawner) -> ! {
     esp_println::logger::init_logger_from_env();
-    let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
-    let peripherals = esp_hal::init(config);
+    let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock({
+        #[cfg_attr(feature = "esp32c2", allow(unused_mut))]
+        let mut config = ClockConfig::from(CpuClock::max());
+
+        #[cfg(not(feature = "esp32c2"))]
+        {
+            use esp_hal::clock::ll::BleLpClkConfig;
+
+            // For now, only Xtal can be selected if modem-sleep is enabled.
+            // This is our default anyway, a safe choice even in light sleep,
+            // although it can raise the sleep current a bit.
+            config.ble_lp_clk = Some(BleLpClkConfig::Xtal);
+        }
+
+        config
+    }));
 
     // COEX needs more RAM - add some more
     #[cfg(feature = "esp32")]
@@ -97,10 +137,18 @@ async fn main(spawner: Spawner) -> ! {
     }
 
     let timg0 = TimerGroup::new(peripherals.TIMG0);
-    esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0);
+    if LIGHT_SLEEP {
+        let sleep = esp_rtos::sleep::configure(peripherals.LPWR);
+        esp_rtos::start_with_idle_hook(timg0.timer0, sleep.light_sleep_hook);
+    } else {
+        esp_rtos::start(timg0.timer0);
+    }
 
-    let bluetooth = peripherals.BT;
-    let connector = BleConnector::new(bluetooth, Default::default()).unwrap();
+    let connector = BleConnector::new(
+        peripherals.BT,
+        esp_radio::ble::Config::default().with_modem_sleep(MODEM_SLEEP),
+    )
+    .unwrap();
     let ble_controller: ExternalController<_, 1> = ExternalController::new(connector);
 
     let station_config = Config::Station(
@@ -118,6 +166,7 @@ async fn main(spawner: Spawner) -> ! {
         ControllerConfig::default().with_initial_config(station_config),
     )
     .unwrap();
+    controller.set_power_saving(POWER_SAVE).unwrap();
     println!("Wifi started!");
 
     let config = embassy_net::Config::dhcpv4(Default::default());
@@ -233,13 +282,20 @@ pub async fn ble_task(controller: ExternalController<BleConnector<'static>, 1>) 
                 )
                 .await
             {
-                Ok(adv) => match adv.accept().await.unwrap().with_attribute_server(&server) {
-                    Ok(conn) => {
-                        println!("got connection");
-                        gatt_events_task(&server, &conn).await.unwrap();
+                Ok(adv) => {
+                    match adv.accept().await.unwrap().with_attribute_server(&server) {
+                        Ok(conn) => {
+                            println!("got connection");
+                            let a = gatt_events_task(&server, &conn);
+                            let b = custom_task(&server, &conn, &stack);
+                            // run until any task ends (usually because the connection has been
+                            // closed), then return to advertising
+                            // state.
+                            select(a, b).await;
+                        }
+                        Err(err) => println!("Error occurred: {:?}", err),
                     }
-                    Err(err) => println!("Error occurred: {:?}", err),
-                },
+                }
                 Err(e) => {
                     panic!("[adv] error: {:?}", e);
                 }
@@ -322,4 +378,33 @@ async fn connection(mut controller: WifiController<'static>) {
 #[embassy_executor::task]
 async fn net_task(mut runner: Runner<'static, Interface>) {
     runner.run().await
+}
+
+/// Example task to use the BLE notifier interface.
+/// This task will notify the connected central of a counter value every 2 seconds.
+/// It will also read the RSSI value every 2 seconds.
+/// and will stop when the connection is closed by the central or an error occurs.
+async fn custom_task<C: Controller, P: PacketPool>(
+    server: &Server<'_>,
+    conn: &GattConnection<'_, '_, P>,
+    stack: &Stack<'_, C, P>,
+) {
+    let mut tick: u8 = 0;
+    let level = server.battery_service.level;
+    loop {
+        tick = tick.wrapping_add(1);
+        println!("[custom_task] notifying connection of tick {}", tick);
+        if level.notify(conn, &tick, true).await.is_err() {
+            println!("[custom_task] error notifying connection");
+            break;
+        };
+        // read RSSI (Received Signal Strength Indicator) of the connection.
+        if let Ok(rssi) = conn.raw().rssi(stack).await {
+            println!("[custom_task] RSSI: {:?}", rssi);
+        } else {
+            println!("[custom_task] error getting RSSI");
+            break;
+        };
+        Timer::after_secs(2).await;
+    }
 }

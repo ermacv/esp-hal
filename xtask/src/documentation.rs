@@ -289,11 +289,26 @@ fn highest_eligible_version(manifest: &Manifest) -> Option<semver::Version> {
 }
 
 /// Relative URL from `latest/index.html` to this package's versioned docs root.
-fn latest_redirect_base(package: &Package, version: &semver::Version) -> String {
+///
+/// nginx rewrites `/latest/<rest>` deep links to `/latest/?path=<rest>`, and the
+/// redirect page merges that `path` onto this base, so the base must always be the
+/// version root: `<rest>` already starts with the chip directory for packages with
+/// device-specific docs, or with the crate directory otherwise.
+fn latest_redirect_base(version: &semver::Version) -> String {
+    format!("../{}/", version)
+}
+
+/// Path (relative to the versioned docs root) used when `/latest/` is requested
+/// without a deep-link remainder.
+///
+/// Packages with device-specific docs generate an index page at their version
+/// root, so no fallback path is needed. Other packages have no such index (the
+/// version root 404s/403s), so point at the crate's rustdoc index instead.
+fn latest_redirect_fallback(package: &Package) -> String {
     if package.chip_features_matter() {
-        format!("../{}/", version)
+        String::new()
     } else {
-        format!("../{}/{}/", version, package.to_string().replace('-', "_"))
+        format!("{}/index.html", package.to_string().replace('-', "_"))
     }
 }
 
@@ -303,12 +318,14 @@ fn latest_redirect_html(
     package: &Package,
     version: &semver::Version,
 ) -> Result<String> {
-    let base = latest_redirect_base(package, version);
+    let base = latest_redirect_base(version);
+    let fallback = latest_redirect_fallback(package);
     let resources_path = workspace.join("resources");
 
     render_template(&resources_path, "latest_redirect.html.somni", {
         let mut env = Env::new();
-        env.value("base", base.as_str());
+        env.value("base", base.as_str())
+            .value("fallback", fallback.as_str());
         env
     })
 }
@@ -320,8 +337,7 @@ fn cargo_doc(
     channel: Option<&str>,
     base_url: Option<&str>,
 ) -> Result<PathBuf> {
-    let package_name = package.to_string();
-    let package_path = crate::windows_safe_path(&workspace.join(&package_name));
+    let package_path = crate::windows_safe_path(&workspace.join(package.directory()));
 
     // Process Cargo.toml for documentation
     let pre_process_res = pre_process_cargo_toml(chip, &package_path);
@@ -348,7 +364,7 @@ fn cargo_doc_without_pre_processing(
     base_url: Option<&str>,
 ) -> Result<PathBuf> {
     let package_name = package.to_string();
-    let package_path = crate::windows_safe_path(&workspace.join(&package_name));
+    let package_path = crate::windows_safe_path(&workspace.join(package.directory()));
 
     // build documentation using the pre-processed Cargo.toml
     if let Some(chip) = chip {
@@ -389,7 +405,7 @@ fn cargo_doc_without_pre_processing(
     let mut docs_target = if let Ok(target_path) = std::env::var("CARGO_TARGET_DIR") {
         PathBuf::from(target_path)
     } else {
-        workspace.join(package.to_string()).join("target")
+        workspace.join(package.directory()).join("target")
     };
     if let Some(ref target) = target {
         docs_target = docs_target.join(&target);
@@ -506,7 +522,7 @@ fn cargo_doc_without_pre_processing(
     let mut docs_path = if let Ok(target_path) = std::env::var("CARGO_TARGET_DIR") {
         PathBuf::from(target_path)
     } else {
-        workspace.join(package.to_string()).join("target")
+        workspace.join(package.directory()).join("target")
     };
 
     if let Some(ref target) = target {
@@ -1015,6 +1031,7 @@ mod tests {
         highest_eligible_version,
         is_eligible_docs_version,
         latest_redirect_base,
+        latest_redirect_fallback,
         latest_redirect_html,
         render_template,
         should_write_latest_redirect,
@@ -1145,28 +1162,46 @@ mod tests {
     #[test]
     fn latest_redirect_base_paths() {
         let v = semver::Version::parse("2.1.0").unwrap();
+        // The base is always the version root; deep-link remainders appended by
+        // the redirect page already include the chip or crate directory.
+        assert_eq!(latest_redirect_base(&v), "../2.1.0/");
+    }
+
+    #[test]
+    fn latest_redirect_fallback_paths() {
+        // Packages with device-specific docs generate an index at the version root.
+        assert_eq!(latest_redirect_fallback(&crate::Package::EspHal), "");
+        // Other packages have no version-root index; land on the crate's index.
         assert_eq!(
-            latest_redirect_base(&crate::Package::EspHal, &v),
-            "../2.1.0/"
-        );
-        assert_eq!(
-            latest_redirect_base(&crate::Package::EspAlloc, &v),
-            "../2.1.0/esp_alloc/"
+            latest_redirect_fallback(&crate::Package::EspAlloc),
+            "esp_alloc/index.html"
         );
     }
 
     /// Small integration check for the redirect template.
     #[test]
-    fn latest_redirect_html_matches_latest_redirect_base() {
+    fn latest_redirect_html_matches_base_and_fallback() {
         let ws = workspace();
         let ver = semver::Version::parse("1.0.0").unwrap();
-        let pkg = crate::Package::EspHal;
 
-        let html = latest_redirect_html(ws, &pkg, &ver).unwrap();
-        let base = latest_redirect_base(&pkg, &ver);
+        for (pkg, fallback) in [
+            (crate::Package::EspHal, ""),
+            (crate::Package::EspAlloc, "esp_alloc/index.html"),
+        ] {
+            let html = latest_redirect_html(ws, &pkg, &ver).unwrap();
+            let base = latest_redirect_base(&ver);
 
-        assert!(html.contains(&format!("var base = \"{base}\"")));
-        assert!(html.contains(&format!("content=\"0; url={base}\"")));
+            assert!(html.contains(&format!("var base = \"{base}\"")));
+            assert!(html.contains(&format!("var fallback = \"{fallback}\"")));
+            assert!(html.contains(&format!("content=\"0; url={base}{fallback}\"")));
+
+            // URL fragments (`#method.foo`) never reach nginx, but browsers
+            // re-attach them to the 301 target, so the redirect page must carry
+            // `location.hash` over to the final destination explicitly.
+            assert!(html.contains("var hash = location.hash;"));
+            assert!(html.contains("location.replace(base + pathFromQuery + hash)"));
+            assert!(html.contains("location.replace(base + fallback + hash)"));
+        }
     }
 
     /// The version select box is embedded in a page full of braces, so make sure the

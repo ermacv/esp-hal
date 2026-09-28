@@ -1,426 +1,895 @@
-//! ESP32-S31 bootloader-configured flash and synchronous MSPI timing tuning.
+#![cfg_attr(docsrs, procmacros::doc_replace)]
+//! # Internal SPI Flash (FLASH)
 //!
-//! The caller owns the boot policy, scratch storage and disposable XIP mapping.
-//! This module preserves an existing ROM configuration and verifies 120 MHz
-//! timing against direct reads before publishing the selected setting.
+//! ## Overview
+//!
+//! Provides blocking access to the attached SPI flash memory. The driver owns
+//! the virtual [`FLASH`] peripheral.
+//!
+//! Write and erase are NOR flash operations: bits change only from 1 to 0
+//! without an erase. The driver does not perform read-modify-write.
+//! [`Flash::read`] and [`Flash::write`] take word slices (`&[u32]`) and a
+//! 4-byte-aligned byte offset. The buffer must reside in DRAM.
+//! [`Flash::erase`] operates on 4096-byte sectors.
+//!
+//! [`Flash::read_encrypted`] and [`Flash::write_encrypted`] provide transparent
+//! flash encryption. Encrypted writes require a 16-byte-aligned address and a
+//! length that is a multiple of 16 bytes (4 words). The destination must already
+//! be erased, and bytes outside the requested range are not programmed.
+//! Encrypted reads return plaintext if flash encryption is disabled.
+//!
+//! For more information, see the
+#![doc = concat!("[ESP-IDF documentation](https://docs.espressif.com/projects/esp-idf/en/latest/", chip!(), "/api-reference/peripherals/spi_flash/index.html)")]
+//! ## Configuration
+//!
+//! On dual-core chips, [`Config`] selects the multi-core strategy (default:
+//! automatically park the other core).
+//!
+//! ## Usage
+//!
+//! Construct [`Flash`] from the virtual [`FLASH`] peripheral. `offset` is a
+//! flash byte address, not a word index. The driver does not implement traits
+//! from `embedded-storage`; higher layers provide partition management and
+//! storage trait implementations.
+//!
+//! ## Examples
+//!
+//! ### Read a word-aligned range
+//!
+//! ```rust, no_run
+//! # {before_snippet}
+//! use esp_hal::flash::{Config, Flash};
+//!
+//! let mut flash = Flash::new(peripherals.FLASH, Config::default())?;
+//! let mut buf = [0u32; 8];
+//! flash.read(0x10_020, &mut buf)?;
+//! # {after_snippet}
+//! ```
+//!
+//! ## Implementation State
+#![cfg_attr(
+    esp32,
+    doc = "- On ESP32, a second-stage bootloader must identify the flash chip; the ROM does not.
+  [`Flash::new`] fails with [`ConfigError::UnknownFlashChip`] if identification is missing
+  (including the ROM placeholder ID `0x001540EF`, a valid W25Q16 ID on other chips)."
+)]
+//! - Driver bounds checks use the JEDEC density from the ROM-cached device ID. ROM operations also
+//!   check the ROM-cached chip size, which a bootloader can set from the application image header.
+//!   An operation within [`Flash`] capacity can still fail in the ROM if the ROM-cached size is
+//!   smaller.
+//! - Operations do not check whether the target flash range is mapped. Writing or erasing a mapped
+//!   section (such as `.text` or `.rodata`) can corrupt running code or immutable data.
+//! - Each [`Flash::read`] or [`Flash::write`] call executes a single ROM operation. The flash cache
+//!   remains disabled (and the other core remains parked) for the entire transfer. Split large
+//!   operations in higher-level code if latency is critical.
+//! - On dual-core chips, the default strategy stalls the other core around every operation,
+//!   including reads. The other core can freeze while holding a lock or executing an interrupt
+//!   handler.
 
+use core::marker::PhantomData;
+
+use procmacros::{BuilderLite, ram};
+#[cfg(xtensa)]
+use xtensa_lx::interrupt::free;
+
+#[cfg(not(xtensa))]
+use crate::interrupt::free;
+use crate::{Blocking, DriverMode, peripherals::FLASH, soc::is_slice_in_dram};
+
+mod cache;
+mod mmu;
+mod rom;
+#[cfg(esp32s31)]
+mod timing;
+#[cfg(esp32s31)]
 mod tuning;
 
-use crate::peripherals::{FLASH, HP_SYS_CLKRST, SPI0, SPI1};
+#[cfg(esp32s31)]
+pub use timing::{FLASH_TUNING_SCRATCH_WORDS, FlashTiming, FlashXipRegion, TuningError};
 
-/// Information detected from the external SPI flash.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Word size required by the read and write paths, in bytes.
+const WORD_SIZE: u32 = 4;
+/// Program page size in bytes.
+const PAGE_SIZE: u32 = 256;
+/// Erase sector size in bytes.
+const SECTOR_SIZE: u32 = 4096;
+/// Erase block size in bytes.
+const BLOCK_SIZE: u32 = 65536;
+/// Flash-encryption AES block size, and the public encrypted-write alignment.
+const ENCRYPT_BLOCK_SIZE: u32 = 16;
+/// ESP32 ROM encrypted-write row (two AES blocks that share a tweak).
+#[cfg(esp32)]
+const ESP32_ENCRYPT_ROW: u32 = 32;
+
+/// Flash driver configuration.
+#[instability::unstable]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, BuilderLite)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct FlashInfo {
-    /// JEDEC manufacturer, memory type, and capacity identifier.
-    pub jedec_id: u32,
-    /// Capacity in bytes.
-    pub size: u32,
+#[non_exhaustive]
+pub struct Config {
+    /// Strategy for the other core during flash operations.
+    ///
+    /// Default: [`MultiCoreStrategy::AutoPark`].
+    ///
+    /// [`MultiCoreStrategy::ignore`] is safe only when the other core cannot
+    /// fetch from flash during the operation.
+    #[cfg(multi_core)]
+    #[builder_lite(unstable)]
+    multi_core_strategy: MultiCoreStrategy,
 }
 
-/// Failure to adopt or tune the bootloader-configured flash.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Strategy for the other core during flash operations.
+#[cfg(multi_core)]
+#[instability::unstable]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum FlashError {
-    /// The ROM did not detect a plausible JEDEC identifier.
-    InvalidJedecId,
-    /// A ROM flash read failed.
-    ReadFailed,
-    /// The requested address range is outside the detected flash device.
-    InvalidAddress,
-    /// No stable 120 MHz flash timing window was found.
-    TimingTuningFailed,
+#[non_exhaustive]
+pub enum MultiCoreStrategy {
+    /// Returns [`Error::OtherCoreRunning`] if the other core is running.
+    Error,
+    /// Parks the other core for the operation and unparks it afterward.
+    ///
+    /// The stall can freeze the other core at any instruction. The other core can hold a
+    /// lock or execute an interrupt handler. Parking uses CPU-control
+    /// registers even if the application already owns
+    /// [`crate::peripherals::CPU_CTRL`].
+    #[default]
+    AutoPark,
+    /// Does not check or park the other core.
+    ///
+    /// Construct with [`Self::ignore`].
+    Ignore(IgnoreMarker),
 }
 
-/// Result of the ESP32-S31 120 MHz flash timing sweep.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Marker so [`MultiCoreStrategy::Ignore`] can only be built via
+/// [`MultiCoreStrategy::ignore`].
+#[cfg(multi_core)]
+#[doc(hidden)]
+#[instability::unstable]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct FlashTiming {
-    /// Config-table entry selected from the middle of the stable window.
-    pub config_index: u8,
-    /// One bit per timing-table entry; set bits passed the reference read.
-    pub direct_pass_mask: u16,
-    /// One bit per table entry that also passed an uncached XIP read.
-    pub cache_pass_mask: u16,
+pub struct IgnoreMarker {
+    _private: (),
 }
 
-/// A flash region mapped into the CPU's XIP address space.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct FlashXipRegion {
-    /// Physical byte address in external flash.
-    pub physical_start: u32,
-    /// Corresponding CPU virtual address.
-    pub virtual_start: usize,
-    /// Number of mapped bytes available for verification.
-    pub size: usize,
-}
-
-// This is the 120 MHz STR table used by ESP-IDF for the closely related P4,
-// C5 and C61 MSPI timing block. Keeping it in internal data RAM is required:
-// flash is deliberately unreadable while the sweep changes cache timing.
-#[unsafe(link_section = ".data.flash_timing")]
-static FLASH_120MHZ_TIMING: [(u8, u8, u8); 12] = [
-    (2, 0, 1),
-    (0, 0, 0),
-    (2, 2, 2),
-    (2, 1, 2),
-    (2, 0, 2),
-    (0, 0, 1),
-    (2, 2, 3),
-    (2, 1, 3),
-    (2, 0, 3),
-    (0, 0, 2),
-    (2, 2, 4),
-    (2, 1, 4),
-];
-
-const FLASH_TUNING_XIP_PAGE_BYTES: usize = 0x1000;
-const FLASH_TUNING_XIP_PAGE_WORDS: usize = FLASH_TUNING_XIP_PAGE_BYTES / size_of::<u32>();
-const FLASH_TUNING_MAX_XIP_PAGES: usize = 31;
-
-/// Number of words required by [`Flash::tune_120mhz`] for its XIP reference.
-///
-/// The storage must live in internal SRAM because flash cache is suspended
-/// while the tuning candidates are checked.
-pub const FLASH_TUNING_SCRATCH_WORDS: usize =
-    FLASH_TUNING_MAX_XIP_PAGES * FLASH_TUNING_XIP_PAGE_WORDS;
-
-unsafe extern "C" {
-    static rom_spiflash_legacy_data: *const u32;
-    fn esp_rom_spiflash_read(address: u32, destination: *mut u32, length: u32) -> i32;
-    fn Cache_Suspend_L1_CORE0_ICache() -> u32;
-    fn Cache_Resume_L1_CORE0_ICache(autoload: u32);
-}
-
-#[inline(always)]
-#[unsafe(link_section = ".rwtext")]
-fn set_flash_clock_120mhz() {
-    unsafe {
-        HP_SYS_CLKRST::regs().flash_ctrl0().modify(|_, w| {
-            w.sys_clk_en().set_bit();
-            w.pll_clk_en().set_bit();
-            w.core_clk_en().set_bit();
-            w.clk_src_sel().bits(1);
-            // SPLL is 480 MHz: divider field stores divisor minus one.
-            w.core_clk_div_num().bits(3)
-        });
-        SPI0::regs().clock().write(|w| w.clk_equ_sysclk().set_bit());
-        SPI1::regs().clock().write(|w| w.clk_equ_sysclk().set_bit());
-        SPI0::regs().ctrl().modify(|_, w| w.fdummy_rin().set_bit());
-        SPI1::regs().ctrl().modify(|_, w| w.fdummy_rin().set_bit());
-    }
-}
-
-#[inline(always)]
-#[unsafe(link_section = ".rwtext")]
-fn set_flash_timing(din_mode: u8, din_num: u8, extra_dummy: u8, apply_to_cache: bool) {
-    unsafe {
-        let spi0 = SPI0::regs();
-        spi0.din_mode().write(|w| {
-            w.din0_mode().bits(din_mode);
-            w.din1_mode().bits(din_mode);
-            w.din2_mode().bits(din_mode);
-            w.din3_mode().bits(din_mode);
-            w.din4_mode().bits(din_mode);
-            w.din5_mode().bits(din_mode);
-            w.din6_mode().bits(din_mode);
-            w.din7_mode().bits(din_mode);
-            w.dins_mode().bits(din_mode)
-        });
-        spi0.din_num().write(|w| {
-            w.din0_num().bits(din_num);
-            w.din1_num().bits(din_num);
-            w.din2_num().bits(din_num);
-            w.din3_num().bits(din_num);
-            w.din4_num().bits(din_num);
-            w.din5_num().bits(din_num);
-            w.din6_num().bits(din_num);
-            w.din7_num().bits(din_num);
-            w.dins_num().bits(din_num)
-        });
-        if apply_to_cache {
-            spi0.timing_cali().write(|w| {
-                let w = w.timing_clk_ena().set_bit();
-                if extra_dummy == 0 {
-                    w.timing_cali().clear_bit()
-                } else {
-                    w.timing_cali().set_bit()
-                };
-                w.extra_dummy_cyclelen().bits(extra_dummy);
-                w.update().set_bit()
-            });
-        } else {
-            // DIN mode/number are shared. Latch them without changing SPI0's
-            // cache dummy count while SPI1 performs the candidate read.
-            spi0.timing_cali()
-                .modify(|_, w| w.timing_clk_ena().set_bit().update().set_bit());
-        }
-
-        SPI1::regs().timing_cali().write(|w| {
-            if extra_dummy == 0 {
-                w.timing_cali().clear_bit()
-            } else {
-                w.timing_cali().set_bit()
-            };
-            w.extra_dummy_cyclelen().bits(extra_dummy)
-        });
-        // SPI1 has no update bit; SPI0's update latches the shared delay path.
-        spi0.timing_cali()
-            .modify(|_, w| w.timing_clk_ena().set_bit().update().set_bit());
-    }
-}
-
-/// An attached external SPI flash device.
-pub struct Flash {
-    _peri: FLASH<'static>,
-    info: FlashInfo,
-}
-
-impl Flash {
-    /// Uses the flash configuration established by the normal bootloader.
-    pub fn from_bootloader(peri: FLASH<'static>) -> Result<Self, FlashError> {
-        let jedec_id = unsafe {
-            let descriptor = core::ptr::addr_of!(rom_spiflash_legacy_data).read_volatile();
-            if descriptor.is_null() || !descriptor.is_aligned() {
-                return Err(FlashError::InvalidJedecId);
-            }
-            descriptor.read_volatile()
-        };
-        let capacity_bits = jedec_id & 0xff;
-        if jedec_id == 0 || jedec_id == 0x00ff_ffff || capacity_bits > 31 {
-            return Err(FlashError::InvalidJedecId);
-        }
-
-        Ok(Self {
-            _peri: peri,
-            info: FlashInfo {
-                jedec_id,
-                size: 1u32 << capacity_bits,
-            },
-        })
-    }
-
-    /// Returns information detected while attaching the device.
-    pub fn info(&self) -> FlashInfo {
-        self.info
-    }
-
-    /// Tunes and switches the ESP32-S31 flash bus to 120 MHz STR mode.
+#[cfg(multi_core)]
+impl MultiCoreStrategy {
+    /// Creates a strategy that does not check or park the other core.
     ///
     /// # Safety
     ///
-    /// This must run before CPU1 is started, while no interrupt or DMA handler
-    /// can access flash. The routine disables CPU0's instruction cache and
-    /// interrupts while changing the shared MSPI timing path. Its own code and
-    /// timing table are explicitly placed in internal RAM. `xip` must describe
-    /// a valid, mapped flash region containing at least 15 distinct 4 KiB
-    /// pages. `mapped_reference` must contain at least
-    /// [`FLASH_TUNING_SCRATCH_WORDS`] words in internal SRAM. Treat the XIP
-    /// region as disposable after this call: rejected timing candidates can
-    /// leave their dedicated page cached with corrupted data. These pages must
-    /// be cold on entry and must not contain live code or data. The caller's
-    /// stack and all storage accessed during tuning must also be internal SRAM.
-    #[inline(never)]
-    #[unsafe(link_section = ".rwtext")]
-    pub unsafe fn tune_120mhz(
-        &mut self,
-        xip: FlashXipRegion,
-        mapped_reference: &mut [u32],
-    ) -> Result<FlashTiming, FlashError> {
-        let page_count = tuning::page_count(
-            xip.physical_start,
-            xip.virtual_start,
-            xip.size,
-            self.info.size,
-        )
-        .ok_or(FlashError::InvalidAddress)?;
-        if mapped_reference.len() < FLASH_TUNING_SCRATCH_WORDS {
-            return Err(FlashError::TimingTuningFailed);
-        }
-        let mut reference = [0u32; 32];
-        if unsafe { esp_rom_spiflash_read(0, reference.as_mut_ptr(), 128) } != 0 {
-            return Err(FlashError::ReadFailed);
-        }
-        // A 128-byte prefix was insufficient on the ESP32-S31 Function
-        // CoreBoard: a candidate could pass every prefix and still corrupt
-        // other cache lines in the same page. Keep the complete direct-read
-        // reference for each sampled page in caller-owned internal SRAM, then
-        // require every word to survive the candidate timing. Caller-owned
-        // storage avoids a 124-KiB stack frame during early boot.
-        let mut sample = 0usize;
-        while sample < page_count {
-            let physical = xip.physical_start + sample as u32 * FLASH_TUNING_XIP_PAGE_BYTES as u32;
-            if unsafe {
-                esp_rom_spiflash_read(
-                    physical,
-                    mapped_reference
-                        .as_mut_ptr()
-                        .add(sample * FLASH_TUNING_XIP_PAGE_WORDS),
-                    FLASH_TUNING_XIP_PAGE_BYTES as u32,
+    /// The other core must not fetch instructions or data from flash during any
+    /// operation, including reads. Flash-backed caches are unavailable while
+    /// an operation runs.
+    #[instability::unstable]
+    pub const unsafe fn ignore() -> Self {
+        Self::Ignore(IgnoreMarker { _private: () })
+    }
+}
+
+/// Error constructing or configuring the flash driver.
+#[instability::unstable]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum ConfigError {
+    /// The attached flash chip cannot be identified, or its size is not
+    /// recognized.
+    ///
+    /// This includes no-response JEDEC sentinels, an unrecognized density
+    /// byte, and the ESP32 ROM placeholder ID `0x001540EF` (the ROM does not
+    /// execute `RDID`; this value is a valid W25Q16 ID on other chips).
+    UnknownFlashChip,
+}
+
+impl core::error::Error for ConfigError {}
+
+impl core::fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::UnknownFlashChip => {
+                write!(
+                    f,
+                    "Flash chip could not be identified, or its size is not recognized"
                 )
-            } != 0
-            {
-                return Err(FlashError::ReadFailed);
             }
-            sample += 1;
         }
+    }
+}
 
-        let original_flash_ctrl = HP_SYS_CLKRST::regs().flash_ctrl0().read().bits();
-        let original_spi0_clock = SPI0::regs().clock().read().bits();
-        let original_spi1_clock = SPI1::regs().clock().read().bits();
-        let original_spi0_ctrl = SPI0::regs().ctrl().read().bits();
-        let original_spi1_ctrl = SPI1::regs().ctrl().read().bits();
-        let original_din_mode = SPI0::regs().din_mode().read().bits();
-        let original_din_num = SPI0::regs().din_num().read().bits();
-        let original_spi0_timing = SPI0::regs().timing_cali().read().bits();
-        let original_spi1_timing = SPI1::regs().timing_cali().read().bits();
+/// Flash operation error.
+#[instability::unstable]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[allow(clippy::enum_variant_names, reason = "matches ROM result / issue 6203")]
+#[non_exhaustive]
+pub enum Error {
+    /// I/O error reported by the ROM.
+    ///
+    /// Includes a ROM-side size check against its cached chip size when that
+    /// is smaller than [`Flash::capacity`].
+    IoError,
+    /// Operation timed out.
+    IoTimeout,
+    /// Address or length is not aligned for this operation.
+    ///
+    /// [`Flash::read`], [`Flash::read_encrypted`], and [`Flash::write`] require a
+    /// 4-byte-aligned flash offset. [`Flash::write_encrypted`] requires a
+    /// 16-byte address and a word count that is a multiple of 4 (16 bytes).
+    /// [`Flash::erase`] requires a 4096-byte range.
+    NotAligned,
+    /// Address range exceeds [`Flash::capacity`], or `from > to`.
+    ///
+    /// Capacity is the JEDEC density, not the ROM cached chip size. An address
+    /// range within this limit can still fail in the ROM if the cached size is
+    /// smaller (often the image-header size on ESP32).
+    OutOfBounds,
+    /// Not supported in the current environment.
+    ///
+    /// Returned when the buffer is not in DRAM, when
+    /// [`Flash::write_encrypted`] is called while flash encryption is disabled,
+    /// or when [`Flash::read_encrypted`] cannot allocate an MMU entry.
+    NotSupported,
+    /// The other core is running and the configured strategy is
+    /// [`MultiCoreStrategy::Error`].
+    #[cfg(multi_core)]
+    OtherCoreRunning,
+    /// Unexpected ROM status code (logged).
+    Unknown,
+}
 
-        let previous_mstatus: usize;
-        unsafe {
-            core::arch::asm!(
-                "csrrc {previous}, mstatus, {mie}",
-                previous = out(reg) previous_mstatus,
-                mie = in(reg) 8usize,
-            );
+impl core::error::Error for Error {}
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::IoError => write!(f, "Flash I/O error"),
+            Self::IoTimeout => write!(f, "Flash I/O timed out"),
+            Self::NotAligned => write!(f, "Flash address or length is not aligned"),
+            Self::OutOfBounds => write!(f, "Flash range is out of bounds"),
+            Self::NotSupported => write!(f, "Flash operation is not supported"),
+            #[cfg(multi_core)]
+            Self::OtherCoreRunning => write!(f, "The other core is running"),
+            Self::Unknown => write!(f, "Unknown flash error"),
         }
-        let previous_predictor: usize;
-        unsafe {
-            core::arch::asm!(
-                "csrrc {previous}, 0x7c1, {mask}",
-                previous = out(reg) previous_predictor,
-                mask = in(reg) (1usize << 4) | (1 << 5) | (1 << 12),
-            );
+    }
+}
+
+/// Flash chip identification and geometry.
+///
+/// `chip_id` contains the manufacturer ID in bits 23:16. Geometry is fixed at
+/// 256-byte pages, 4096-byte sectors, and 64 KiB blocks; it is not probed from
+/// the chip.
+#[instability::unstable]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub struct ChipInfo {
+    /// JEDEC ID with manufacturer ID in bits 23:16.
+    pub chip_id: u32,
+    /// JEDEC-decoded physical capacity in bytes.
+    ///
+    /// See [`Flash::capacity`].
+    pub capacity: usize,
+    /// Erase sector size in bytes.
+    pub sector_size: u32,
+    /// Erase block size in bytes.
+    pub block_size: u32,
+    /// Program page size in bytes.
+    pub page_size: u32,
+}
+
+/// Internal SPI flash driver.
+///
+/// Constructible only in [`Blocking`] mode.
+#[instability::unstable]
+#[derive(Debug)]
+pub struct Flash<'d, Dm: DriverMode> {
+    _flash: FLASH<'d>,
+    capacity: usize,
+    chip_id: u32,
+    unlocked: bool,
+    #[cfg(multi_core)]
+    multi_core_strategy: MultiCoreStrategy,
+    _mode: PhantomData<Dm>,
+}
+
+impl<'d> Flash<'d, Blocking> {
+    /// Program page size in bytes.
+    #[instability::unstable]
+    pub const PAGE_SIZE: u32 = 256;
+    /// Erase sector size in bytes.
+    #[instability::unstable]
+    pub const SECTOR_SIZE: u32 = 4096;
+    /// Erase block size in bytes.
+    #[instability::unstable]
+    pub const BLOCK_SIZE: u32 = 65536;
+
+    /// Creates a new flash driver from the [`FLASH`] peripheral.
+    ///
+    /// Capacity is determined from the JEDEC density in the ROM-cached device
+    /// ID, not the image-header size or the ROM cached chip size used by
+    /// read, write, and erase operations.
+    ///
+    /// # Errors
+    ///
+    /// - [`ConfigError::UnknownFlashChip`] if the attached flash chip cannot be identified or its
+    ///   size is not recognized. On ESP32, this error also occurs when a second-stage bootloader
+    ///   has not identified the chip (including the ROM placeholder ID `0x001540EF`).
+    #[instability::unstable]
+    pub fn new(flash: FLASH<'d>, config: Config) -> Result<Self, ConfigError> {
+        let raw_id = rom::cached_device_id();
+        let capacity = rom::capacity_from_cached_id(raw_id)?;
+        let chip_id = raw_id & 0x00FF_FFFF;
+        #[cfg(not(multi_core))]
+        let _ = config;
+
+        Ok(Self {
+            _flash: flash,
+            capacity,
+            chip_id,
+            unlocked: false,
+            #[cfg(multi_core)]
+            multi_core_strategy: config.multi_core_strategy,
+            _mode: PhantomData,
+        })
+    }
+
+    /// Applies a new configuration.
+    ///
+    /// Updates the multi-core strategy on dual-core chips. On single-core
+    /// chips, this is a no-op. The return type is reserved for future
+    /// configuration options.
+    #[instability::unstable]
+    pub fn apply_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+        #[cfg(multi_core)]
+        {
+            self.multi_core_strategy = config.multi_core_strategy;
         }
-        let mut autoload = unsafe { Cache_Suspend_L1_CORE0_ICache() };
+        let _ = config;
+        Ok(())
+    }
 
-        set_flash_clock_120mhz();
-        let mut pass_mask = 0u16;
-        let mut candidate = 0usize;
-        while candidate < FLASH_120MHZ_TIMING.len() {
-            let (din_mode, din_num, extra_dummy) = FLASH_120MHZ_TIMING[candidate];
-            set_flash_timing(din_mode, din_num, extra_dummy, false);
+    /// Returns the JEDEC-decoded flash capacity in bytes.
+    ///
+    /// Driver bounds checks use this value. ROM read, write, and erase operations
+    /// also check the ROM-cached chip size, which a bootloader can set from the
+    /// application image header.
+    #[instability::unstable]
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
 
-            let mut received = [0u32; 32];
-            let read_ok = unsafe { esp_rom_spiflash_read(0, received.as_mut_ptr(), 128) } == 0;
-            let mut matches = read_ok;
-            let mut word = 0usize;
-            while matches && word < reference.len() {
-                matches = received[word] == reference[word];
-                word += 1;
-            }
-            if matches {
-                pass_mask |= 1 << candidate;
-            }
-            candidate += 1;
+    /// Returns chip identification and geometry.
+    ///
+    /// `chip_id` contains the manufacturer ID in bits 23:16. `capacity` is the
+    /// JEDEC density; see [`Self::capacity`]. Geometry is fixed, not probed
+    /// from the chip.
+    #[instability::unstable]
+    pub fn chip_info(&self) -> ChipInfo {
+        ChipInfo {
+            chip_id: self.chip_id,
+            capacity: self.capacity,
+            sector_size: SECTOR_SIZE,
+            block_size: BLOCK_SIZE,
+            page_size: PAGE_SIZE,
         }
+    }
 
-        // Give every candidate a distinct, previously untouched XIP page.
-        // This avoids false passes from cache hits without requiring a cache
-        // invalidation primitive in the still-incomplete S31 ROM bindings.
-        let mut cache_pass_mask = 0u16;
-        candidate = 0;
-        while candidate < FLASH_120MHZ_TIMING.len() {
-            if pass_mask & (1 << candidate) != 0 {
-                let (din_mode, din_num, extra_dummy) = FLASH_120MHZ_TIMING[candidate];
-                set_flash_timing(din_mode, din_num, extra_dummy, true);
-                unsafe { Cache_Resume_L1_CORE0_ICache(autoload) };
-
-                sample = page_count - FLASH_120MHZ_TIMING.len() + candidate;
-                let mapped =
-                    (xip.virtual_start + sample * FLASH_TUNING_XIP_PAGE_BYTES) as *const u32;
-                let mut cache_matches = true;
-                let mut word = 0usize;
-                while cache_matches && word < FLASH_TUNING_XIP_PAGE_WORDS {
-                    cache_matches = unsafe { mapped.add(word).read_volatile() }
-                        == mapped_reference[sample * FLASH_TUNING_XIP_PAGE_WORDS + word];
-                    word += 1;
-                }
-                if cache_matches {
-                    cache_pass_mask |= 1 << candidate;
-                }
-                autoload = unsafe { Cache_Suspend_L1_CORE0_ICache() };
-            }
-            candidate += 1;
-        }
-        let usable_mask = pass_mask & cache_pass_mask;
-
-        // Require three consecutive candidates; never silently use a default.
-        let mut result = if let Some(best) = tuning::select_window(usable_mask) {
-            let (din_mode, din_num, extra_dummy) = FLASH_120MHZ_TIMING[best];
-            set_flash_timing(din_mode, din_num, extra_dummy, true);
-            Ok(FlashTiming {
-                config_index: best as u8,
-                direct_pass_mask: pass_mask,
-                cache_pass_mask,
-            })
-        } else {
-            unsafe {
-                HP_SYS_CLKRST::regs()
-                    .flash_ctrl0()
-                    .write(|w| w.bits(original_flash_ctrl));
-                SPI0::regs().clock().write(|w| w.bits(original_spi0_clock));
-                SPI1::regs().clock().write(|w| w.bits(original_spi1_clock));
-                SPI0::regs().ctrl().write(|w| w.bits(original_spi0_ctrl));
-                SPI1::regs().ctrl().write(|w| w.bits(original_spi1_ctrl));
-                SPI0::regs().din_mode().write(|w| w.bits(original_din_mode));
-                SPI0::regs().din_num().write(|w| w.bits(original_din_num));
-                SPI1::regs()
-                    .timing_cali()
-                    .write(|w| w.bits(original_spi1_timing));
-                SPI0::regs()
-                    .timing_cali()
-                    .write(|w| w.bits(original_spi0_timing).update().set_bit());
-            }
-            Err(FlashError::TimingTuningFailed)
+    /// Reads words into `data` starting at byte address `offset`.
+    ///
+    /// `offset` is a flash byte address and must be a multiple of 4. `data`
+    /// must reside in DRAM, not in flash, IRAM, RTC memory, or PSRAM. An empty
+    /// `data` slice only checks that `offset` is within [`Self::capacity`].
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::NotAligned`] if `data` is non-empty and `offset` is not a multiple of 4.
+    /// - [`Error::OutOfBounds`] if the range exceeds [`Self::capacity`].
+    /// - [`Error::NotSupported`] if `data` is not in DRAM.
+    #[cfg_attr(
+        multi_core,
+        doc = "- [`Error::OtherCoreRunning`] on dual-core chips with [`MultiCoreStrategy::Error`]."
+    )]
+    /// - [`Error::IoError`], [`Error::IoTimeout`], or [`Error::Unknown`] if the ROM reports an I/O
+    ///   error.
+    #[instability::unstable]
+    #[ram]
+    pub fn read(&mut self, offset: u32, data: &mut [u32]) -> Result<(), Error> {
+        let Some(len) = byte_len(data) else {
+            return Err(Error::OutOfBounds);
         };
-
-        unsafe { Cache_Resume_L1_CORE0_ICache(autoload) };
-
-        let mut cache_matches = result.is_ok();
-        sample = 0;
-        while cache_matches && sample < page_count - FLASH_120MHZ_TIMING.len() {
-            let mapped = (xip.virtual_start + sample * FLASH_TUNING_XIP_PAGE_BYTES) as *const u32;
-            let mut word = 0usize;
-            while cache_matches && word < FLASH_TUNING_XIP_PAGE_WORDS {
-                cache_matches = unsafe { mapped.add(word).read_volatile() }
-                    == mapped_reference[sample * FLASH_TUNING_XIP_PAGE_WORDS + word];
-                word += 1;
-            }
-            sample += 1;
-        }
-        if result.is_ok() && !cache_matches {
-            let rollback_autoload = unsafe { Cache_Suspend_L1_CORE0_ICache() };
-            unsafe {
-                HP_SYS_CLKRST::regs()
-                    .flash_ctrl0()
-                    .write(|w| w.bits(original_flash_ctrl));
-                SPI0::regs().clock().write(|w| w.bits(original_spi0_clock));
-                SPI1::regs().clock().write(|w| w.bits(original_spi1_clock));
-                SPI0::regs().ctrl().write(|w| w.bits(original_spi0_ctrl));
-                SPI1::regs().ctrl().write(|w| w.bits(original_spi1_ctrl));
-                SPI0::regs().din_mode().write(|w| w.bits(original_din_mode));
-                SPI0::regs().din_num().write(|w| w.bits(original_din_num));
-                SPI1::regs()
-                    .timing_cali()
-                    .write(|w| w.bits(original_spi1_timing));
-                SPI0::regs()
-                    .timing_cali()
-                    .write(|w| w.bits(original_spi0_timing).update().set_bit());
-                Cache_Resume_L1_CORE0_ICache(rollback_autoload);
-            }
-            result = Err(FlashError::TimingTuningFailed);
+        if data.is_empty() {
+            return self.check_bounds(offset, 0);
         }
 
-        unsafe {
-            core::arch::asm!(
-                "csrs 0x7c1, {bits}",
-                bits = in(reg) previous_predictor & ((1usize << 4) | (1 << 5) | (1 << 12)),
-            );
-            if previous_mstatus & 8 != 0 {
-                core::arch::asm!("csrs mstatus, {mie}", mie = in(reg) 8usize);
-            }
+        self.check_word_offset(offset)?;
+        self.check_bounds(offset, len)?;
+        check_buffer(data)?;
+        self.with_guard(None, |_| rom::read(offset, data))
+    }
+
+    /// Writes `data` starting at byte address `offset`.
+    ///
+    /// The target flash range must already be erased. `offset` is a flash byte
+    /// address and must be a multiple of 4. `data` must reside in DRAM, not in
+    /// flash, IRAM, RTC memory, or PSRAM. An empty `data` slice only checks
+    /// that `offset` is within [`Self::capacity`].
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::NotAligned`] if `data` is non-empty and `offset` is not a multiple of 4.
+    /// - [`Error::OutOfBounds`] if the range exceeds [`Self::capacity`].
+    /// - [`Error::NotSupported`] if `data` is not in DRAM.
+    #[cfg_attr(
+        multi_core,
+        doc = "- [`Error::OtherCoreRunning`] on dual-core chips with [`MultiCoreStrategy::Error`]."
+    )]
+    /// - [`Error::IoError`], [`Error::IoTimeout`], or [`Error::Unknown`] if the ROM reports an I/O
+    ///   error.
+    ///
+    /// # Safety
+    ///
+    /// The programmed range must not be mapped for instruction fetch or as
+    /// immutable data. Writing a mapped `.text` or `.rodata` page overwrites
+    /// the running image or mutates data the compiler treats as immutable.
+    #[instability::unstable]
+    #[ram]
+    pub unsafe fn write(&mut self, offset: u32, data: &[u32]) -> Result<(), Error> {
+        let Some(len) = byte_len(data) else {
+            return Err(Error::OutOfBounds);
+        };
+        if data.is_empty() {
+            return self.check_bounds(offset, 0);
         }
-        result
+
+        self.check_word_offset(offset)?;
+        self.check_bounds(offset, len)?;
+        check_buffer(data)?;
+        self.ensure_unlocked()?;
+        self.with_guard(Some((offset, len as u32)), |_| rom::write(offset, data))
+    }
+
+    /// Erases flash sectors in the range `[from, to)`.
+    ///
+    /// `from` and `to` must be multiples of [`Self::SECTOR_SIZE`] (4096 bytes);
+    /// there is no byte-granular erase. `to == capacity` is allowed. When
+    /// `from == to`, this function only checks that `from` is within
+    /// [`Self::capacity`].
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::NotAligned`] if `from != to` and `from` or `to` is not a multiple of 4096.
+    /// - [`Error::OutOfBounds`] if `from > to` or the range exceeds [`Self::capacity`].
+    #[cfg_attr(
+        multi_core,
+        doc = "- [`Error::OtherCoreRunning`] on dual-core chips with [`MultiCoreStrategy::Error`]."
+    )]
+    /// - [`Error::IoError`], [`Error::IoTimeout`], or [`Error::Unknown`] if the ROM reports an I/O
+    ///   error.
+    ///
+    /// # Safety
+    ///
+    /// The erased range must not be mapped for instruction fetch or as
+    /// immutable data. Erasing a mapped `.text` or `.rodata` page destroys the
+    /// running image or mutates data the compiler treats as immutable.
+    #[instability::unstable]
+    #[ram]
+    pub unsafe fn erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
+        let Some(len) = to.checked_sub(from) else {
+            return Err(Error::OutOfBounds);
+        };
+        let len = len as usize;
+        if len == 0 {
+            return self.check_bounds(from, 0);
+        }
+
+        self.check_alignment(SECTOR_SIZE, from, len)?;
+        self.check_bounds(from, len)?;
+        self.ensure_unlocked()?;
+        self.erase_range(from, to)
+    }
+
+    /// Reads decrypted words into `data` starting at byte address `offset`.
+    ///
+    /// Uses a temporary MMU mapping to read decrypted data through the cache.
+    /// If flash encryption is not enabled, this returns plaintext.
+    ///
+    /// `offset` is a flash byte address and must be a multiple of 4. `data`
+    /// must reside in DRAM, not in flash, IRAM, RTC memory, or PSRAM. An empty
+    /// `data` slice only checks that `offset` is within [`Self::capacity`].
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::NotAligned`] if `data` is non-empty and `offset` is not a multiple of 4.
+    /// - [`Error::OutOfBounds`] if the range exceeds [`Self::capacity`].
+    /// - [`Error::NotSupported`] if `data` is not in DRAM or no MMU entry is available.
+    #[cfg_attr(
+        multi_core,
+        doc = "- [`Error::OtherCoreRunning`] on dual-core chips with [`MultiCoreStrategy::Error`]."
+    )]
+    #[instability::unstable]
+    pub fn read_encrypted(&mut self, offset: u32, data: &mut [u32]) -> Result<(), Error> {
+        let Some(len) = byte_len(data) else {
+            return Err(Error::OutOfBounds);
+        };
+        if data.is_empty() {
+            return self.check_bounds(offset, 0);
+        }
+
+        self.check_word_offset(offset)?;
+        self.check_bounds(offset, len)?;
+        check_buffer(data)?;
+        self.with_mmu_guard(|_| mmu::read_flash_encrypted(offset, data))
+    }
+
+    /// Writes `data` with transparent flash encryption.
+    ///
+    /// `offset` must be a multiple of 16, and `data.len()` must be a multiple
+    /// of 4 words (16 bytes). The destination must already be erased, and bytes
+    /// outside the requested range are not programmed. `data` must reside in
+    /// DRAM, not in flash, IRAM, RTC memory, or PSRAM.
+    ///
+    /// On ESP32, encrypted writes operate in 32-byte rows. If a boundary is not
+    /// 32-byte aligned, the driver preserves the adjacent 16-byte block by
+    /// re-encrypting its existing plaintext to the same ciphertext. The neighbor
+    /// block therefore does not require prior erasing.
+    #[cfg_attr(
+        esp32c5,
+        doc = " Encrypted writes may fail at higher CPU frequencies (240 MHz)."
+    )]
+    /// An empty `data` slice only checks that `offset` is within [`Self::capacity`].
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::NotSupported`] if flash encryption is disabled. The eFuse gate is checked before
+    ///   the arguments are.
+    /// - [`Error::NotAligned`] if `data` is non-empty and `offset` is not a multiple of 16, or
+    ///   `data.len()` is not a multiple of 4 words (16 bytes).
+    /// - [`Error::OutOfBounds`] if the range exceeds [`Self::capacity`].
+    /// - [`Error::NotSupported`] if `data` is not in DRAM, or on ESP32 if reading a row neighbor
+    ///   fails because no MMU entry is available.
+    #[cfg_attr(
+        multi_core,
+        doc = "- [`Error::OtherCoreRunning`] on dual-core chips with [`MultiCoreStrategy::Error`]."
+    )]
+    /// - [`Error::IoError`], [`Error::IoTimeout`], or [`Error::Unknown`] if the ROM reports an I/O
+    ///   error.
+    ///
+    /// # Safety
+    ///
+    /// The programmed range must not be mapped for instruction fetch or as
+    /// immutable data. Writing a mapped `.text` or `.rodata` page overwrites
+    /// the running image, or mutates `static` or `.rodata` data the compiler
+    /// treats as immutable.
+    #[instability::unstable]
+    #[ram]
+    pub unsafe fn write_encrypted(&mut self, offset: u32, data: &[u32]) -> Result<(), Error> {
+        #[cfg(not(__test_flash))]
+        if !crate::efuse::flash_encryption() {
+            return Err(Error::NotSupported);
+        }
+
+        let Some(len) = byte_len(data) else {
+            return Err(Error::OutOfBounds);
+        };
+        if data.is_empty() {
+            return self.check_bounds(offset, 0);
+        }
+
+        self.check_alignment(ENCRYPT_BLOCK_SIZE, offset, len)?;
+        self.check_bounds(offset, len)?;
+        check_buffer(data)?;
+        self.ensure_unlocked()?;
+
+        #[cfg(esp32)]
+        let neighbors = self.esp32_row_neighbors(offset, len)?;
+        // On ESP32 the programmed range can extend one 16-byte block past each
+        // end; `with_guard` flushes the whole cache there, so the range only
+        // needs to cover the request.
+        self.with_guard(Some((offset, len as u32)), |_| {
+            write_encrypted_rows(
+                offset,
+                words_as_bytes(data),
+                #[cfg(esp32)]
+                &neighbors,
+            )
+        })
+    }
+}
+
+#[inline(always)]
+fn byte_len(data: &[u32]) -> Option<usize> {
+    data.len().checked_mul(WORD_SIZE as usize)
+}
+
+#[inline(always)]
+fn words_as_bytes(data: &[u32]) -> &[u8] {
+    // SAFETY: inspecting the in-memory bytes of `u32` words.
+    unsafe { core::slice::from_raw_parts(data.as_ptr().cast(), size_of_val(data)) }
+}
+
+#[inline(always)]
+fn check_buffer(buf: &[u32]) -> Result<(), Error> {
+    if !is_slice_in_dram(buf) {
+        return Err(Error::NotSupported);
+    }
+    Ok(())
+}
+
+/// Word-aligned staging buffer. The ROM encrypts in place.
+#[repr(C, align(4))]
+struct EncryptRow([u8; XTS_AES_BLOCK_MAX]);
+
+#[ram]
+fn write_encrypted_rows(
+    offset: u32,
+    data: &[u8],
+    #[cfg(esp32)] neighbors: &Esp32Neighbors,
+) -> Result<(), Error> {
+    let mut row = EncryptRow([0; XTS_AES_BLOCK_MAX]);
+    let mut i = 0;
+    while i < data.len() {
+        let row_addr = offset + i as u32;
+        let (program_addr, program_len, consumed) =
+            cfg_select! {
+                esp32 => prepare_esp32_row(&mut row.0, row_addr, &data[i..], neighbors),
+                _ => prepare_xts_row(&mut row.0, row_addr, &data[i..]),
+            };
+        rom::write_encrypted(program_addr, row.0.as_mut_ptr().cast(), program_len)?;
+        i += consumed;
+    }
+    Ok(())
+}
+
+#[cfg(esp32)]
+struct Esp32Neighbors {
+    pre: [u32; 4],
+    post: [u32; 4],
+}
+
+/// Fill a 32-byte ESP32 ROM row. Returns `(program_addr, program_len, consumed)`.
+///
+/// Mirrors the ESP32 arm of ESP-IDF `esp_flash_write_encrypted`: a row is two
+/// AES blocks sharing an address-derived tweak, so a 16-byte write must carry
+/// the decrypted neighbor block along and re-encrypt it to the same ciphertext.
+#[cfg(esp32)]
+#[ram]
+fn prepare_esp32_row(
+    buf: &mut [u8; XTS_AES_BLOCK_MAX],
+    row_addr: u32,
+    remaining: &[u8],
+    neighbors: &Esp32Neighbors,
+) -> (u32, u32, usize) {
+    const BLOCK: usize = ENCRYPT_BLOCK_SIZE as usize;
+    const ROW: usize = ESP32_ENCRYPT_ROW as usize;
+
+    if !row_addr.is_multiple_of(ESP32_ENCRYPT_ROW) {
+        buf[..BLOCK].copy_from_slice(words_as_bytes(&neighbors.pre));
+        buf[BLOCK..ROW].copy_from_slice(&remaining[..BLOCK]);
+        (row_addr - ENCRYPT_BLOCK_SIZE, ESP32_ENCRYPT_ROW, BLOCK)
+    } else if remaining.len() == BLOCK {
+        buf[..BLOCK].copy_from_slice(&remaining[..BLOCK]);
+        buf[BLOCK..ROW].copy_from_slice(words_as_bytes(&neighbors.post));
+        (row_addr, ESP32_ENCRYPT_ROW, BLOCK)
+    } else {
+        buf[..ROW].copy_from_slice(&remaining[..ROW]);
+        (row_addr, ESP32_ENCRYPT_ROW, ROW)
+    }
+}
+
+/// Largest row the flash-encryption hardware accepts, matching IDF's
+/// `SOC_FLASH_ENCRYPTED_XTS_AES_BLOCK_MAX`.
+#[cfg(any(esp32, esp32c2, esp32c3))]
+const XTS_AES_BLOCK_MAX: usize = 32;
+#[cfg(not(any(esp32, esp32c2, esp32c3)))]
+const XTS_AES_BLOCK_MAX: usize = 64;
+
+/// Pick the largest aligned row, as ESP-IDF does for ESP32-S2 and later.
+#[cfg(not(esp32))]
+#[ram]
+fn prepare_xts_row(
+    buf: &mut [u8; XTS_AES_BLOCK_MAX],
+    row_addr: u32,
+    remaining: &[u8],
+) -> (u32, u32, usize) {
+    let row_size =
+        if XTS_AES_BLOCK_MAX >= 64 && row_addr.is_multiple_of(64) && remaining.len() >= 64 {
+            64
+        } else if row_addr.is_multiple_of(32) && remaining.len() >= 32 {
+            32
+        } else {
+            16
+        };
+    buf[..row_size].copy_from_slice(&remaining[..row_size]);
+    (row_addr, row_size as u32, row_size)
+}
+
+impl Flash<'_, Blocking> {
+    #[inline(always)]
+    fn check_word_offset(&self, offset: u32) -> Result<(), Error> {
+        if !offset.is_multiple_of(WORD_SIZE) {
+            return Err(Error::NotAligned);
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn check_alignment(&self, align: u32, offset: u32, length: usize) -> Result<(), Error> {
+        if !offset.is_multiple_of(align) || !length.is_multiple_of(align as usize) {
+            return Err(Error::NotAligned);
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn check_bounds(&self, offset: u32, length: usize) -> Result<(), Error> {
+        let offset = offset as usize;
+        if length > self.capacity || offset > self.capacity - length {
+            return Err(Error::OutOfBounds);
+        }
+        Ok(())
+    }
+
+    /// Park and disable interrupts without suspending the cache.
+    ///
+    /// Encrypted reads map flash through the MMU and copy with the cache on, so
+    /// neither this guard nor anything it calls has to live in RAM.
+    fn with_mmu_guard<R>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Result<R, Error>,
+    ) -> Result<R, Error> {
+        free(|| {
+            let _park = ParkGuard::enter(self)?;
+            f(self)
+        })
+    }
+
+    /// Plaintext of row halves the write will touch but not replace.
+    ///
+    /// Read before the cache-off write path: [`Self::read_encrypted`] needs the
+    /// cache on. Re-encrypting this plaintext in [`prepare_esp32_row`] reproduces
+    /// the ciphertext already in flash, so those neighbors need no separate erase.
+    #[cfg(esp32)]
+    fn esp32_row_neighbors(&mut self, offset: u32, len: usize) -> Result<Esp32Neighbors, Error> {
+        let mut neighbors = Esp32Neighbors {
+            pre: [0; 4],
+            post: [0; 4],
+        };
+        if !offset.is_multiple_of(ESP32_ENCRYPT_ROW) {
+            self.read_encrypted(offset - ENCRYPT_BLOCK_SIZE, &mut neighbors.pre)?;
+        }
+        let end = offset + len as u32;
+        if !end.is_multiple_of(ESP32_ENCRYPT_ROW) {
+            self.read_encrypted(end, &mut neighbors.post)?;
+        }
+        Ok(neighbors)
+    }
+
+    #[ram]
+    fn with_guard<R>(
+        &mut self,
+        invalidate: Option<(u32, u32)>,
+        f: impl FnOnce(&mut Self) -> Result<R, Error>,
+    ) -> Result<R, Error> {
+        free(|| {
+            let _park = ParkGuard::enter(self)?;
+            let cache = cache::CacheGuard::suspend();
+            let result = f(self);
+            cfg_select! {
+                esp32 => {
+                    // Address-based invalidate is unavailable; flush while still off.
+                    if invalidate.is_some() {
+                        cache.flush_while_off();
+                    }
+                    drop(cache);
+                }
+                _ => {
+                    drop(cache);
+                    if let Some((start, len)) = invalidate {
+                        mmu::invalidate_mapped(start, len);
+                    }
+                }
+            }
+            result
+        })
+    }
+
+    #[ram]
+    fn ensure_unlocked(&mut self) -> Result<(), Error> {
+        if self.unlocked {
+            return Ok(());
+        }
+        self.with_guard(None, |this| {
+            rom::unlock()?;
+            this.unlocked = true;
+            Ok(())
+        })
+    }
+
+    #[ram]
+    fn erase_range(&mut self, from: u32, to: u32) -> Result<(), Error> {
+        let mut address = from;
+        while address < to && !address.is_multiple_of(BLOCK_SIZE) {
+            self.with_guard(Some((address, SECTOR_SIZE)), |_| {
+                rom::erase_sector(address / SECTOR_SIZE)
+            })?;
+            address += SECTOR_SIZE;
+        }
+
+        while (to - address) >= BLOCK_SIZE {
+            self.with_guard(Some((address, BLOCK_SIZE)), |_| {
+                rom::erase_block(address / BLOCK_SIZE)
+            })?;
+            address += BLOCK_SIZE;
+        }
+
+        while address < to {
+            self.with_guard(Some((address, SECTOR_SIZE)), |_| {
+                rom::erase_sector(address / SECTOR_SIZE)
+            })?;
+            address += SECTOR_SIZE;
+        }
+
+        Ok(())
+    }
+}
+
+/// Parks the other core according to [`MultiCoreStrategy`], unparking on drop.
+struct ParkGuard {
+    #[cfg(multi_core)]
+    parked: Option<crate::system::Cpu>,
+}
+
+impl ParkGuard {
+    #[ram]
+    fn enter(_flash: &Flash<'_, Blocking>) -> Result<Self, Error> {
+        cfg_select! {
+            multi_core => {
+                let parked = match _flash.multi_core_strategy {
+                    MultiCoreStrategy::Error => {
+                        for other in crate::system::Cpu::other() {
+                            if crate::system::is_running(other) {
+                                return Err(Error::OtherCoreRunning);
+                            }
+                        }
+                        None
+                    }
+                    MultiCoreStrategy::AutoPark => {
+                        let mut cpu_ctrl = crate::system::CpuControl::new(unsafe {
+                            crate::peripherals::CPU_CTRL::steal()
+                        });
+                        let mut parked = None;
+                        for other in crate::system::Cpu::other() {
+                            if crate::system::is_running(other) {
+                                unsafe { cpu_ctrl.park_core(other) };
+                                parked = Some(other);
+                            }
+                        }
+                        parked
+                    }
+                    MultiCoreStrategy::Ignore(_) => None,
+                };
+                Ok(Self { parked })
+            }
+            _ => Ok(Self {}),
+        }
+    }
+}
+
+impl Drop for ParkGuard {
+    #[ram]
+    fn drop(&mut self) {
+        cfg_select! {
+            multi_core => {
+                if let Some(core) = self.parked {
+                    let mut cpu_ctrl = crate::system::CpuControl::new(unsafe {
+                        crate::peripherals::CPU_CTRL::steal()
+                    });
+                    cpu_ctrl.unpark_core(core);
+                }
+            }
+            _ => {}
+        }
     }
 }

@@ -13,6 +13,7 @@ This guide outlines the contribution workflow, from reporting issues and submitt
     *   [Testing Your Contributions]
     *   [Commit Your Updates]
 *   [Pull Request: From Submission to Merge]
+*   [Merge Freezes]
 *   [Your PR is merged!]
 
 [New Contributor Guide]: #new-contributor-guide
@@ -22,6 +23,7 @@ This guide outlines the contribution workflow, from reporting issues and submitt
 [Testing Your Contributions]: #testing-your-contributions
 [Commit your updates]: #commit-your-updates
 [Pull Request: From Submission to Merge]: #pull-request-from-submission-to-merge
+[Merge Freezes]: #merge-freezes
 [Your PR is merged!]: #your-pr-is-merged
 
 ## New Contributor Guide
@@ -88,8 +90,8 @@ Ensuring the quality and reliability of `esp-hal` is a shared responsibility, an
 
 Further steps that can (or should) be taken in testing:
 
-* Using [xtask], build examples for the specified chip.
-* When documentation or doctests change, run `cargo xtask build documentation` and `cargo xtask run doc-tests <CHIP>` to build the documentation and run the doctests. To reduce build/test time, use `--packages` to specify the package(s) and `--chips` (for documentation builds) to specify the target chip(s).
+* Using [xtask], build examples for the specified chip (`cargo xtask build <name> <chip>`, or `cargo xtask build examples all <chip>`).
+* When documentation or doctests change, run `cargo xtask documentation` and `cargo xtask doc-tests <CHIP>` to build the documentation and run the doctests. To reduce build/test time, use `--packages` to specify the package(s) and pass chip names to `documentation`.
 * Run the [HIL] tests locally if changes have been made to them.
 * Run host-side unit tests with `cargo xtask host-tests` (or `cargo xtask host-tests <package>`). When adding `#[test]` functions to a package for the first time, also add a match arm for that package in `run_host_tests` in `xtask/src/lib.rs` — see [xtask/README.md#host-tests].
 
@@ -110,13 +112,13 @@ We _strongly_ recommend that you format your code before committing to ensure co
 To format all packages in the workspace, run the following command in a terminal from the root of the repository:
 
 ```shell
-cargo xtask fmt-packages
+cargo xtask fmt
 ```
 
-We also recommend using the `lint-packages` subcommand, which uses `cargo clippy` and will lint the entire driver in order to catch common mistakes in the code.
+We also recommend using the `lint` subcommand, which uses `cargo clippy` and will lint the entire driver in order to catch common mistakes in the code.
 
 ```shell
-cargo xtask lint-packages
+cargo xtask lint
 ```
 
 This will use `rustfmt` to ensure that all source code is formatted correctly prior to committing.
@@ -139,6 +141,19 @@ This will use `rustfmt` to ensure that all source code is formatted correctly pr
 [this git tutorial]: https://github.com/skills/resolve-merge-conflicts
 
 
+## Merge Freezes
+
+Around a release we stop merging into `main`, so that what gets published is
+tested in isolation from new changes.
+
+A "freeze" is an open issue labelled `merge-freeze`, pinned so that everyone can
+see it. Anyone with write access starts a freeze by opening or reopening that
+issue and lifts it by closing it. Review and CI carry on as usual, only the
+merge queue rejects pull requests targeting `main` while it is open.
+
+To land a release blocker anyway, label the pull request with
+`merge-freeze-exempt`. Such merge gets recorded on the freeze issue.
+
 ## Changelog and Migration Guide Entries
 
 Changelog entries are **optional for contributors**. If you don't add them a
@@ -155,6 +170,12 @@ Use `# Changelog` and `# Migration guide` as top-level headings (H1). Under each
 heading, group entries using H2 headings. Changelog H2 headings may use just the
 crate name (e.g. `## esp-hal`), while migration guide H2 headings _must_ include
 an area (e.g. `## esp-hal/SPI driver`).
+
+Only published crates can have changelog entries. CI rejects sections for crates
+with `publish = false` in their `Cargo.toml` (e.g. `esp-metadata`, `xtask`,
+`hil-test`). Published crates with `changelog-exempt = true` under
+`[package.metadata.espressif]` (e.g. `esp-metadata-generated`) do not need a
+section.
 
 ```markdown
 # Changelog
@@ -199,7 +220,7 @@ as the **sole** item in its `# Changelog` section:
 ```markdown
 # Changelog
 
-## esp-metadata
+## esp-hal
 
 - No changelog necessary.
 ```

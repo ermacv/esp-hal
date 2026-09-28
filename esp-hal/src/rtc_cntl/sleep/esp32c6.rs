@@ -230,24 +230,8 @@ impl PowerSleepConfig {
         self.hp_sys.dig_power.set_aon_pd_en(pd_flags.pd_hp_aon());
         self.hp_sys.dig_power.set_top_pd_en(pd_flags.pd_top());
 
-        if pd_flags.pd_modem() {
-            // The modem (Wi-Fi/BLE) power domain is powered down during sleep, so
-            // isolate and retain its analog I2C buses as before.
-            self.hp_sys.clk.set_i2c_iso_en(true);
-            self.hp_sys.clk.set_i2c_retention(true);
-        } else {
-            // The modem power domain is kept on across (light-)sleep
-            // (`pd_modem == false`, the default). In that case its analog blocks -
-            // the BBPLL and the analog I2C buses used to (re)configure it - must be
-            // kept powered too, matching the `HP_MODEM` power state. Otherwise the
-            // radio comes back without a usable PLL and can no longer transmit
-            // (e.g. BLE advertising silently stops working) after wakeup.
-            self.hp_sys.clk.set_i2c_iso_en(false);
-            self.hp_sys.clk.set_i2c_retention(false);
-            self.hp_sys.clk.set_xpd_bb_i2c(true);
-            self.hp_sys.clk.set_xpd_bbpll_i2c(true);
-            self.hp_sys.clk.set_xpd_bbpll(true);
-        }
+        self.hp_sys.clk.set_i2c_iso_en(true);
+        self.hp_sys.clk.set_i2c_retention(true);
 
         self.hp_sys.xtal.set_xpd_xtal(pd_flags.pd_xtal().not());
 
@@ -695,14 +679,15 @@ impl RtcSleepConfig {
         self.deep
     }
 
-    pub(crate) fn set_sleep_kind(&mut self, kind: SleepKind) {
-        self.deep = kind == SleepKind::Deep;
-    }
-
     pub(crate) fn base_settings(_rtc: &Rtc<'_>) {}
 
-    /// Finalize power-down flags, apply configuration based on the flags.
-    pub(crate) fn apply(&mut self) {
+    /// Selects the kind of the sleep, and what the sleep powers down.
+    ///
+    /// Sleep entry calls this before the hooks of the wakeup sources, so that a source can keep
+    /// powered what it needs.
+    pub(crate) fn set_sleep_kind(&mut self, kind: SleepKind) {
+        self.deep = kind == SleepKind::Deep;
+
         let lp_slow_uses_xtal32k = cfg_select! {
             use_xtal32k => ClockTree::with(|clocks| {
                 matches!(
@@ -754,6 +739,7 @@ impl RtcSleepConfig {
             // Restore the old clock settings when we return
             DropGuard::new((), move |_| {
                 ClockTree::with(|clocks| {
+                    crate::soc::clocks::reconfigure_pll(clocks);
                     if let Some(old_root) = old_root {
                         clocks::configure_soc_root_clk(clocks, old_root);
                     }
