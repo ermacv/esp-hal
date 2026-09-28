@@ -79,6 +79,7 @@ peripherals = [
     { name = "IO_MUX" },
     { name = "LCD_CAM", interrupts = { peri = "LCD_CAM" }, clock_group = "LCD_CAM" },
     { name = "IOMUX_MSPI_PIN", hidden = true },
+    { name = "LP_ANA" },
     { name = "LP_AON_CLK_RST", pac = "LP_AON_CLKRST" },
     { name = "LP_APM" },
     { name = "LP_GPIO" },

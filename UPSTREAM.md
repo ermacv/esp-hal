@@ -50,6 +50,11 @@ only the ESP32-S31 support that needs:
   node's gate goes through the counted `CLK_CONF` lock
   (`acquire_modem_low_power_timer_clock`) instead of writing the word. An
   upstream change to the S31 presets conflicts here at the next merge.
+- **Brownout detector.** `rtc_cntl::brownout::configure` replaces the
+  ESP-IDF bootloader's armed mode-1 brownout reset with the mode-0 detector,
+  in the order of ESP-IDF's `esp_brownout_init`/`brownout_hal_config`
+  (hardware system reset after the reset wait, no interrupt). Upstream
+  configures no brownout detector. `LP_ANA` is declared in metadata for it.
 - **Internal-SRAM placement.** USB Serial/JTAG interrupt state and code stay
   in internal SRAM when ordinary mutable state lives in PSRAM.
 - **Smaller fixes.** TIMG watchdog configuration is latched with

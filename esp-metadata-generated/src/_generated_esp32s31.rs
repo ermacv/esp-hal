@@ -6465,6 +6465,8 @@ macro_rules! for_each_peripheral {
         disable_peri_interrupt }) (unstable))); _for_each_inner_peripheral!((@ peri_type
         #[doc = "IOMUX_MSPI_PIN peripheral singleton"] IOMUX_MSPI_PIN <= IOMUX_MSPI_PIN()
         (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
+        "LP_ANA peripheral singleton"] LP_ANA <= LP_ANA() (unstable)));
+        _for_each_inner_peripheral!((@ peri_type #[doc =
         "LP_AON_CLK_RST peripheral singleton"] LP_AON_CLK_RST <= LP_AON_CLKRST()
         (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
         "LP_APM peripheral singleton"] LP_APM <= LP_APM() (unstable)));
@@ -6654,6 +6656,7 @@ macro_rules! for_each_peripheral {
         _for_each_inner_peripheral!((INTERRUPT_CORE1(unstable)));
         _for_each_inner_peripheral!((IO_MUX(unstable)));
         _for_each_inner_peripheral!((LCD_CAM(unstable)));
+        _for_each_inner_peripheral!((LP_ANA(unstable)));
         _for_each_inner_peripheral!((LP_AON_CLK_RST(unstable)));
         _for_each_inner_peripheral!((LP_APM(unstable)));
         _for_each_inner_peripheral!((LP_GPIO(unstable)));
@@ -6980,7 +6983,8 @@ macro_rules! for_each_peripheral {
         LCD_CAM <= LCD_CAM(LCD_CAM : { bind_peri_interrupt, enable_peri_interrupt,
         disable_peri_interrupt }) (unstable)), (@ peri_type #[doc =
         "IOMUX_MSPI_PIN peripheral singleton"] IOMUX_MSPI_PIN <= IOMUX_MSPI_PIN()
-        (unstable)), (@ peri_type #[doc = "LP_AON_CLK_RST peripheral singleton"]
+        (unstable)), (@ peri_type #[doc = "LP_ANA peripheral singleton"] LP_ANA <=
+        LP_ANA() (unstable)), (@ peri_type #[doc = "LP_AON_CLK_RST peripheral singleton"]
         LP_AON_CLK_RST <= LP_AON_CLKRST() (unstable)), (@ peri_type #[doc =
         "LP_APM peripheral singleton"] LP_APM <= LP_APM() (unstable)), (@ peri_type #[doc
         = "LP_GPIO peripheral singleton"] LP_GPIO <= LP_GPIO() (unstable)), (@ peri_type
@@ -7089,10 +7093,10 @@ macro_rules! for_each_peripheral {
         (HP_ALIVE_SYS(unstable)), (HP_SYS_CLKRST(unstable)), (I2C0),
         (I2C_ANA_MST(unstable)), (I2C1), (I2S0(unstable)), (I2S1(unstable)),
         (IEEE802154(unstable)), (INTERRUPT_CORE0(unstable)), (INTERRUPT_CORE1(unstable)),
-        (IO_MUX(unstable)), (LCD_CAM(unstable)), (LP_AON_CLK_RST(unstable)),
-        (LP_APM(unstable)), (LP_GPIO(unstable)), (LP_IO_MUX(unstable)),
-        (LP_PERI(unstable)), (LP_SYS(unstable)), (LP_TEE(unstable)),
-        (LP_TSENS(unstable)), (LP_WDT(unstable)), (LPWR(unstable)),
+        (IO_MUX(unstable)), (LCD_CAM(unstable)), (LP_ANA(unstable)),
+        (LP_AON_CLK_RST(unstable)), (LP_APM(unstable)), (LP_GPIO(unstable)),
+        (LP_IO_MUX(unstable)), (LP_PERI(unstable)), (LP_SYS(unstable)),
+        (LP_TEE(unstable)), (LP_TSENS(unstable)), (LP_WDT(unstable)), (LPWR(unstable)),
         (MEM_MONITOR(unstable)), (MODEM_LPCON(unstable)), (MODEM_SYSCON(unstable)),
         (PAU(unstable)), (PCNT(unstable)), (PCNT1(unstable)), (PMU(unstable)),
         (RTC_TIMER(unstable)), (RNG(unstable)), (RMT(unstable)), (RSA(unstable)),

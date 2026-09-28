@@ -121,6 +121,8 @@ use crate::{peripherals::RTC_TIMER, system::Cpu, time::Duration};
 // only include sleep where it's been implemented
 #[cfg(sleep_driver_supported)]
 pub mod sleep;
+#[cfg(esp32s31)]
+pub mod brownout;
 
 #[cfg_attr(esp32, path = "rtc/esp32.rs")]
 #[cfg_attr(esp32c2, path = "rtc/esp32c2.rs")]
