@@ -127,7 +127,6 @@ peripherals = [
     { name = "ADC2", virtual = true },
     { name = "BT", virtual = true, interrupts = { mac = "MODEM_BT_MAC", bb = "MODEM_BT_BB", lp_timer = "MODEM_LP_TIMER" } },
     { name = "FLASH", virtual = true },
-    { name = "WIFI", virtual = true, stable = true },
     { name = "PSRAM", virtual = true, clock_group = "PSRAM" },
     { name = "GPIO_DEDICATED", virtual = true },
     { name = "WIFI", virtual = true, interrupts = { bb = "MODEM_WIFI_BB", mac = "MODEM_WIFI_MAC", pwr = "MODEM_WIFI_PWR" }, stable = true },
