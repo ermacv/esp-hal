@@ -667,7 +667,7 @@ pub(crate) fn configure_wifi_lp_clock(config: &ClockConfig) {
     lpcon
         .wifi_lp_clk_conf()
         .modify(|_, w| unsafe { w.clk_wifipwr_lp_div_num().bits(0) });
-    lpcon.clk_conf().modify(|_, w| w.clk_wifipwr_en().set_bit());
+    crate::soc::regi2c::enable_wifi_power_clock();
 }
 
 pub(crate) fn init(_config: &ClockConfig) {

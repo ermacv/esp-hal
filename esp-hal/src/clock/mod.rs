@@ -70,7 +70,11 @@ pub mod ll {
     #[instability::unstable]
     pub use crate::soc::regi2c::{
         acquire_analog_i2c_master_clock,
+        acquire_modem_coexistence_clock,
+        acquire_modem_low_power_timer_clock,
         release_analog_i2c_master_clock,
+        release_modem_coexistence_clock,
+        release_modem_low_power_timer_clock,
     };
 }
 

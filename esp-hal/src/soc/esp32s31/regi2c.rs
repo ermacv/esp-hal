@@ -221,27 +221,85 @@ const REGI2C_RTC_ADDR_SHIFT: u32 = 8;
 const REGI2C_RTC_ADDR_MASK: u32 = 0xFF;
 const REGI2C_RTC_SLAVE_ID_MASK: u32 = 0xFF;
 
-/// References to the analog-I2C master clock.
+/// Reference counts of the `MODEM_LPCON.CLK_CONF` gates shared with the
+/// radio drivers.
 ///
-/// This is ESP-IDF's `ANALOG_CLOCK_ENABLE`/`ANALOG_CLOCK_DISABLE` reference
-/// count (`regi2c_ctrl.h` with `ANA_I2C_MST_CLK_HAS_ROOT_GATING`): the clock
-/// is enabled on the first reference and disabled when the last one is
-/// released. Register accesses and radio PHY calibration share it.
-static ANALOG_I2C_MASTER_CLOCK_REFS: NonReentrantMutex<u16> = NonReentrantMutex::new(0);
+/// ESP-IDF counts each of these gates (`ANALOG_CLOCK_ENABLE` for the
+/// analog-I2C master, `modem_clock_module_enable` for coexistence and the
+/// low-power timer). They live in one register word, so one lock guards every
+/// read-modify-write of it: a gate opens on its first reference and closes
+/// when its last one is released.
+struct ClkConfRefs {
+    analog_i2c_master: u16,
+    coexistence: u16,
+    low_power_timer: u16,
+}
+
+static CLK_CONF_REFS: NonReentrantMutex<ClkConfRefs> = NonReentrantMutex::new(ClkConfRefs {
+    analog_i2c_master: 0,
+    coexistence: 0,
+    low_power_timer: 0,
+});
+
+#[derive(Clone, Copy)]
+enum ClkConfGate {
+    AnalogI2cMaster,
+    Coexistence,
+    LowPowerTimer,
+}
+
+fn acquire_clk_conf_gate(gate: ClkConfGate) {
+    CLK_CONF_REFS.with(|refs| {
+        let count = match gate {
+            ClkConfGate::AnalogI2cMaster => &mut refs.analog_i2c_master,
+            ClkConfGate::Coexistence => &mut refs.coexistence,
+            ClkConfGate::LowPowerTimer => &mut refs.low_power_timer,
+        };
+        if *count == 0 {
+            set_clk_conf_gate(gate, true);
+        }
+        *count = unwrap!(count.checked_add(1));
+    });
+}
+
+fn release_clk_conf_gate(gate: ClkConfGate) {
+    CLK_CONF_REFS.with(|refs| {
+        let count = match gate {
+            ClkConfGate::AnalogI2cMaster => &mut refs.analog_i2c_master,
+            ClkConfGate::Coexistence => &mut refs.coexistence,
+            ClkConfGate::LowPowerTimer => &mut refs.low_power_timer,
+        };
+        *count = unwrap!(count.checked_sub(1));
+        if *count == 0 {
+            set_clk_conf_gate(gate, false);
+        }
+    });
+}
+
+fn set_clk_conf_gate(gate: ClkConfGate, enabled: bool) {
+    MODEM_LPCON::regs().clk_conf().modify(|_, w| match gate {
+        ClkConfGate::AnalogI2cMaster => w.clk_i2c_mst_en().bit(enabled),
+        ClkConfGate::Coexistence => w.clk_coex_en().bit(enabled),
+        ClkConfGate::LowPowerTimer => w.clk_lp_timer_en().bit(enabled),
+    });
+}
+
+/// Open the Wi-Fi power clock gate, which nothing closes, under the lock
+/// that guards the rest of `MODEM_LPCON.CLK_CONF`.
+pub(crate) fn enable_wifi_power_clock() {
+    CLK_CONF_REFS.with(|_| {
+        MODEM_LPCON::regs()
+            .clk_conf()
+            .modify(|_, w| w.clk_wifipwr_en().set_bit());
+    });
+}
 
 /// Acquire one reference to the analog-I2C master clock.
 ///
 /// Radio drivers hold a reference while their PHY uses the analog-I2C
 /// master; this crate holds one around every regi2c access.
 pub fn acquire_analog_i2c_master_clock() {
-    ANALOG_I2C_MASTER_CLOCK_REFS.with(|refs| {
-        if *refs == 0 {
-            MODEM_LPCON::regs()
-                .clk_conf()
-                .modify(|_, w| w.clk_i2c_mst_en().set_bit());
-        }
-        *refs = unwrap!(refs.checked_add(1));
-    });
+    acquire_clk_conf_gate(ClkConfGate::AnalogI2cMaster);
 }
 
 /// Release one reference to the analog-I2C master clock.
@@ -250,14 +308,35 @@ pub fn acquire_analog_i2c_master_clock() {
 ///
 /// Panics if no reference is held.
 pub fn release_analog_i2c_master_clock() {
-    ANALOG_I2C_MASTER_CLOCK_REFS.with(|refs| {
-        *refs = unwrap!(refs.checked_sub(1));
-        if *refs == 0 {
-            MODEM_LPCON::regs()
-                .clk_conf()
-                .modify(|_, w| w.clk_i2c_mst_en().clear_bit());
-        }
-    });
+    release_clk_conf_gate(ClkConfGate::AnalogI2cMaster);
+}
+
+/// Acquire one reference to the modem coexistence clock.
+pub fn acquire_modem_coexistence_clock() {
+    acquire_clk_conf_gate(ClkConfGate::Coexistence);
+}
+
+/// Release one reference to the modem coexistence clock.
+///
+/// # Panics
+///
+/// Panics if no reference is held.
+pub fn release_modem_coexistence_clock() {
+    release_clk_conf_gate(ClkConfGate::Coexistence);
+}
+
+/// Acquire one reference to the modem low-power timer clock.
+pub fn acquire_modem_low_power_timer_clock() {
+    acquire_clk_conf_gate(ClkConfGate::LowPowerTimer);
+}
+
+/// Release one reference to the modem low-power timer clock.
+///
+/// # Panics
+///
+/// Panics if no reference is held.
+pub fn release_modem_low_power_timer_clock() {
+    release_clk_conf_gate(ClkConfGate::LowPowerTimer);
 }
 
 fn regi2c_enable_block(block: u8) -> usize {
