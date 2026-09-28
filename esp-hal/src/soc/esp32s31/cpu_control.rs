@@ -132,7 +132,7 @@ where
         "fence.i",
         "la t0, {stack_top}",
         "lw sp, 0(t0)",
-        "j {init}",
+        "tail {init}",
         pma_address = const super::EXTERNAL_MEMORY_PMA_ADDRESS,
         pma_config = const super::EXTERNAL_MEMORY_PMA_CONFIG,
         stack_top = sym multi_core::APP_CORE_STACK_TOP,
