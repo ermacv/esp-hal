@@ -128,6 +128,11 @@ impl Psram {
     /// Adopts PSRAM initialized and mapped by an earlier boot stage.
     ///
     /// This records the mapping without resetting the device, clocks or caches.
+    /// Code and data already run from the mapping, so on ESP32-S31 it takes
+    /// the PSRAM function-clock reference that [`Psram::new`] takes: the clock
+    /// tree then keeps MPLL referenced for the life of the image, and another
+    /// MPLL user releasing its own reference cannot power it down. An adopted
+    /// `Psram` is never dropped, so the reference is never released.
     ///
     /// # Safety
     ///
@@ -137,6 +142,8 @@ impl Psram {
     /// relinquished its peripheral ownership.
     pub unsafe fn from_existing_mapping(peri: PSRAM<'static>, range: Range<usize>) -> Self {
         assert!(range.start < range.end, "PSRAM mapping must be nonempty");
+        #[cfg(esp32s31)]
+        adopt_function_clock();
         unsafe { set_psram_range(range) };
         Self { _peri: peri }
     }
