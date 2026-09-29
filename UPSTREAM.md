@@ -56,6 +56,12 @@ only the ESP32-S31 support that needs:
   (hardware system reset after the reset wait, no interrupt handler;
   `LP_ANA.INT_ENA` is left as found). Upstream
   configures no brownout detector. `LP_ANA` is declared in metadata for it.
+- **ESP32-C5 PMP granularity.** The C5's PMP matches TOR boundaries at 128
+  bytes, so `.rwtext` and the read-write data after it start 128-byte aligned
+  (`ld/sections/rwtext.x`); an unaligned start put the tail of `.trap`, the
+  vector table `bind_handler` writes, into the read-execute region and
+  faulted the first handler binding with `enable-pmp` on. Other chips' link
+  output is unchanged.
 - **Internal-SRAM placement.** USB Serial/JTAG interrupt state and code stay
   in internal SRAM when ordinary mutable state lives in PSRAM.
 - **Smaller fixes.** TIMG watchdog configuration is latched with
