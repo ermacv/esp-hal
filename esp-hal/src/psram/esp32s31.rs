@@ -120,14 +120,14 @@ impl PsramTimingParams {
 }
 
 /// Takes the reference to the PSRAM function clock that a live, adopted
-/// mapping needs, without touching the controller.
+/// mapping needs, without touching the controller or the PSRAM PHY supply.
 ///
 /// Every S31 timing profile clocks PSRAM from MPLL, so the clock tree then
 /// counts MPLL as used for as long as the image runs; it is never released.
 pub(crate) fn adopt_function_clock() {
     ClockTree::with(|clocks| {
         PsramInstance::Psram.configure_function_clock(clocks, PsramFunctionClockConfig::Mpll);
-        PsramInstance::Psram.request_function_clock(clocks);
+        crate::soc::clocks::adopt_live_mpll(|| PsramInstance::Psram.request_function_clock(clocks));
     });
 }
 

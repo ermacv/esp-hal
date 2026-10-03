@@ -127,7 +127,8 @@ impl Psram {
 
     /// Adopts PSRAM initialized and mapped by an earlier boot stage.
     ///
-    /// This records the mapping without resetting the device, clocks or caches.
+    /// This records the mapping without resetting the device, clocks, caches or
+    /// the PSRAM PHY supply.
     /// Code and data already run from the mapping, so on ESP32-S31 it takes
     /// the PSRAM function-clock reference that [`Psram::new`] takes: the clock
     /// tree then keeps MPLL referenced for the life of the image, and another

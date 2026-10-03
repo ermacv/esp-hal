@@ -244,9 +244,27 @@ fn enable_cpll_clk_impl(_clocks: &mut ClockTree, en: bool) {
 
 // MPLL_CLK
 
+/// Set while the PSRAM driver takes its first MPLL reference for a mapping an
+/// earlier boot stage left live.
+static MPLL_LIVE_FROM_BOOT: AtomicBool = AtomicBool::new(false);
+
+/// Runs `request` treating MPLL as left running, with the PSRAM PHY LDO
+/// powered, by an earlier boot stage: an MPLL enable inside it keeps that
+/// supply as it is.
+///
+/// Code and data may already execute from PSRAM: reprogramming the LDO (inrush
+/// limit, `MUL`/`DREF`, `PSRAM_XPD`) under them can drop the rail.
+pub(crate) fn adopt_live_mpll(request: impl FnOnce()) {
+    MPLL_LIVE_FROM_BOOT.store(true, Ordering::Relaxed);
+    request();
+    MPLL_LIVE_FROM_BOOT.store(false, Ordering::Relaxed);
+}
+
 fn enable_mpll_clk_impl(_clocks: &mut ClockTree, en: bool) {
     if en {
-        psram_phy_ldo_init();
+        if !MPLL_LIVE_FROM_BOOT.load(Ordering::Relaxed) {
+            psram_phy_ldo_init();
+        }
 
         HP_SYS_CLKRST::regs()
             .ref_25m_ctrl0()
