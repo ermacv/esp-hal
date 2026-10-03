@@ -27,7 +27,9 @@ only the ESP32-S31 support that needs:
 - **Staged PSRAM boot.** `Psram::from_existing_mapping` adopts the mapping
   stage two already runs from and holds the PSRAM function clock for the
   rest of the program, so no other MPLL user can power it down under the
-  executing code. `psram::prepare_code` and `soc::esp32s31::cache` make a
+  executing code. Taking that first MPLL reference keeps the PSRAM PHY LDO
+  as the earlier stage left it: upstream's MPLL enable reprograms it (inrush
+  limit, `MUL`/`DREF`, 1 ms settle) under code and stacks running from PSRAM. `psram::prepare_code` and `soc::esp32s31::cache` make a
   copied image executable. Core 1 programs its per-core PMA for external
   memory before it loads a stack that may live there.
 - **Shared-word ownership.** `MODEM_LPCON.CLK_CONF` holds the analog-I2C
@@ -41,8 +43,15 @@ only the ESP32-S31 support that needs:
   direct and uncached XIP reads. It is an ESP32-S31 extension of the
   upstream `Flash` driver.
 - **Interrupted context.** `interrupt::interrupted_context()` returns the
-  return address and stack pointer the running handler preempted, for a
-  hang watchdog without a debugger.
+  return address the running handler preempted and the address of the trap
+  frame its entry stored, for a hang watchdog without a debugger. The
+  preempted stack pointer is left to the owner of the interrupt entry, which
+  alone knows the stack it moved to and the size of its frame.
+- **ESP32-S31 TRNG.** The TRNG is enabled at startup and by `TrngSource`
+  with ESP-IDF's `rng_ll_enable` sequence (noise source, health-test cutoffs,
+  startup test, `random_output_mode`), and dropping a `TrngSource` leaves it
+  running: `Rng` reads the same generator. `TrngSource::new` takes no ADC on
+  the S31, whose entropy source is independent of it; upstream takes `ADC1`.
 - **Changed in fork: `BLE_LP_CLK` on ESP32-S31.** The ESP32-S31 presets set
   `ble_lp_clk: None`, so `esp_hal::init` writes neither `LP_TIMER_CONF`,
   `TEST_CONF` nor `RST_CONF`: the radio driver owns the Bluetooth low-power
@@ -91,7 +100,10 @@ only the ESP32-S31 support that needs:
   vectored dispatcher (`handle_interrupts`) runs the posted function
   (`ipc::dispatch`); a CPU binds `ipc_handler` directly only after an RTOS
   registered its context-switch handler, which must return into the context
-  the RTOS chooses.
+  the RTOS chooses. The posted-function path (`ipc::dispatch`, the status
+  reads it shares with the dispatcher, `bind_cpu_interrupt`) stays in RAM. A
+  handler registered for the other, already installed CPU is bound there
+  through a posted function.
 - **Where a source is routed.** `interrupt::mapped_to` is public
   (unstable): the firmware checks the interrupt matrix against its own table
   of sources before it enables interrupts.
