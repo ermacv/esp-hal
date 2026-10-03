@@ -224,7 +224,7 @@ impl InterruptStatus {
         (status_word & (1 << bit)) != 0
     }
 
-    #[inline]
+    #[inline(always)]
     fn interrupt_status_word(cpu: Cpu, word: usize) -> u32 {
         match cpu {
             Cpu::ProCpu => {
@@ -264,6 +264,8 @@ impl InterruptStatus {
     }
 
     /// Returns the status of peripheral interrupts.
+    // Inlined into the RAM-resident interrupt dispatcher.
+    #[inline(always)]
     #[instability::unstable]
     pub fn current() -> InterruptStatus {
         let cpu = Cpu::current();
@@ -285,6 +287,7 @@ impl InterruptStatus {
     }
 
     /// Returns an iterator over the set interrupt status bits.
+    #[inline(always)]
     #[instability::unstable]
     pub fn iterator(&self) -> InterruptStatusIterator {
         InterruptStatusIterator {
@@ -305,6 +308,7 @@ pub struct InterruptStatusIterator {
 impl Iterator for InterruptStatusIterator {
     type Item = u8;
 
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         for i in self.idx..STATUS_WORDS {
             if self.status.status[i] != 0 {

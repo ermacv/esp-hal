@@ -191,7 +191,8 @@ pub(crate) unsafe fn set_context_switch_handler(core: Cpu, handler: ContextSwitc
             .compare_exchange(
                 core::ptr::null_mut(),
                 handler as *mut (),
-                Ordering::Release,
+                // Pairs with the IPC install of `core`; see `context_switch_handler_registered`.
+                Ordering::SeqCst,
                 Ordering::Relaxed,
             ),
         "A CPU accepts one context switch handler"

@@ -346,6 +346,7 @@ pub(crate) fn enable_direct_inner(
 
 /// Vectors `cpu_interrupt` in hardware through the entry the vector table already holds.
 #[cfg(interrupt_controller = "clic")]
+#[inline(always)]
 pub(crate) fn vector_cpu_interrupt(cpu_interrupt: CpuInterrupt) {
     let clic = unsafe { crate::soc::pac::CLIC::steal() };
     clic.int_attr(cpu_interrupt as usize).modify(|_, w| {
@@ -355,6 +356,10 @@ pub(crate) fn vector_cpu_interrupt(cpu_interrupt: CpuInterrupt) {
 }
 
 /// Writes `handler` into the vector table entry of `cpu_interrupt`.
+///
+/// In RAM: an IPC-posted function binds the IPC line, and posted functions may run with the
+/// cache disabled.
+#[crate::ram]
 pub(crate) fn bind_cpu_interrupt(cpu_interrupt: CpuInterrupt, handler: unsafe extern "C" fn()) {
     cfg_select! {
         interrupt_controller = "clic" => {

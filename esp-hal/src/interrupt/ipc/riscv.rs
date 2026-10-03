@@ -52,14 +52,16 @@ fn install_core(core: Cpu) {
     // The handler clears the request through the alias of its own CLINT.
     STATE[core as usize]
         .request
-        .store(CLINT::regs().msip().as_ptr(), Ordering::Relaxed);
+        .store(CLINT::regs().msip().as_ptr(), Ordering::SeqCst);
 
     // The CLIC serves the machine software interrupt as interrupt 3, and applies the
     // priority of that line to it. The interrupt is core-local, so it needs no matrix
     // entry.
+    // SeqCst pairs with `context_switch_handler_registered`: at least one side sees the other's
+    // store, so a handler registered concurrently is bound here or there.
     if STATE[core as usize]
         .context_switch_handler
-        .load(Ordering::Acquire)
+        .load(Ordering::SeqCst)
         .is_null()
     {
         crate::interrupt::vector_cpu_interrupt(CLINT_INTERRUPT);
@@ -79,20 +81,45 @@ fn bind_direct(core: Cpu) {
     crate::interrupt::bind_cpu_interrupt(CLINT_INTERRUPT, handler);
 }
 
-/// Called after an RTOS registered the context-switch handler of `core`: an installed current
-/// CPU moves its IPC line to the direct handler; any other CPU binds it when it installs.
+/// Called after an RTOS registered the context-switch handler of `core`: an installed CPU moves
+/// its IPC line to the direct handler; a CPU that has not installed yet binds it when it installs.
+///
+/// Binding writes CPU-local state, so an installed other CPU binds through a posted function.
 pub(super) fn context_switch_handler_registered(core: Cpu) {
     let installed = !STATE[core as usize]
         .request
-        .load(Ordering::Relaxed)
+        .load(Ordering::SeqCst)
         .is_null();
-    if core == Cpu::current() && installed {
+    if !installed {
+        return;
+    }
+    if core == Cpu::current() {
         bind_direct(core);
+    } else {
+        super::Ipc.call_function(core, bind_current_direct);
+    }
+}
+
+/// Posted to an installed CPU whose context-switch handler another CPU registered.
+#[crate::ram]
+fn bind_current_direct() {
+    let core = Cpu::current();
+    bind_direct(core);
+    // A context switch requested before this binding was taken by the vectored dispatcher,
+    // which does not run it: enter the direct handler once more to run it.
+    if !STATE[core as usize]
+        .pending_context_switch
+        .load(Ordering::Acquire)
+        .is_null()
+    {
+        raise(core);
     }
 }
 
 /// Runs the function posted to the current CPU: the vectored dispatcher calls this for the IPC
-/// line.
+/// line. It stays in RAM like the dispatcher, because a posted function may run while the cache
+/// is disabled.
+#[crate::ram]
 pub(crate) fn dispatch() {
     let state = &STATE[Cpu::current() as usize];
 
@@ -101,9 +128,7 @@ pub(crate) fn dispatch() {
     let request = state.request.load(Ordering::Relaxed);
     unsafe { request.write_volatile(0) };
 
-    let callback = state
-        .callback
-        .swap(core::ptr::null_mut(), Ordering::AcqRel);
+    let callback = state.callback.swap(core::ptr::null_mut(), Ordering::AcqRel);
     if !callback.is_null() {
         // SAFETY: `Ipc::call_function` stores only `fn()` pointers in `callback`.
         let callback = unsafe { core::mem::transmute::<*mut (), fn()>(callback) };
