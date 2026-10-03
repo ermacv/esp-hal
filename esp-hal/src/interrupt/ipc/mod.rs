@@ -66,7 +66,7 @@ pub(crate) use implem::install;
 use implem::raise;
 
 #[cfg(riscv)]
-pub(crate) use self::implem::install_app;
+pub(crate) use self::implem::{CLINT_INTERRUPT, dispatch, install_app};
 
 /// The IPC state of one CPU.
 ///
@@ -196,6 +196,8 @@ pub(crate) unsafe fn set_context_switch_handler(core: Cpu, handler: ContextSwitc
             ),
         "A CPU accepts one context switch handler"
     );
+    #[cfg(riscv)]
+    implem::context_switch_handler_registered(core);
 }
 
 /// Asks `core` to run its context-switch handler.

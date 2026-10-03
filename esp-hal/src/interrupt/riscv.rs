@@ -344,17 +344,21 @@ pub(crate) fn enable_direct_inner(
     enable_cpu_interrupt(cpu_interrupt, level);
 }
 
+/// Vectors `cpu_interrupt` in hardware through the entry the vector table already holds.
+#[cfg(interrupt_controller = "clic")]
+pub(crate) fn vector_cpu_interrupt(cpu_interrupt: CpuInterrupt) {
+    let clic = unsafe { crate::soc::pac::CLIC::steal() };
+    clic.int_attr(cpu_interrupt as usize).modify(|_, w| {
+        w.shv().hardware();
+        w.trig().positive_level()
+    });
+}
+
 /// Writes `handler` into the vector table entry of `cpu_interrupt`.
 pub(crate) fn bind_cpu_interrupt(cpu_interrupt: CpuInterrupt, handler: unsafe extern "C" fn()) {
     cfg_select! {
         interrupt_controller = "clic" => {
-            let clic = unsafe { crate::soc::pac::CLIC::steal() };
-
-            // Enable hardware vectoring
-            clic.int_attr(cpu_interrupt as usize).modify(|_, w| {
-                w.shv().hardware();
-                w.trig().positive_level()
-            });
+            vector_cpu_interrupt(cpu_interrupt);
 
             let mtvt_table: *mut [u32; 48];
             unsafe { core::arch::asm!("csrr {0}, 0x307", out(reg) mtvt_table) };
@@ -663,6 +667,12 @@ pub(crate) mod rt {
         // this has no effect on level interrupts, but the interrupt may be an edge one
         // so we clear it anyway
         cpu_intr.clear();
+
+        // The IPC line enters here unless an RTOS bound its own handler to it.
+        #[cfg(all(multi_core, interrupt_controller = "clic"))]
+        if cpu_intr == crate::interrupt::ipc::CLINT_INTERRUPT {
+            crate::interrupt::ipc::dispatch();
+        }
 
         cfg_select! {
             interrupt_controller = "clic" => {

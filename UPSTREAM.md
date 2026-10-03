@@ -82,6 +82,16 @@ only the ESP32-S31 support that needs:
   its gate open, by register: the source the firmware chose may not run
   any more; ESP-IDF's `esp_restart_noos` leaves the
   UART0 clock as it is.
+- **IPC through the vector table's own entry.** On dual-core RISC-V chips
+  upstream writes `ipc_handler` into the active vector table's IPC slot
+  (interrupt 3), and that handler runs on the interrupted stack. The
+  firmware owns that table alone: it fills every slot with an entry that
+  moves `sp` to the hart's interrupt stack, and checks the table before it
+  enables interrupts. The fork therefore only vectors the IPC line, and the
+  vectored dispatcher (`handle_interrupts`) runs the posted function
+  (`ipc::dispatch`); a CPU binds `ipc_handler` directly only after an RTOS
+  registered its context-switch handler, which must return into the context
+  the RTOS chooses.
 
 ## Upstream changes taken in place of fork code
 

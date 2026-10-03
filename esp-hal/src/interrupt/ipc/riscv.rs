@@ -2,6 +2,12 @@
 //!
 //! A CPU reaches its own CLINT through one alias, and the CLINT of the other CPU through
 //! another alias. The machine software interrupt therefore carries the call in both directions.
+//!
+//! The interrupt enters through the CPU's vector table like every other vectored interrupt:
+//! the vectored dispatcher runs the posted function ([`dispatch`]), and the HAL writes no entry
+//! of its own into that table. Only a CPU whose RTOS registered a context-switch handler binds
+//! [`ipc_handler`] to the line directly, because that handler returns into the context the RTOS
+//! chooses.
 
 use portable_atomic::Ordering;
 
@@ -13,7 +19,7 @@ use crate::{
 };
 
 /// The CLIC line that serves the machine software interrupt.
-const CLINT_INTERRUPT: CpuInterrupt = CpuInterrupt::Interrupt3;
+pub(crate) const CLINT_INTERRUPT: CpuInterrupt = CpuInterrupt::Interrupt3;
 
 pub(super) fn raise(core: Cpu) {
     if core == Cpu::current() {
@@ -43,11 +49,6 @@ pub(crate) fn install_app() {
 fn install_core(core: Cpu) {
     debug_assert_eq!(core, Cpu::current());
 
-    let handler = match core {
-        Cpu::ProCpu => ipc_handler::<0>,
-        Cpu::AppCpu => ipc_handler::<1>,
-    };
-
     // The handler clears the request through the alias of its own CLINT.
     STATE[core as usize]
         .request
@@ -56,8 +57,58 @@ fn install_core(core: Cpu) {
     // The CLIC serves the machine software interrupt as interrupt 3, and applies the
     // priority of that line to it. The interrupt is core-local, so it needs no matrix
     // entry.
-    crate::interrupt::bind_cpu_interrupt(CLINT_INTERRUPT, handler);
+    if STATE[core as usize]
+        .context_switch_handler
+        .load(Ordering::Acquire)
+        .is_null()
+    {
+        crate::interrupt::vector_cpu_interrupt(CLINT_INTERRUPT);
+    } else {
+        bind_direct(core);
+    }
     crate::interrupt::enable_cpu_interrupt(CLINT_INTERRUPT, Priority::min());
+}
+
+/// Binds [`ipc_handler`] to the IPC line of `core`, which must be the current CPU, once an RTOS
+/// registered the context-switch handler of `core`.
+fn bind_direct(core: Cpu) {
+    let handler = match core {
+        Cpu::ProCpu => ipc_handler::<0>,
+        Cpu::AppCpu => ipc_handler::<1>,
+    };
+    crate::interrupt::bind_cpu_interrupt(CLINT_INTERRUPT, handler);
+}
+
+/// Called after an RTOS registered the context-switch handler of `core`: an installed current
+/// CPU moves its IPC line to the direct handler; any other CPU binds it when it installs.
+pub(super) fn context_switch_handler_registered(core: Cpu) {
+    let installed = !STATE[core as usize]
+        .request
+        .load(Ordering::Relaxed)
+        .is_null();
+    if core == Cpu::current() && installed {
+        bind_direct(core);
+    }
+}
+
+/// Runs the function posted to the current CPU: the vectored dispatcher calls this for the IPC
+/// line.
+pub(crate) fn dispatch() {
+    let state = &STATE[Cpu::current() as usize];
+
+    // Clear the request before taking the work, so that a request raised for the next run
+    // survives.
+    let request = state.request.load(Ordering::Relaxed);
+    unsafe { request.write_volatile(0) };
+
+    let callback = state
+        .callback
+        .swap(core::ptr::null_mut(), Ordering::AcqRel);
+    if !callback.is_null() {
+        // SAFETY: `Ipc::call_function` stores only `fn()` pointers in `callback`.
+        let callback = unsafe { core::mem::transmute::<*mut (), fn()>(callback) };
+        callback();
+    }
 }
 
 /// Handles the IPC interrupt of one CPU.
