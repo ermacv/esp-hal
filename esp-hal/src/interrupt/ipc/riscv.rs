@@ -170,8 +170,10 @@ unsafe extern "C" fn ipc_handler<const CORE: usize>() {
         bnez t0, 3f
 
     1:
-        lw   t0, {pending_context_switch}(t1)
-        sw   zero, {pending_context_switch}(t1)
+        # Take the pending context switch atomically: a request the other CPU stores between a
+        # load and a clearing store would be lost.
+        addi t0, t1, {pending_context_switch}
+        amoswap.w.aq t0, zero, (t0)
 
         lw   t1, 0(sp)
         addi sp, sp, 16
@@ -232,8 +234,8 @@ unsafe extern "C" fn callback_handler() {
         sw   a6, 48(sp)
         sw   a7, 52(sp)
 
-        lw   t0, {callback}(t1)
-        sw   zero, {callback}(t1)
+        addi t0, t1, {callback}
+        amoswap.w.aq t0, zero, (t0)
         jalr ra, 0(t0)
 
         lw   ra, 0(sp)
