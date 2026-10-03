@@ -190,8 +190,28 @@ fn enable_bbpll_clk_impl(_clocks: &mut ClockTree, en: bool) {
 
 // CPLL_CLK
 
+/// Whether the CPU runs from CPLL, as the bootloader leaves it for the 160
+/// and 320 MHz configurations.
+fn cpu_runs_from_cpll() -> bool {
+    HP_SYS_CLKRST::regs().soc_clk_sel().read().soc_clk_sel().bits() == 1
+}
+
 fn enable_cpll_clk_impl(_clocks: &mut ClockTree, en: bool) {
     if en {
+        // The clock tree takes its first CPLL reference while the CPU may
+        // already run from the bootloader's CPLL. Recalibrating it would
+        // disturb the running clock; ESP-IDF configures CPLL only when the CPU
+        // switches to it from another source (`rtc_clk_cpu_freq_set_config`).
+        if cpu_runs_from_cpll() {
+            return;
+        }
+
+        // 320 MHz = 40 MHz XTAL * 8 / 1 (ESP-IDF `clk_ll_cpll_set_freq_mhz`);
+        // the reset value (15 / 2) yields 300 MHz.
+        LP_AON_CLK_RST::regs()
+            .cpll_div()
+            .modify(|_, w| unsafe { w.cpll_fb_div().bits(8).cpll_ref_div().bits(1) });
+
         // Power the PLL up before the calibration, which cannot end without it. The PMU state
         // must agree: a sleep that the PMU rejects does not apply the `HP_ACTIVE` state again.
         PMU::regs().imm_hp_ck_power_1().modify(|_, w| {
