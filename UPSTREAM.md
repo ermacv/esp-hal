@@ -70,6 +70,10 @@ only the ESP32-S31 support that needs:
   have consumed; the core-1 entry reaches its Rust body with `tail`, which
   links at any distance; Ethernet is opt-in through `__ethernet`; the TRNG,
   `I2C_ANA_MST`, `LP_TSENS` and `WIFI` peripherals are declared in metadata.
+- **Panic-free reset path.** `pre_system_reset` on the ESP32-H4 and
+  ESP32-S31 takes the other core by hart parity instead of `Cpu::current()`,
+  whose unknown-hart branch panics, so a panic handler that resets cannot
+  re-enter itself. Proposed upstream as esp-rs/esp-hal#6458.
 
 ## Upstream changes taken in place of fork code
 
