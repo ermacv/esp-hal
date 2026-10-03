@@ -122,6 +122,13 @@ only the ESP32-S31 support that needs:
   (unstable): the firmware checks the interrupt matrix against its own table
   of sources before it enables interrupts.
 
+- **ESP32-C5 and ESP32-S31 PACs from `ermacv/esp-pacs`.** `esp-hal`,
+  `esp-radio`, `esp-phy`, `esp-rom-sys` and `esp-storage` take these two
+  chips' PACs from the `oer/main` branch of that fork (its `UPSTREAM.md` lists
+  the register fixes); every other chip's PAC still comes from upstream. A
+  merge that moves upstream's PAC revision moves the fork's base with it.
+  The S31 USB OTG PHY setup writes `USB_UTMI.FC_06` through the typed PAC.
+
 ## Upstream changes taken in place of fork code
 
 - `0a60c6d4a` "ESP32-S31: configure TIMG clocks (#6365)": replaces the

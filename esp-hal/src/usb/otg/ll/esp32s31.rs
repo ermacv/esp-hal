@@ -43,10 +43,13 @@ fn hs_init() {
         .usb_otghs_ctrl()
         .modify(|_, w| w.reg_usb_otghs_phy_otg_suspendm().set_bit());
 
-    const USB_UTMI: usize = 0x2038_0000;
-    let fc_06 = (USB_UTMI as *mut u32).wrapping_add(6);
+    // Parallel low-speed mode with keep-alive (ESP-IDF `usb_utmi_ll_configure_ls`).
     // SAFETY: USB_HS ownership provides exclusive access to the UTMI PHY.
-    unsafe { fc_06.write_volatile(fc_06.read_volatile() | (1 << 3) | (1 << 0)) };
+    let utmi = unsafe { &*crate::pac::USB_UTMI::ptr() };
+    utmi.fc_06().modify(|_, w| {
+        w.ls_par_en().set_bit();
+        w.ls_kpalv_en().set_bit()
+    });
 }
 
 fn connect_hs_pulldowns(connect: bool) {
