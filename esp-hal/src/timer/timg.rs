@@ -652,7 +652,9 @@ where
                 w.wdt_stg3().bits(MwdtStageAction::Off as u8)
             });
 
-            #[cfg(any(esp32c2, esp32c3, esp32c6))]
+            // Chips with `wdt_conf_update_en` apply stage and reset-length
+            // writes only when it is set (ESP-IDF `mwdt_ll_config_stage`).
+            #[cfg(not(any(esp32, esp32s2, esp32s3, esp32s31)))]
             reg_block
                 .wdtconfig0()
                 .modify(|_, w| w.wdt_conf_update_en().set_bit());
@@ -738,7 +740,7 @@ where
 
         config_register.write(|w| unsafe { w.hold().bits(timeout) });
 
-        #[cfg(any(esp32c2, esp32c3, esp32c6, esp32s31))]
+        #[cfg(not(any(esp32, esp32s2, esp32s3)))]
         reg_block
             .wdtconfig0()
             .modify(|_, w| w.wdt_conf_update_en().set_bit());
@@ -766,7 +768,7 @@ where
             }
         });
 
-        #[cfg(esp32s31)]
+        #[cfg(not(any(esp32, esp32s2, esp32s3)))]
         reg_block
             .wdtconfig0()
             .modify(|_, w| w.wdt_conf_update_en().set_bit());
