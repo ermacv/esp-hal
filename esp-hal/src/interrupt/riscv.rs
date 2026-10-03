@@ -323,6 +323,7 @@ pub(super) static PRIORITY_TO_INTERRUPT: [CpuInterrupt; VECTOR_COUNT] = const {
 ///
 /// Unless low-level control is required for the lowest possible latency,
 /// [`enable`][crate::interrupt::enable] is usually preferable.
+#[cfg(not(feature = "static-interrupts"))]
 #[instability::unstable]
 pub fn enable_direct(
     interrupt: Interrupt,
@@ -333,6 +334,7 @@ pub fn enable_direct(
     enable_direct_inner(interrupt, level, cpu_interrupt.into(), handler)
 }
 
+#[cfg_attr(feature = "static-interrupts", allow(dead_code, reason = "unused when the image's table owns every interrupt"))]
 pub(crate) fn enable_direct_inner(
     interrupt: Interrupt,
     level: Priority,

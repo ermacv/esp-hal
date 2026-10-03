@@ -975,6 +975,22 @@ impl embedded_io_async_07::Read for UsbSerialJtagRx<'_, Async> {
 #[handler]
 #[cfg_attr(esp32s31, unsafe(link_section = ".rwtext.usb_serial_jtag"))]
 fn async_interrupt_handler() {
+    service_async_interrupt();
+}
+
+/// Services the `USB_DEVICE` interrupt of an [`Async`] driver: under the
+/// `static-interrupts` feature, where [`UsbSerialJtag::into_async`] binds
+/// nothing, the image's interrupt table calls it from its `USB_DEVICE`
+/// handler.
+#[cfg(feature = "static-interrupts")]
+#[instability::unstable]
+#[cfg_attr(esp32s31, unsafe(link_section = ".rwtext.usb_serial_jtag"))]
+pub fn handle_async_interrupt() {
+    service_async_interrupt();
+}
+
+#[inline(always)]
+fn service_async_interrupt() {
     let usb = USB_DEVICE::regs();
     let interrupts = usb.int_st().read();
 

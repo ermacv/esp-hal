@@ -181,6 +181,15 @@ rt = [
     "critical-section",
 ]
 
+## Every peripheral interrupt's handler is a link-time symbol of the image and
+## only the holder of `interrupt::InterruptRoutes` maps sources to CPU
+## interrupts. No API binds a handler or changes a route at run time:
+## `bind_handler`, `enable_direct`, `interrupt::enable`/`disable`, the
+## peripherals' `bind_*_interrupt` and the drivers' `set_interrupt_handler` do
+## not exist, `into_async` binds nothing (route the driver's public handler
+## from the image), and `init` binds no GPIO handler.
+static-interrupts = []
+
 ## Enable a simple exception handler turning exceptions into panics.
 exception-handler = []
 

@@ -121,6 +121,15 @@ only the ESP32-S31 support that needs:
 - **Where a source is routed.** `interrupt::mapped_to` is public
   (unstable): the firmware checks the interrupt matrix against its own table
   of sources before it enables interrupts.
+- **Static interrupts.** The `static-interrupts` feature makes the image's
+  link-time interrupt table the only owner of routes: no public API binds a
+  handler or maps a source; `interrupt::InterruptRoutes::take` hands the one
+  routing capability to the table's owner. A driver that needs its interrupt
+  (`into_async`, `set_interrupt_handler`) panics when the image's vector holds
+  no handler for it or no core routes it, so the owner routes the source
+  first, and records it in `interrupt::required_routes()`; `init`
+  binds no GPIO handler; `usb_serial_jtag::handle_async_interrupt` is the
+  async driver's handler for the table to call.
 
 - **ESP32-C5 and ESP32-S31 PACs from `ermacv/esp-pacs`.** `esp-hal`,
   `esp-radio`, `esp-phy`, `esp-rom-sys` and `esp-storage` take these two

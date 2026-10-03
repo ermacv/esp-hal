@@ -786,7 +786,8 @@ pub fn init(config: Config) -> Peripherals {
 
     crate::time::implem::time_init();
 
-    #[cfg(gpio_driver_supported)]
+    // Under `static-interrupts` the image's table routes GPIO when it needs it.
+    #[cfg(all(gpio_driver_supported, not(feature = "static-interrupts")))]
     crate::gpio::interrupt::bind_default_interrupt_handler();
 
     unsafe {

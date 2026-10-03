@@ -374,6 +374,7 @@ pub fn bound_handler(interrupt: Interrupt) -> Option<IsrCallback> {
 ///
 /// The interrupt handler will be called on the core where it is registered.
 /// Only one interrupt handler can be bound to a peripheral interrupt.
+#[cfg(not(feature = "static-interrupts"))]
 #[instability::unstable]
 pub fn bind_handler(interrupt: Interrupt, handler: InterruptHandler) {
     bind_vector(interrupt, handler);
@@ -381,6 +382,7 @@ pub fn bind_handler(interrupt: Interrupt, handler: InterruptHandler) {
 }
 
 /// Binds `handler` to `interrupt` without enabling the peripheral interrupt.
+#[cfg(not(feature = "static-interrupts"))]
 pub(crate) fn bind_vector(interrupt: Interrupt, handler: InterruptHandler) {
     unsafe {
         let vector = vector_entry(interrupt);
@@ -406,6 +408,7 @@ pub(crate) fn bind_vector(interrupt: Interrupt, handler: InterruptHandler) {
 ///
 /// Internally maps the interrupt to the appropriate CPU interrupt
 /// for the specified priority level.
+#[cfg(not(feature = "static-interrupts"))]
 #[inline]
 #[instability::unstable]
 pub fn enable(interrupt: Interrupt, level: Priority) {
@@ -420,10 +423,93 @@ pub(crate) fn enable_on_cpu(cpu: Cpu, interrupt: Interrupt, level: Priority) {
 /// Disables the given peripheral interrupt.
 ///
 /// Internally maps the interrupt to a disabled CPU interrupt.
+#[cfg(not(feature = "static-interrupts"))]
 #[inline]
 #[instability::unstable]
 pub fn disable(core: Cpu, interrupt: Interrupt) {
     map_raw(core, interrupt, DISABLED_CPU_INTERRUPT)
+}
+
+/// A driver's binding under `static-interrupts`: the image's interrupt table
+/// must already hold a handler for `interrupt`, which then counts as required
+/// (see [`required_routes`]); the driver's own handler is not installed.
+#[cfg(feature = "static-interrupts")]
+pub(crate) fn bind_handler(interrupt: Interrupt, _handler: InterruptHandler) {
+    require_route(interrupt);
+}
+
+/// A driver's route enable under `static-interrupts`: only the holder of
+/// [`InterruptRoutes`] maps sources, so this requires the route instead.
+#[cfg(feature = "static-interrupts")]
+#[allow(dead_code, reason = "called only by some chips' drivers")]
+pub(crate) fn enable(interrupt: Interrupt, _level: Priority) {
+    require_route(interrupt);
+}
+
+/// A driver's route disable under `static-interrupts`: the table owns the
+/// route, so a driver leaves it as it is.
+#[cfg(feature = "static-interrupts")]
+pub(crate) fn disable(_core: Cpu, _interrupt: Interrupt) {}
+
+#[cfg(feature = "static-interrupts")]
+static REQUIRED: [portable_atomic::AtomicU32; 8] = [const { portable_atomic::AtomicU32::new(0) }; 8];
+
+/// Panic unless the image's table holds a handler for `interrupt` and its
+/// owner has routed it on a core, and record it as required. A driver whose
+/// interrupt nobody routes would otherwise wait forever: the owner routes the
+/// source before it hands the driver its interrupt (`into_async`).
+#[cfg(feature = "static-interrupts")]
+fn require_route(interrupt: Interrupt) {
+    let bound = bound_handler(interrupt)
+        .is_some_and(|handler| handler != DEFAULT_INTERRUPT_HANDLER.handler());
+    if !bound {
+        panic!("{:?} has no handler in the image's interrupt table", interrupt);
+    }
+    if !Cpu::all().any(|cpu| mapped_to(cpu, interrupt).is_some()) {
+        panic!("{:?} is not routed: its owner routes it before the driver needs it", interrupt);
+    }
+    let number = interrupt as usize;
+    REQUIRED[number / 32].fetch_or(1 << (number % 32), portable_atomic::Ordering::AcqRel);
+}
+
+/// The peripheral interrupts a driver has required so far, by number: each
+/// must be routed by the holder of [`InterruptRoutes`] before interrupts are
+/// enabled.
+#[cfg(feature = "static-interrupts")]
+pub fn required_routes() -> impl Iterator<Item = u16> {
+    (0..REQUIRED.len() * 32).filter_map(|number| {
+        let word = REQUIRED[number / 32].load(portable_atomic::Ordering::Acquire);
+        (word & (1 << (number % 32)) != 0).then_some(number as u16)
+    })
+}
+
+/// The one capability that maps peripheral interrupts to CPU interrupts when
+/// the `static-interrupts` feature makes the image's interrupt table their
+/// only owner.
+#[cfg(feature = "static-interrupts")]
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct InterruptRoutes;
+
+#[cfg(feature = "static-interrupts")]
+impl InterruptRoutes {
+    /// Take the capability; `None` after the first call.
+    pub fn take() -> Option<&'static Self> {
+        use portable_atomic::{AtomicBool, Ordering};
+        static TAKEN: AtomicBool = AtomicBool::new(false);
+        static ROUTES: InterruptRoutes = InterruptRoutes;
+        (!TAKEN.swap(true, Ordering::AcqRel)).then_some(&ROUTES)
+    }
+
+    /// Route `interrupt` on `cpu` to the vectored CPU interrupt of `level`.
+    pub fn enable(&self, cpu: Cpu, interrupt: Interrupt, level: Priority) {
+        enable_on_cpu(cpu, interrupt, level);
+    }
+
+    /// Route `interrupt` on `cpu` to the disabled CPU interrupt.
+    pub fn disable(&self, cpu: Cpu, interrupt: Interrupt) {
+        map_raw(cpu, interrupt, DISABLED_CPU_INTERRUPT)
+    }
 }
 
 pub(super) fn map_raw(core: Cpu, interrupt: Interrupt, cpu_interrupt: u32) {
@@ -597,8 +683,8 @@ pub(crate) fn setup_interrupts() {
         crate::peripherals::Interrupt::try_from(peripheral_interrupt)
             .map(|intr| {
                 #[cfg(multi_core)]
-                disable(Cpu::AppCpu, intr);
-                disable(Cpu::ProCpu, intr);
+                map_raw(Cpu::AppCpu, intr, DISABLED_CPU_INTERRUPT);
+                map_raw(Cpu::ProCpu, intr, DISABLED_CPU_INTERRUPT);
             })
             .ok();
     }

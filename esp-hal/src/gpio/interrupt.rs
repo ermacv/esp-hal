@@ -71,6 +71,7 @@ use crate::{
 pub(super) static USER_INTERRUPT_HANDLER: CFnPtr = CFnPtr::new();
 
 #[cfg(feature = "rt")]
+#[cfg_attr(feature = "static-interrupts", allow(dead_code, reason = "unused when the image's table owns every interrupt"))]
 pub(crate) fn bind_default_interrupt_handler() {
     // We first check if a handler is set in the vector table.
     if let Some(handler) = interrupt::bound_handler(Interrupt::GPIO) {

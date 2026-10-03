@@ -71,6 +71,7 @@ macro_rules! create_peripheral {
                 /// Very low-level interrupt API. Unless writing drivers, this is probably not the interrupt API to use.
                 /// </section>
                 ///
+                #[cfg(not(feature = "static-interrupts"))]
                 #[instability::unstable]
                 pub fn $bind(&self, handler: $crate::interrupt::InterruptHandler) {
                     $crate::interrupt::bind_handler($crate::peripherals::Interrupt::$interrupt, handler);
@@ -104,6 +105,7 @@ macro_rules! create_peripheral {
                 #[doc = concat!("peripherals.", stringify!($name), ".", stringify!($disable), "_on_all_cores();")]
                 /// # {after_snippet}
                 /// ```
+                #[cfg(not(feature = "static-interrupts"))]
                 #[allow(dead_code, reason = "Peripheral may be unstable")]
                 pub fn $enable(&self, priority: $crate::interrupt::Priority) {
                     $crate::interrupt::enable($crate::peripherals::Interrupt::$interrupt, priority);
@@ -116,6 +118,7 @@ macro_rules! create_peripheral {
                     /// <section class="warning">
                     /// Very low-level interrupt API. Unless writing drivers, this is probably not the interrupt API to use.
                     /// </section>
+                    #[cfg(not(feature = "static-interrupts"))]
                     #[instability::unstable]
                     pub fn $disable(&self) {
                         $crate::interrupt::disable($crate::system::Cpu::current(), $crate::peripherals::Interrupt::$interrupt);
@@ -127,12 +130,38 @@ macro_rules! create_peripheral {
                     /// <section class="warning">
                     /// Very low-level interrupt API. Unless writing drivers, this is probably not the interrupt API to use.
                     /// </section>
+                    #[cfg(not(feature = "static-interrupts"))]
                     #[allow(dead_code, reason = "Peripheral may be unstable")]
                     pub fn [<$disable _on_all_cores>](&self) {
                         for core in $crate::system::Cpu::all() {
                             $crate::interrupt::disable(core, $crate::peripherals::Interrupt::$interrupt);
                         }
                     }
+                }
+
+                // Under `static-interrupts` drivers keep these names, crate
+                // private: a bind requires the image's route, a disable
+                // leaves it to the table.
+                #[cfg(feature = "static-interrupts")]
+                #[allow(dead_code, reason = "Peripheral may be unstable")]
+                pub(crate) fn $bind(&self, handler: $crate::interrupt::InterruptHandler) {
+                    $crate::interrupt::bind_handler($crate::peripherals::Interrupt::$interrupt, handler);
+                }
+
+                #[cfg(feature = "static-interrupts")]
+                #[allow(dead_code, reason = "Peripheral may be unstable")]
+                pub(crate) fn $enable(&self, priority: $crate::interrupt::Priority) {
+                    $crate::interrupt::enable($crate::peripherals::Interrupt::$interrupt, priority);
+                }
+
+                paste::paste! {
+                    #[cfg(feature = "static-interrupts")]
+                    #[allow(dead_code, reason = "Peripheral may be unstable")]
+                    pub(crate) fn $disable(&self) {}
+
+                    #[cfg(feature = "static-interrupts")]
+                    #[allow(dead_code, reason = "Peripheral may be unstable")]
+                    pub(crate) fn [<$disable _on_all_cores>](&self) {}
                 }
             )*
         }

@@ -231,6 +231,7 @@ pub(crate) fn set_int_enable(
 
 /// Clears the CPU interrupt enable of a pad, and keeps its wake condition.
 #[cfg(feature = "rt")]
+#[cfg_attr(feature = "static-interrupts", allow(dead_code, reason = "unused when the image's table owns every interrupt"))]
 pub(crate) fn disable_cpu_interrupt(gpio_num: u8) {
     GPIO::regs()
         .pin(gpio_num as usize)
