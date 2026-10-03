@@ -62,15 +62,20 @@ pub(super) fn cpu_interrupt_priority_raw(cpu_interrupt: u32) -> u8 {
 }
 
 /// Changes the current interrupt runlevel (the level below which interrupts are masked),
-/// and returns the previous runlevel.
+/// and returns the previous threshold.
+///
+/// The returned level is `mintthresh` alone, not the effective level that includes the running
+/// handler's `mil`: restoring it must give back the threshold the caller found. Restoring the
+/// effective level inside a handler would leave `mintthresh` at the handler's level after its
+/// `mret`, masking every interrupt up to it in thread mode.
 pub(super) fn change_current_runlevel(level: RunLevel) -> u8 {
-    let current_runlevel = current_runlevel();
+    let previous_threshold = bits_to_prio(mintthresh::read());
 
     // All machine mode pending interrupts with levels less than or equal
     // to the effective threshold level are not allowed to preempt the execution.
     unsafe { mintthresh::write(prio_to_bits(level) as usize) };
 
-    current_runlevel
+    previous_threshold
 }
 
 /// Returns the current run level (the level below which interrupts are masked).
