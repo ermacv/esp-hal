@@ -74,6 +74,7 @@ pub mod ll {
         release_analog_i2c_master_clock,
         release_modem_coexistence_clock,
         release_modem_low_power_timer_clock,
+        with_analog_i2c_transaction,
     };
 }
 

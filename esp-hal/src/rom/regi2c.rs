@@ -69,13 +69,21 @@ impl RawRegI2cField {
 
     #[allow(unused)]
     pub fn write_field(&self, data: u8) {
-        let bits = self.register.read();
+        let write = || {
+            let bits = self.register.read();
 
-        let unwritten_bits = (!(u32::MAX << self.lsb) | (u32::MAX << (self.msb + 1))) as u8;
-        let data_mask = !(u32::MAX << (self.msb - self.lsb + 1)) as u8;
-        let data_bits = (data & data_mask) << self.lsb;
+            let unwritten_bits = (!(u32::MAX << self.lsb) | (u32::MAX << (self.msb + 1))) as u8;
+            let data_mask = !(u32::MAX << (self.msb - self.lsb + 1)) as u8;
+            let data_bits = (data & data_mask) << self.lsb;
 
-        self.register.write_reg((bits & unwritten_bits) | data_bits);
+            self.register.write_reg((bits & unwritten_bits) | data_bits);
+        };
+        // The read and the write form one transaction for the other core and
+        // the radio PHY.
+        cfg_select! {
+            esp32s31 => crate::soc::regi2c::with_analog_i2c_transaction(write),
+            _ => write(),
+        }
     }
 }
 
