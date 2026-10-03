@@ -174,23 +174,33 @@ where
         self.peripheral.register_block()
     }
 
-    /// Writes data to the serial output in chunks of up to 64 bytes.
+    /// Whether the last `wr_done` request completed or the FIFO has room.
+    fn tx_settled(&self) -> bool {
+        let conf = self.regs().ep1_conf().read();
+        // FIXME: raw register access, the PAC publishes `wr_done` (bit 0) as
+        // write-only.
+        conf.bits() & 1 != 0 || conf.serial_in_ep_data_free().bit_is_set()
+    }
+
+    /// Writes data to the serial output, then sends it.
+    ///
+    /// Blocks while the 64-byte IN FIFO is full, until the host reads it.
     pub fn write(&mut self, data: &[u8]) -> Result<(), Error> {
-        for chunk in data.chunks(64) {
-            for byte in chunk {
-                self.regs()
-                    .ep1()
-                    .write(|w| unsafe { w.rdwr_byte().bits(*byte) });
-            }
-            self.regs().ep1_conf().modify(|_, w| w.wr_done().set_bit());
-
-            // FIXME: raw register access
-            while self.regs().ep1_conf().read().bits() & 0b011 == 0b000 {
-                // wait
-            }
+        for byte in data {
+            // The FIFO may already hold bytes from `write_byte_nb`; a full
+            // FIFO is sent to the host without `wr_done`.
+            while self
+                .regs()
+                .ep1_conf()
+                .read()
+                .serial_in_ep_data_free()
+                .bit_is_clear()
+            {}
+            self.regs()
+                .ep1()
+                .write(|w| unsafe { w.rdwr_byte().bits(*byte) });
         }
-
-        Ok(())
+        self.flush_tx()
     }
 
     /// Writes data to the serial output in a non-blocking manner.
@@ -216,10 +226,7 @@ where
     pub fn flush_tx(&mut self) -> Result<(), Error> {
         self.regs().ep1_conf().modify(|_, w| w.wr_done().set_bit());
 
-        // FIXME: raw register access
-        while self.regs().ep1_conf().read().bits() & 0b011 == 0b000 {
-            // wait
-        }
+        while !self.tx_settled() {}
 
         Ok(())
     }
@@ -228,8 +235,7 @@ where
     pub fn flush_tx_nb(&mut self) -> nb::Result<(), Error> {
         self.regs().ep1_conf().modify(|_, w| w.wr_done().set_bit());
 
-        // FIXME: raw register access
-        if self.regs().ep1_conf().read().bits() & 0b011 == 0b000 {
+        if !self.tx_settled() {
             Err(nb::Error::WouldBlock)
         } else {
             Ok(())
