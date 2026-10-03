@@ -1436,6 +1436,12 @@ impl SystemClocks {
                             CLOCK_TREE.with(f)
                         }
 
+                        /// Locks the clock tree if it is free, without waiting or
+                        /// panicking; `None` when any context holds it, this one included.
+                        pub fn try_with<R>(f: impl FnOnce(&mut ClockTree) -> R) -> Option<R> {
+                            CLOCK_TREE.try_with(f)
+                        }
+
                         #(
                             #[doc = #clock_tree_node_state_getter_doclines]
                             pub fn #clock_tree_state_funcs(&self) -> #clock_tree_state_func_return_types {

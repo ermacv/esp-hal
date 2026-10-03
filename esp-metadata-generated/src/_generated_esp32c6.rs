@@ -2684,6 +2684,11 @@ macro_rules! define_clock_tree_types {
             pub fn with<R>(f: impl FnOnce(&mut ClockTree) -> R) -> R {
                 CLOCK_TREE.with(f)
             }
+            /// Locks the clock tree if it is free, without waiting or
+            /// panicking; `None` when any context holds it, this one included.
+            pub fn try_with<R>(f: impl FnOnce(&mut ClockTree) -> R) -> Option<R> {
+                CLOCK_TREE.try_with(f)
+            }
             /// Returns the current configuration of the XTAL_CLK clock tree node
             pub fn xtal_clk(&self) -> Option<XtalClkConfig> {
                 self.xtal_clk

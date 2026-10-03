@@ -371,14 +371,22 @@ pub(crate) fn ensure_uart0_sclk_enabled() -> Uart0SclkGuard {
 
 #[cfg(soc_has_clock_node_uart_function_clock)]
 fn request_uart0_sclk() -> bool {
-    crate::soc::clocks::ClockTree::with(|clocks| {
-        let uart = crate::soc::clocks::UartInstance::Uart0;
+    // A panic handler resets through here, possibly while this or the other
+    // core holds the clock tree: never wait for it or panic on reentry. When
+    // the tree is busy, open the clock's gate directly; the chip is about to
+    // reset, so the request is not counted.
+    let uart = crate::soc::clocks::UartInstance::Uart0;
+    crate::soc::clocks::ClockTree::try_with(|clocks| {
         if uart.function_clock_config(clocks).is_some() {
             uart.request_function_clock(clocks);
             true
         } else {
             false
         }
+    })
+    .unwrap_or_else(|| {
+        uart.set_function_clock_gate(true);
+        false
     })
 }
 

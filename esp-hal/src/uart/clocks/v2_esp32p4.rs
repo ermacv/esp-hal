@@ -12,6 +12,11 @@ use crate::{
 // Per-instance clock impl for UART (called on UartInstance enum)
 impl UartInstance {
     pub(crate) fn enable_function_clock_impl(self, _clocks: &mut ClockTree, en: bool) {
+        self.set_function_clock_gate(en);
+    }
+
+    /// The function clock's gate alone, without the clock tree.
+    pub(crate) fn set_function_clock_gate(self, en: bool) {
         let regs = HP_SYS_CLKRST::regs();
         match self {
             // ROM boot/download path seems to expect UART0 clock alive. If Drop turns uart0_clk_en

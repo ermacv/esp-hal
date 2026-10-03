@@ -9,7 +9,12 @@ use crate::clock::ll::{
 impl UartInstance {
     // UART_FUNCTION_CLOCK
 
-    pub(crate) fn enable_function_clock_impl(self, _clocks: &mut ClockTree, _en: bool) {
+    pub(crate) fn enable_function_clock_impl(self, _clocks: &mut ClockTree, en: bool) {
+        self.set_function_clock_gate(en);
+    }
+
+    /// The function clock's gate alone, without the clock tree.
+    pub(crate) fn set_function_clock_gate(self, _en: bool) {
         #[cfg(uart_has_sclk_divider)]
         {
             let regs = match self {

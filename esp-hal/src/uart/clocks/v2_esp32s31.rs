@@ -11,6 +11,11 @@ use crate::{
 
 impl UartInstance {
     pub(crate) fn enable_function_clock_impl(self, _clocks: &mut ClockTree, en: bool) {
+        self.set_function_clock_gate(en);
+    }
+
+    /// The function clock's gate alone, without the clock tree.
+    pub(crate) fn set_function_clock_gate(self, en: bool) {
         HP_SYS_CLKRST::regs()
             .uart_ctrl0(self as usize)
             .modify(|_, w| w.clk_en().bit(en));

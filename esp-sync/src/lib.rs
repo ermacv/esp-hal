@@ -101,6 +101,19 @@ mod single_core {
             tkn
         }
 
+        /// One attempt: `None` when the lock is held, by this context or
+        /// one it interrupted.
+        #[inline]
+        pub fn try_lock(&self, lock: &impl crate::RawLock) -> Option<crate::RestoreState> {
+            let tkn = unsafe { lock.enter() };
+            if self.locked.replace(true) {
+                unsafe { lock.exit(tkn) };
+                None
+            } else {
+                Some(tkn)
+            }
+        }
+
         /// # Safety:
         ///
         /// This function must only be called if the lock was acquired by the
@@ -184,6 +197,25 @@ mod multi_core {
             loop {
                 if let Some(token) = try_lock() {
                     return token;
+                }
+            }
+        }
+
+        /// One attempt: `None` when any thread holds the lock, this one
+        /// included.
+        #[inline]
+        pub fn try_lock(&self, lock: &impl crate::RawLock) -> Option<crate::RestoreState> {
+            let tkn = unsafe { lock.enter() };
+            match self.owner.compare_exchange(
+                UNUSED_THREAD_ID_VALUE,
+                thread_id(),
+                Ordering::Acquire,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => Some(tkn),
+                Err(_) => {
+                    unsafe { lock.exit(tkn) };
+                    None
                 }
             }
         }
@@ -280,6 +312,16 @@ impl<L: RawLock> GenericRawMutex<L> {
         let _token = LockGuard::new_reentrant(self);
         f()
     }
+
+    /// Runs the callback with this lock locked if it is free, without
+    /// waiting or panicking; `None` when any context holds it, this one
+    /// included.
+    #[inline]
+    pub fn try_lock<R>(&self, f: impl FnOnce() -> R) -> Option<R> {
+        let token = self.inner.try_lock(&self.lock)?;
+        let _token = LockGuard { lock: self, token };
+        Some(f())
+    }
 }
 
 /// A mutual exclusion primitive.
@@ -350,6 +392,14 @@ impl RawMutex {
     pub fn lock<R>(&self, f: impl FnOnce() -> R) -> R {
         self.inner.lock(f)
     }
+
+    /// Runs the callback with this lock locked if it is free, without
+    /// waiting or panicking; `None` when any context holds it, this one
+    /// included.
+    #[inline]
+    pub fn try_lock<R>(&self, f: impl FnOnce() -> R) -> Option<R> {
+        self.inner.try_lock(f)
+    }
 }
 
 unsafe impl embassy_sync_06::blocking_mutex::raw::RawMutex for RawMutex {
@@ -403,6 +453,14 @@ impl<T> NonReentrantMutex<T> {
     pub fn with<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
         self.lock_state
             .lock_non_reentrant(|| f(unsafe { &mut *self.data.get() }))
+    }
+
+    /// Provide exclusive access to the protected data to the given closure if
+    /// the mutex is free, without waiting or panicking; `None` when any
+    /// context holds it, this one included.
+    pub fn try_with<R>(&self, f: impl FnOnce(&mut T) -> R) -> Option<R> {
+        self.lock_state
+            .try_lock(|| f(unsafe { &mut *self.data.get() }))
     }
 }
 
