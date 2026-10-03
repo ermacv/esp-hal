@@ -428,7 +428,7 @@ macro_rules! property {
         false
     };
     ("soc.cpu_has_zcmp_workaround") => {
-        false
+        true
     };
     ("soc.multi_core_enabled") => {
         false
