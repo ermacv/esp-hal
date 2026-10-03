@@ -16,6 +16,23 @@ impl UartInstance {
             .modify(|_, w| w.clk_en().bit(en));
     }
 
+    /// Return the function clock to its power-on state, XTAL undivided
+    /// with its gate open, without the clock tree: the boot ROM prints
+    /// through UART0 after a software reset, and the source the firmware
+    /// chose (PLL_F80M or RC_FAST) is not known to still run when a panic
+    /// handler resets. The register reset value is 0x83.
+    pub(crate) fn restore_power_on_function_clock(self) {
+        HP_SYS_CLKRST::regs()
+            .uart_ctrl0(self as usize)
+            .modify(|_, w| unsafe {
+                w.clk_src_sel().bits(0);
+                w.sclk_div_num().bits(0);
+                w.sclk_div_numerator().bits(0);
+                w.sclk_div_denominator().bits(0);
+                w.clk_en().set_bit()
+            });
+    }
+
     pub(crate) fn configure_function_clock_impl(
         self,
         _clocks: &mut ClockTree,
