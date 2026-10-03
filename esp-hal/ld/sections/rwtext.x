@@ -12,8 +12,9 @@
 .rwtext : ALIGN(4)
 {
   . = ALIGN (4);
-  #IF esp32c5
-  /* PMP matches TOR boundaries at a 128-byte granularity: an unaligned
+  #IF esp32c5 || esp32s31
+  /* PMP matches TOR boundaries at a 128-byte granularity
+     (SOC_CPU_PMP_REGION_GRANULARITY on both chips): an unaligned
      start would take the tail of `.trap`, the interrupt vector table that
      `bind_handler` writes, into the read-execute region. */
   . = ALIGN (128);
@@ -51,7 +52,7 @@
   *( .conn_iram* )
   *( .sleep_iram* )
   . = ALIGN(4);
-  #IF esp32c5
+  #IF esp32c5 || esp32s31
   /* The same granularity: the read-write data region starts here. */
   . = ALIGN(128);
   #ENDIF
