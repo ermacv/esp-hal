@@ -673,6 +673,19 @@ pub(crate) mod rt {
         // so we clear it anyway
         cpu_intr.clear();
 
+        // The trap entry saves no floating-point registers. Run the handlers with the FPU off
+        // (`mstatus.FS`), as ESP-IDF does, so a floating-point instruction in one raises an
+        // illegal-instruction exception instead of corrupting the interrupted code's registers.
+        #[cfg(target_feature = "f")]
+        let interrupted_fs = {
+            const MSTATUS_FS: usize = 0x6000;
+            let mstatus: usize;
+            unsafe {
+                core::arch::asm!("csrrc {0}, mstatus, {1}", out(reg) mstatus, in(reg) MSTATUS_FS)
+            };
+            mstatus & MSTATUS_FS
+        };
+
         // The IPC line enters here unless an RTOS bound its own handler to it.
         #[cfg(all(multi_core, interrupt_controller = "clic"))]
         if cpu_intr == crate::interrupt::ipc::CLINT_INTERRUPT {
@@ -729,6 +742,10 @@ pub(crate) mod rt {
                 unsafe { change_current_runlevel(level) };
             }
         }
+        #[cfg(target_feature = "f")]
+        unsafe {
+            core::arch::asm!("csrs mstatus, {0}", in(reg) interrupted_fs)
+        };
         INTERRUPTED_FRAME[hart].store(preempted, Ordering::Relaxed);
     }
 }
