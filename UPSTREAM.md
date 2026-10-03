@@ -104,6 +104,20 @@ only the ESP32-S31 support that needs:
   reads it shares with the dispatcher, `bind_cpu_interrupt`) stays in RAM. A
   handler registered for the other, already installed CPU is bound there
   through a posted function.
+- **Upstream defects fixed in the fork.** Checked against ESP-IDF
+  `4d59230`: MWDT configuration is latched with `wdt_conf_update_en` on
+  every chip that has it (upstream: C2, C3, C6 only); the USB Serial/JTAG
+  blocking write waits for room in the IN FIFO; every SYSTIMER `CONF`
+  read-modify-write takes `CONF_LOCK`; S31 analog-I2C transactions and field
+  writes hold one cross-core lock (`clock::ll::with_analog_i2c_transaction`);
+  S31 CPLL is not recalibrated while the CPU runs from it and is programmed
+  to 320 MHz (`CPLL_DIV`) when this crate powers it; a restored CLIC run
+  level gives back the previous `mintthresh`, not the handler's level; the
+  Zcmp critical-section workaround is on for C5, C61, H4 and P4 and off for
+  S31, as ESP-IDF's `SOC_CPU_ZCMP_WORKAROUND`; `ipc_handler` takes its
+  pending work with `amoswap`; handlers run with `mstatus.FS` off on chips
+  with an FPU; S31 `.rwtext` is 128-byte aligned for PMP like the C5's;
+  `DmaLoopBuf` writes its descriptor and buffer back before the DMA reads.
 - **Where a source is routed.** `interrupt::mapped_to` is public
   (unstable): the firmware checks the interrupt matrix against its own table
   of sources before it enables interrupts.
