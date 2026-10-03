@@ -254,20 +254,18 @@ impl Cpu {
     /// ```
     #[inline(always)]
     pub fn current() -> Self {
-        // This works for both RISCV and Xtensa because both
-        // get_raw_core functions return zero, _or_ something
-        // greater than zero; 1 in the case of RISCV and 0x2000
-        // in the case of Xtensa.
-        match raw_core() {
-            0 => Cpu::ProCpu,
-
-            #[cfg(all(multi_core, riscv))]
-            1 => Cpu::AppCpu,
-
-            #[cfg(all(multi_core, xtensa))]
-            0x2000 => Cpu::AppCpu,
-
-            other => unreachable!("unknown core id: {}", other),
+        // `raw_core` is zero on the first core and nonzero on the second: 1
+        // on RISC-V, 0x2000 on Xtensa, and always zero on a single-core chip.
+        // No other value exists, so this has no unreachable branch to panic
+        // on: a panic handler that asks for the current core cannot re-enter
+        // itself.
+        cfg_select! {
+            multi_core => if raw_core() == 0 {
+                Cpu::ProCpu
+            } else {
+                Cpu::AppCpu
+            },
+            _ => Cpu::ProCpu,
         }
     }
 

@@ -70,10 +70,10 @@ only the ESP32-S31 support that needs:
   have consumed; the core-1 entry reaches its Rust body with `tail`, which
   links at any distance; Ethernet is opt-in through `__ethernet`; the TRNG,
   `I2C_ANA_MST`, `LP_TSENS` and `WIFI` peripherals are declared in metadata.
-- **Panic-free reset path.** `pre_system_reset` on the ESP32-H4 and
-  ESP32-S31 takes the other core by hart parity instead of `Cpu::current()`,
-  whose unknown-hart branch panics, so a panic handler that resets cannot
-  re-enter itself.
+- **Panic-free reset path.** `Cpu::current()` maps the raw core ID without
+  an unreachable branch (zero is the first core, any other value the
+  second), so a panic handler that resets through `pre_system_reset`, or asks
+  for its core anywhere else, cannot re-enter itself.
   `software_reset` on the ESP32-S31 also leaves the clock tree alone:
   upstream requests UART0's function clock for the boot ROM through
   `ClockTree::with`, whose lock panics on reentry (a panic under it would
