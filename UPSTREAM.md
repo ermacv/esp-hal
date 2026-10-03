@@ -92,6 +92,9 @@ only the ESP32-S31 support that needs:
   (`ipc::dispatch`); a CPU binds `ipc_handler` directly only after an RTOS
   registered its context-switch handler, which must return into the context
   the RTOS chooses.
+- **Where a source is routed.** `interrupt::mapped_to` is public
+  (unstable): the firmware checks the interrupt matrix against its own table
+  of sources before it enables interrupts.
 
 ## Upstream changes taken in place of fork code
 

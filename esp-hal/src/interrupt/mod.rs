@@ -438,9 +438,11 @@ pub(super) fn map_raw(core: Cpu, interrupt: Interrupt, cpu_interrupt: u32) {
     }
 }
 
-/// Returns the CPU interrupt assigned to peripheral interrupt.
-#[cfg(all(feature = "rt", gpio_driver_supported))]
-pub(crate) fn mapped_to(cpu: Cpu, interrupt: Interrupt) -> Option<CpuInterrupt> {
+/// Returns the CPU interrupt `interrupt` is routed to on `cpu`, or `None` while it is disabled
+/// there.
+#[cfg(feature = "rt")]
+#[instability::unstable]
+pub fn mapped_to(cpu: Cpu, interrupt: Interrupt) -> Option<CpuInterrupt> {
     mapped_to_raw(cpu, interrupt as u32)
 }
 
