@@ -733,16 +733,21 @@ pub(crate) mod rt {
     }
 }
 
-/// Registers of the code the running interrupt handler preempted, taken from
-/// the trap frame the interrupt trampoline stored. The program counter is
-/// `mepc`, which the handler reads itself.
+/// The code the running interrupt handler preempted, taken from the trap frame
+/// the interrupt entry stored. The program counter is `mepc`, which the
+/// handler reads itself.
+///
+/// The preempted stack pointer is not here: where it is depends on the entry
+/// that stored the frame (the stack it moved to, the size of the frame it
+/// allocated), so the owner of that entry derives it from [`Self::frame`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[instability::unstable]
 pub struct InterruptedContext {
     /// The preempted code's return address.
     pub ra: usize,
-    /// The preempted code's stack pointer.
-    pub sp: usize,
+    /// The address of the trap frame the interrupt entry stored, which begins
+    /// with the caller-saved registers of [`TrapFrame`].
+    pub frame: usize,
 }
 
 /// The context this hart's running interrupt handler preempted; `None`
@@ -751,8 +756,8 @@ pub struct InterruptedContext {
 #[instability::unstable]
 pub fn interrupted_context() -> Option<InterruptedContext> {
     let hart = Cpu::current() as usize;
-    let frame = rt::INTERRUPTED_FRAME[hart].load(core::sync::atomic::Ordering::Relaxed)
-        as *const TrapFrame;
+    let frame =
+        rt::INTERRUPTED_FRAME[hart].load(core::sync::atomic::Ordering::Relaxed) as *const TrapFrame;
     if frame.is_null() {
         return None;
     }
@@ -761,6 +766,6 @@ pub fn interrupted_context() -> Option<InterruptedContext> {
     let ra = unsafe { (*frame).ra };
     Some(InterruptedContext {
         ra,
-        sp: frame as usize + core::mem::size_of::<TrapFrame>(),
+        frame: frame as usize,
     })
 }
