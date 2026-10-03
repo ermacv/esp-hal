@@ -73,7 +73,15 @@ only the ESP32-S31 support that needs:
 - **Panic-free reset path.** `pre_system_reset` on the ESP32-H4 and
   ESP32-S31 takes the other core by hart parity instead of `Cpu::current()`,
   whose unknown-hart branch panics, so a panic handler that resets cannot
-  re-enter itself. Proposed upstream as esp-rs/esp-hal#6458.
+  re-enter itself.
+  `software_reset` on the ESP32-S31 also leaves the clock tree alone:
+  upstream requests UART0's function clock for the boot ROM through
+  `ClockTree::with`, whose lock panics on reentry (a panic under it would
+  re-enter the handler) and whose generated request keeps an `unwrap!`.
+  The fork returns UART0 to its power-on clock instead, XTAL undivided with
+  its gate open, by register: the source the firmware chose may not run
+  any more; ESP-IDF's `esp_restart_noos` leaves the
+  UART0 clock as it is.
 
 ## Upstream changes taken in place of fork code
 
