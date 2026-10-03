@@ -83,6 +83,10 @@ pub(crate) fn pre_init() {
     systimer.modify(|_, w| w.rst_en().set_bit());
     systimer.modify(|_, w| w.rst_en().clear_bit());
     systimer.modify(|_, w| w.clk_en().set_bit());
+
+    // `Rng` reads the LP TRNG before any `TrngSource` exists. Mirrors
+    // ESP-IDF's `init_rng` (components/esp_hw_support/hw_random.c).
+    trng::rng_ll_enable();
 }
 
 /// Opens LP/HP peripheral PMS regions for all security modes.
