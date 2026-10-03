@@ -1842,10 +1842,20 @@ unsafe impl DmaTxBuffer for DmaLoopBuf {
     type Final = DmaLoopBuf;
 
     fn prepare(&mut self) -> Preparation {
+        // The DMA reads memory, not the CPU cache, as for `ScopedDmaTxBuf`.
+        #[cfg(soc_internal_memory_cached)]
+        self.descriptor.writeback();
+
+        #[cfg(dma_can_access_psram)]
+        let is_data_in_psram = !is_valid_ram_address(self.buffer.as_ptr() as usize);
+
+        #[cfg(any(soc_internal_memory_cached, dma_can_access_psram))]
+        self.buffer.writeback();
+
         Preparation {
             start: self.descriptor.as_mut_ptr(),
             #[cfg(dma_can_access_psram)]
-            accesses_psram: false,
+            accesses_psram: is_data_in_psram,
             burst_transfer: BurstConfig::default(),
             // The DMA must not check the owner bit, as it is never set.
             check_owner: Some(false),
