@@ -54,6 +54,26 @@ pub(super) fn clear_raw(cpu_interrupt: u32) {
         .write(|w| w.int_ip().clear_bit());
 }
 
+pub(super) fn is_pending_raw(cpu_interrupt: u32) -> bool {
+    let clic = unsafe { CLIC::steal() };
+    clic.int_ip(cpu_interrupt as usize).read().int_ip().bit_is_set()
+}
+
+pub(super) fn is_enabled_raw(cpu_interrupt: u32) -> bool {
+    let clic = unsafe { CLIC::steal() };
+    clic.int_ie(cpu_interrupt as usize).read().int_ie().bit_is_set()
+}
+
+pub(super) fn kind_raw(cpu_interrupt: u32) -> InterruptKind {
+    let clic = unsafe { CLIC::steal() };
+    let trig = clic.int_attr(cpu_interrupt as usize).read().trig();
+    if trig.is_positive_edge() || trig.is_negative_edge() {
+        InterruptKind::Edge
+    } else {
+        InterruptKind::Level
+    }
+}
+
 pub(super) fn cpu_interrupt_priority_raw(cpu_interrupt: u32) -> u8 {
     // Lower 16 interrupts are reserved for CLINT, which is currently not implemented.
     let clic = unsafe { CLIC::steal() };

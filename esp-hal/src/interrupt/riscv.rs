@@ -156,6 +156,30 @@ impl CpuInterrupt {
         cpu_int::set_priority_raw(self as u32, priority);
     }
 
+    /// Whether the CPU interrupt is pending in the CLIC.
+    #[cfg(interrupt_controller = "clic")]
+    #[inline]
+    #[instability::unstable]
+    pub fn is_pending(self) -> bool {
+        cpu_int::is_pending_raw(self as u32)
+    }
+
+    /// Whether the CPU interrupt is enabled in the CLIC.
+    #[cfg(interrupt_controller = "clic")]
+    #[inline]
+    #[instability::unstable]
+    pub fn is_enabled(self) -> bool {
+        cpu_int::is_enabled_raw(self as u32)
+    }
+
+    /// The CPU interrupt's trigger (level or edge) in the CLIC.
+    #[cfg(interrupt_controller = "clic")]
+    #[inline]
+    #[instability::unstable]
+    pub fn kind(self) -> InterruptKind {
+        cpu_int::kind_raw(self as u32)
+    }
+
     /// Returns the interrupt priority for the CPU.
     #[inline]
     #[instability::unstable]
