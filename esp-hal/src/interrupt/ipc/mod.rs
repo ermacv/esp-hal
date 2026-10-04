@@ -146,6 +146,10 @@ impl Ipc {
     /// # Panics
     ///
     /// In debug builds, panics if `core` is the APP CPU and that CPU is not running.
+    // Out of line, so every posted function is the constant argument of a
+    // direct call: the only writer of `callback`, read by the image's stack
+    // analysis as the targets of the IPC dispatch.
+    #[inline(never)]
     pub fn call_function(self, core: Cpu, handler: fn()) {
         let handler = handler as *mut ();
         assert_target_runs(core);

@@ -123,6 +123,9 @@ only the ESP32-S31 support that needs:
 - **Where a source is routed.** `interrupt::mapped_to` is public
   (unstable): the firmware checks the interrupt matrix against its own table
   of sources before it enables interrupts.
+- **IPC posts out of line.** `Ipc::call_function` is `#[inline(never)]`: its
+  `handler` argument at each direct call is every function the IPC dispatch
+  can run, which the stack analysis reads from the image.
 - **CLIC line state.** `CpuInterrupt::is_pending`, `is_enabled`, `kind` and
   the panic-free `level` read a CLIC line's state, for a fatal-error record that must not touch the
   registers by address.
