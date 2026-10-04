@@ -11,7 +11,10 @@
 //! reset wait; this is ESP-IDF's variant without the brownout interrupt: no
 //! handler is installed, and `LP_ANA.INT_ENA` is left as found.
 
-use crate::{peripherals::LP_ANA, soc::regi2c};
+use crate::{
+    peripherals::{I2C_ANA_MST, LP_ANA},
+    soc::regi2c,
+};
 
 /// The analog mode-1 control bit in `FIB_ENABLE`; clearing it gives mode 1 to
 /// software (`BROWNOUT_DETECTOR_LL_FIB_ENABLE`).
@@ -51,13 +54,15 @@ impl Default for BrownoutConfig {
 
 /// Replace the bootloader's mode-1 brownout reset with the mode-0 detector.
 ///
-/// Call it once during startup, before a radio driver owns the RF path.
+/// The threshold is an analog-I2C register, so the call borrows the analog
+/// I2C master: whoever owns `I2C_ANA_MST` (a radio driver, once it starts)
+/// is the only writer of the analog bus.
 ///
 /// # Panics
 ///
 /// Panics if `config.threshold` is above 7.
 #[instability::unstable]
-pub fn configure(config: BrownoutConfig) {
+pub fn configure(_analog_bus: &mut I2C_ANA_MST<'_>, config: BrownoutConfig) {
     assert!(config.threshold <= 7, "brownout threshold is 0..=7");
     let lp_ana = LP_ANA::regs();
 

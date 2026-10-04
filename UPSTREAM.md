@@ -108,8 +108,10 @@ only the ESP32-S31 support that needs:
   `4d59230`: MWDT configuration is latched with `wdt_conf_update_en` on
   every chip that has it (upstream: C2, C3, C6 only); the USB Serial/JTAG
   blocking write waits for room in the IN FIFO; every SYSTIMER `CONF`
-  read-modify-write takes `CONF_LOCK`; S31 analog-I2C transactions and field
-  writes hold one cross-core lock (`clock::ll::with_analog_i2c_transaction`);
+  read-modify-write takes `CONF_LOCK`; the S31 analog-I2C bus has one owner,
+  the `I2C_ANA_MST` singleton: `rtc_cntl::brownout::configure`, the only
+  S31 code here that writes it after `init`, borrows the singleton, so a
+  radio driver that holds it is the bus's sole writer;
   S31 CPLL is not recalibrated while the CPU runs from it and is programmed
   to 320 MHz (`CPLL_DIV`) when this crate powers it; a restored CLIC run
   level gives back the previous `mintthresh`, not the handler's level; the

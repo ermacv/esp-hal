@@ -1,4 +1,4 @@
-use esp_sync::{NonReentrantMutex, RawMutex};
+use esp_sync::NonReentrantMutex;
 
 use crate::{
     peripherals::{MODEM_LPCON, MODEM_SYSCON},
@@ -400,24 +400,9 @@ fn wait_i2c_idle(ctrl: u32) {
     }
 }
 
-/// Serializes analog-I2C transactions across both cores: a transaction selects
-/// its slave in the shared `ANA_CONF1` word, then drives the master's control
-/// register until it is idle. ESP-IDF holds one spinlock for the same span
-/// (`REGI2C_ENTER_CRITICAL`), which its PHY library shares.
-static TRANSACTION_LOCK: RawMutex = RawMutex::new();
-
-/// Runs `transaction` as the only analog-I2C transaction on either core.
-///
-/// Another owner of the analog-I2C master (a radio PHY) must issue its
-/// transactions inside this lock, or it can retarget the master in the middle
-/// of one of this crate's.
-pub fn with_analog_i2c_transaction<R>(transaction: impl FnOnce() -> R) -> R {
-    TRANSACTION_LOCK.lock(transaction)
-}
-
 pub(crate) fn regi2c_read(block: u8, host_id: u8, reg_add: u8) -> u8 {
     acquire_analog_i2c_master_clock();
-    let value = with_analog_i2c_transaction(|| regi2c_read_clocked(block, host_id, reg_add));
+    let value = regi2c_read_clocked(block, host_id, reg_add);
     release_analog_i2c_master_clock();
     value
 }
@@ -443,7 +428,7 @@ fn regi2c_read_clocked(block: u8, _host_id: u8, reg_add: u8) -> u8 {
 
 pub(crate) fn regi2c_write(block: u8, host_id: u8, reg_add: u8, data: u8) {
     acquire_analog_i2c_master_clock();
-    with_analog_i2c_transaction(|| regi2c_write_clocked(block, host_id, reg_add, data));
+    regi2c_write_clocked(block, host_id, reg_add, data);
     release_analog_i2c_master_clock();
 }
 
