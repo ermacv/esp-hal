@@ -121,8 +121,9 @@ only the ESP32-S31 support that needs:
   with an FPU; S31 `.rwtext` is 128-byte aligned for PMP like the C5's;
   `DmaLoopBuf` writes its descriptor and buffer back before the DMA reads.
 - **Where a source is routed.** `interrupt::mapped_to` is public
-  (unstable): the firmware checks the interrupt matrix against its own table
-  of sources before it enables interrupts.
+  (unstable) and needs no `rt`: the firmware checks the interrupt matrix
+  against its own table of sources before it enables interrupts, and
+  `static-interrupts` builds without `rt` for an image with its own entry.
 - **IPC posts out of line.** `Ipc::call_function` is `#[inline(never)]`: its
   `handler` argument at each direct call is every function the IPC dispatch
   can run, which the stack analysis reads from the image.

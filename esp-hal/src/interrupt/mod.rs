@@ -529,14 +529,12 @@ pub(super) fn map_raw(core: Cpu, interrupt: Interrupt, cpu_interrupt: u32) {
 }
 
 /// Returns the CPU interrupt `interrupt` is routed to on `cpu`, or `None` while it is disabled
-/// there.
-#[cfg(feature = "rt")]
+/// there. It reads the interrupt matrix, so it needs no runtime.
 #[instability::unstable]
 pub fn mapped_to(cpu: Cpu, interrupt: Interrupt) -> Option<CpuInterrupt> {
     mapped_to_raw(cpu, interrupt as u32)
 }
 
-#[cfg(feature = "rt")]
 pub(crate) fn mapped_to_raw(cpu: Cpu, interrupt: u32) -> Option<CpuInterrupt> {
     let cpu_intr = match cpu {
         Cpu::ProCpu => INTERRUPT_CORE0::regs()
