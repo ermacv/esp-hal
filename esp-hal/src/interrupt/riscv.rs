@@ -187,8 +187,12 @@ impl CpuInterrupt {
         unwrap!(Priority::try_from_u32(self.level()))
     }
 
+    /// The CPU interrupt's level as the controller holds it, which
+    /// [`Self::priority`] maps to a [`Priority`] and panics on when no
+    /// priority has that level; this never panics.
     #[inline]
-    pub(crate) fn level(self) -> u32 {
+    #[instability::unstable]
+    pub fn level(self) -> u32 {
         cpu_int::cpu_interrupt_priority_raw(self as u32) as u32
     }
 }

@@ -123,8 +123,8 @@ only the ESP32-S31 support that needs:
 - **Where a source is routed.** `interrupt::mapped_to` is public
   (unstable): the firmware checks the interrupt matrix against its own table
   of sources before it enables interrupts.
-- **CLIC line state.** `CpuInterrupt::is_pending`, `is_enabled` and `kind`
-  read a CLIC line's state, for a fatal-error record that must not touch the
+- **CLIC line state.** `CpuInterrupt::is_pending`, `is_enabled`, `kind` and
+  the panic-free `level` read a CLIC line's state, for a fatal-error record that must not touch the
   registers by address.
 - **Static interrupts.** The `static-interrupts` feature makes the image's
   link-time interrupt table the only owner of routes: no public API binds a
