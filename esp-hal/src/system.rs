@@ -324,12 +324,11 @@ use crate::rtc_cntl::SocResetReason;
 /// ```
 #[inline]
 pub fn software_reset() -> ! {
-    // A panic handler resets through here, possibly under the clock-tree
-    // lock, whose reentry panics: the ESP32-S31 sets UART0's clock for the
-    // boot ROM by register alone.
-    #[cfg(esp32s31)]
+    // A panic handler may reset while holding the clock-tree lock. Restore
+    // UART0 for the boot ROM by register alone, without reentering that lock.
+    #[cfg(any(esp32c5, esp32s31))]
     crate::soc::clocks::UartInstance::Uart0.restore_power_on_function_clock();
-    #[cfg(not(esp32s31))]
+    #[cfg(not(any(esp32c5, esp32s31)))]
     let _uart0_sclk_guard = ensure_uart0_sclk_enabled();
     #[cfg(any(esp32h4, esp32p4, esp32s31))]
     crate::soc::cpu_control::pre_system_reset();

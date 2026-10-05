@@ -83,14 +83,17 @@ only the ESP32-S31 support that needs:
   an unreachable branch (zero is the first core, any other value the
   second), so a panic handler that resets through `pre_system_reset`, or asks
   for its core anywhere else, cannot re-enter itself.
-  `software_reset` on the ESP32-S31 also leaves the clock tree alone:
+  `software_reset` on the ESP32-S31 and ESP32-C5 also leaves the clock tree alone:
   upstream requests UART0's function clock for the boot ROM through
   `ClockTree::with`, whose lock panics on reentry (a panic under it would
   re-enter the handler) and whose generated request keeps an `unwrap!`.
   The fork returns UART0 to its power-on clock instead, XTAL undivided with
   its gate open, by register: the source the firmware chose may not run
   any more; ESP-IDF's `esp_restart_noos` leaves the
-  UART0 clock as it is.
+  UART0 clock as it is. The C5 restores undivided XTAL through its PCR
+  UART function-clock register. The HAL unwrap helpers and esp-sync lock
+  panic entry stay in SRAM on both staged chips; the application owns the
+  compiler panic entries and its handler placement.
 - **IPC through the vector table's own entry.** On dual-core RISC-V chips
   upstream writes `ipc_handler` into the active vector table's IPC slot
   (interrupt 3), and that handler runs on the interrupted stack. The
