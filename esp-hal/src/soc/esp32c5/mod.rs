@@ -95,7 +95,7 @@ pub unsafe fn cache_invalidate_addr(addr: u32, size: u32) {
 #[crate::ram]
 pub(crate) unsafe fn cache_prepare_code_addr(addr: u32, size: u32) {
     const CACHE_LINE_BYTES: u32 = 32;
-    const CACHE_MAP_FLASH_CACHE: u32 = 1 << 4;
+    const CACHE_MAP_FLASH_CACHE: u8 = 1 << 4;
     if size == 0 {
         return;
     }
