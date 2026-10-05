@@ -692,20 +692,22 @@ pub(crate) fn setup_interrupts() {
 
 /// Reinitializes this core's interrupt controller and vector table after handoff.
 ///
-/// All named peripheral interrupt mappings on both cores are disabled and their
-/// pass levels are reset to zero. This permits a separately linked second-stage
-/// image to install its own handlers with a known interrupt-matrix baseline.
-/// Peripheral drivers must be initialized after this function returns.
+/// All named peripheral interrupt mappings on every core are disabled and, on
+/// ESP32-S31, their pass levels are reset to zero (the ESP32-C5 matrix has no
+/// pass level). This permits a separately linked second-stage image to install
+/// its own handlers with a known interrupt-matrix baseline. Peripheral drivers
+/// must be initialized after this function returns.
 ///
 /// # Safety
 ///
-/// Interrupts must be globally disabled, the other core must be stopped, and
+/// Interrupts must be globally disabled, any other core must be stopped, and
 /// no live peripheral driver may rely on the previous interrupt mappings.
-#[cfg(all(esp32s31, feature = "rt"))]
+#[cfg(all(any(esp32s31, esp32c5), feature = "rt"))]
 #[instability::unstable]
 pub unsafe fn reinitialize_vectoring_after_handoff() {
     // Normal interrupt routing preserves pass levels. A second-stage image
     // instead takes ownership of both matrices and establishes its baseline.
+    #[cfg(esp32s31)]
     for peripheral_interrupt in 0..255 {
         if let Ok(interrupt) = Interrupt::try_from(peripheral_interrupt) {
             INTERRUPT_CORE0::regs()
