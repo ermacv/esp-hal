@@ -544,13 +544,29 @@ pub fn mapped_to(cpu: Cpu, interrupt: Interrupt) -> Option<CpuInterrupt> {
 /// and needs neither allocation nor initialized runtime state.
 #[cfg(esp32s31)]
 #[instability::unstable]
+#[inline(always)]
 pub fn mapped_sources(cpu: Cpu) -> impl Iterator<Item = (usize, CpuInterrupt)> {
-    let sources = match cpu {
-        Cpu::ProCpu => INTERRUPT_CORE0::regs().core_0_intr_map_iter().count(),
-        Cpu::AppCpu => INTERRUPT_CORE1::regs().core_1_intr_map_iter().count(),
-    };
-    (0..sources)
-        .filter_map(move |source| mapped_to_raw(cpu, source as u32).map(|line| (source, line)))
+    // Iterate the PAC's register references directly: indexing by a derived
+    // source count can retain bounds-check panic metadata in cached memory.
+    let core0 = matches!(cpu, Cpu::ProCpu)
+        .then(|| INTERRUPT_CORE0::regs().core_0_intr_map_iter())
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .filter_map(|(source, route)| {
+            CpuInterrupt::from_u32(u32::from(route.read().map().bits()))
+                .map(|line| (source, line))
+        });
+    let core1 = matches!(cpu, Cpu::AppCpu)
+        .then(|| INTERRUPT_CORE1::regs().core_1_intr_map_iter())
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .filter_map(|(source, route)| {
+            CpuInterrupt::from_u32(u32::from(route.read().map().bits()))
+                .map(|line| (source, line))
+        });
+    core0.chain(core1)
 }
 
 pub(crate) fn mapped_to_raw(cpu: Cpu, interrupt: u32) -> Option<CpuInterrupt> {
