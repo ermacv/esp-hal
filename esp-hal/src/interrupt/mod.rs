@@ -535,6 +535,24 @@ pub fn mapped_to(cpu: Cpu, interrupt: Interrupt) -> Option<CpuInterrupt> {
     mapped_to_raw(cpu, interrupt as u32)
 }
 
+/// The enabled routes on `cpu`, by physical interrupt-matrix source number.
+///
+/// This includes every PAC-defined matrix slot, even a source absent from the
+/// `Interrupt` enum. Fatal-error diagnostics can read these routes without
+/// converting source numbers through compiler-generated enum switch tables,
+/// which may live in cached memory. The iterator reads each route when visited
+/// and needs neither allocation nor initialized runtime state.
+#[cfg(esp32s31)]
+#[instability::unstable]
+pub fn mapped_sources(cpu: Cpu) -> impl Iterator<Item = (usize, CpuInterrupt)> {
+    let sources = match cpu {
+        Cpu::ProCpu => INTERRUPT_CORE0::regs().core_0_intr_map_iter().count(),
+        Cpu::AppCpu => INTERRUPT_CORE1::regs().core_1_intr_map_iter().count(),
+    };
+    (0..sources)
+        .filter_map(move |source| mapped_to_raw(cpu, source as u32).map(|line| (source, line)))
+}
+
 pub(crate) fn mapped_to_raw(cpu: Cpu, interrupt: u32) -> Option<CpuInterrupt> {
     let cpu_intr = match cpu {
         Cpu::ProCpu => INTERRUPT_CORE0::regs()

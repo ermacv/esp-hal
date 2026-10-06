@@ -129,6 +129,8 @@ only the ESP32-S31 support that needs:
   (unstable) and needs no `rt`: the firmware checks the interrupt matrix
   against its own table of sources before it enables interrupts, and
   `static-interrupts` builds without `rt` for an image with its own entry.
+  S31's `interrupt::mapped_sources` reads all PAC-defined matrix slots for
+  fatal-error diagnostics without enum conversions or cached switch tables.
 - **IPC posts out of line.** `Ipc::call_function` is `#[inline(never)]`: its
   `handler` argument at each direct call is every function the IPC dispatch
   can run, which the stack analysis reads from the image.
