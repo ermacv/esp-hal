@@ -322,7 +322,8 @@ use crate::rtc_cntl::SocResetReason;
 /// software_reset();
 /// # {after_snippet}
 /// ```
-#[inline]
+#[cfg_attr(not(any(esp32c5, esp32s31)), inline)]
+#[cfg_attr(any(esp32c5, esp32s31), crate::ram)]
 pub fn software_reset() -> ! {
     // A panic handler may reset while holding the clock-tree lock. Restore
     // UART0 for the boot ROM by register alone, without reentering that lock.

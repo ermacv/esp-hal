@@ -3,6 +3,7 @@ use crate::{
     system::Cpu,
 };
 
+#[crate::ram]
 pub(crate) unsafe fn internal_park_core(core: Cpu, park: bool) {
     // 0x86 = stalled, 0xFF = running (matches IDF cpu_utility_ll.h).
     let code: u8 = if park { 0x86 } else { 0xFF };
@@ -43,6 +44,7 @@ pub fn is_running(core: Cpu) -> bool {
     }
 }
 
+#[crate::ram]
 pub(crate) fn pre_system_reset() {
     // Match IDF's esp_restart_noos(): reset and stall only the other core.
     // The caller must remain alive to request the subsequent system reset.

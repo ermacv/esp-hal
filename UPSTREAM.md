@@ -93,7 +93,9 @@ only the ESP32-S31 support that needs:
   UART0 clock as it is. The C5 restores undivided XTAL through its PCR
   UART function-clock register. The HAL unwrap helpers and esp-sync lock
   panic entry stay in SRAM on both staged chips; the application owns the
-  compiler panic entries and its handler placement.
+  compiler panic entries and its handler placement. The staged chips'
+  `software_reset`, S31 reset preparation and core-stall helper explicitly
+  run from SRAM, including when the optimizer outlines a reset call.
 - **IPC through the vector table's own entry.** On dual-core RISC-V chips
   upstream writes `ipc_handler` into the active vector table's IPC slot
   (interrupt 3), and that handler runs on the interrupted stack. The
