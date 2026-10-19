@@ -535,6 +535,40 @@ pub fn mapped_to(cpu: Cpu, interrupt: Interrupt) -> Option<CpuInterrupt> {
     mapped_to_raw(cpu, interrupt as u32)
 }
 
+/// The enabled routes on `cpu`, by physical interrupt-matrix source number.
+///
+/// This includes every PAC-defined matrix slot, even a source absent from the
+/// `Interrupt` enum. Fatal-error diagnostics can read these routes without
+/// converting source numbers through compiler-generated enum switch tables,
+/// which may live in cached memory. The iterator reads each route when visited
+/// and needs neither allocation nor initialized runtime state.
+#[cfg(esp32s31)]
+#[instability::unstable]
+#[inline(always)]
+pub fn mapped_sources(cpu: Cpu) -> impl Iterator<Item = (usize, CpuInterrupt)> {
+    // Iterate the PAC's register references directly: indexing by a derived
+    // source count can retain bounds-check panic metadata in cached memory.
+    let core0 = matches!(cpu, Cpu::ProCpu)
+        .then(|| INTERRUPT_CORE0::regs().core_0_intr_map_iter())
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .filter_map(|(source, route)| {
+            CpuInterrupt::from_u32(u32::from(route.read().map().bits()))
+                .map(|line| (source, line))
+        });
+    let core1 = matches!(cpu, Cpu::AppCpu)
+        .then(|| INTERRUPT_CORE1::regs().core_1_intr_map_iter())
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .filter_map(|(source, route)| {
+            CpuInterrupt::from_u32(u32::from(route.read().map().bits()))
+                .map(|line| (source, line))
+        });
+    core0.chain(core1)
+}
+
 pub(crate) fn mapped_to_raw(cpu: Cpu, interrupt: u32) -> Option<CpuInterrupt> {
     let cpu_intr = match cpu {
         Cpu::ProCpu => INTERRUPT_CORE0::regs()
@@ -692,20 +726,22 @@ pub(crate) fn setup_interrupts() {
 
 /// Reinitializes this core's interrupt controller and vector table after handoff.
 ///
-/// All named peripheral interrupt mappings on both cores are disabled and their
-/// pass levels are reset to zero. This permits a separately linked second-stage
-/// image to install its own handlers with a known interrupt-matrix baseline.
-/// Peripheral drivers must be initialized after this function returns.
+/// All named peripheral interrupt mappings on every core are disabled and, on
+/// ESP32-S31, their pass levels are reset to zero (the ESP32-C5 matrix has no
+/// pass level). This permits a separately linked second-stage image to install
+/// its own handlers with a known interrupt-matrix baseline. Peripheral drivers
+/// must be initialized after this function returns.
 ///
 /// # Safety
 ///
-/// Interrupts must be globally disabled, the other core must be stopped, and
+/// Interrupts must be globally disabled, any other core must be stopped, and
 /// no live peripheral driver may rely on the previous interrupt mappings.
-#[cfg(all(esp32s31, feature = "rt"))]
+#[cfg(all(any(esp32s31, esp32c5), feature = "rt"))]
 #[instability::unstable]
 pub unsafe fn reinitialize_vectoring_after_handoff() {
     // Normal interrupt routing preserves pass levels. A second-stage image
     // instead takes ownership of both matrices and establishes its baseline.
+    #[cfg(esp32s31)]
     for peripheral_interrupt in 0..255 {
         if let Ok(interrupt) = Interrupt::try_from(peripheral_interrupt) {
             INTERRUPT_CORE0::regs()

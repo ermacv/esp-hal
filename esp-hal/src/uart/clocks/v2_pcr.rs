@@ -25,6 +25,24 @@ impl UartInstance {
             .modify(|_, w| w.sclk_en().bit(en));
     }
 
+    /// Restore C5 UART0's undivided XTAL clock for the boot ROM, without
+    /// acquiring the clock tree: the resetting panic may already hold it.
+    #[cfg(esp32c5)]
+    #[procmacros::ram]
+    pub(crate) fn restore_power_on_function_clock(self) {
+        PCR::regs()
+            .uart(self as usize)
+            .clk_conf()
+            .modify(|_, w| unsafe {
+                // C5 source 0 is XTAL; all-zero divider fields mean divide by one.
+                w.sclk_sel().bits(0);
+                w.sclk_div_a().bits(0);
+                w.sclk_div_b().bits(0);
+                w.sclk_div_num().bits(0);
+                w.sclk_en().set_bit()
+            });
+    }
+
     pub(crate) fn configure_function_clock_impl(
         self,
         _clocks: &mut ClockTree,

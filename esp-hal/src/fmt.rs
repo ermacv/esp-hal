@@ -253,6 +253,7 @@ macro_rules! unwrap {
 #[cold]
 #[inline(never)]
 #[cfg(not(feature = "defmt"))]
+#[cfg_attr(any(esp32c5, esp32s31), unsafe(link_section = ".rwtext"))]
 pub(crate) fn __unwrap_failed(arg: &str, e: impl ::core::fmt::Debug) -> ! {
     ::core::panic!("unwrap of `{}` failed: {:?}", arg, e);
 }
@@ -260,6 +261,7 @@ pub(crate) fn __unwrap_failed(arg: &str, e: impl ::core::fmt::Debug) -> ! {
 #[cold]
 #[inline(never)]
 #[cfg(not(feature = "defmt"))]
+#[cfg_attr(any(esp32c5, esp32s31), unsafe(link_section = ".rwtext"))]
 pub(crate) fn __unwrap_failed_with_message(
     arg: &str,
     e: impl core::fmt::Debug,

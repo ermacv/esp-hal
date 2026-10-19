@@ -16,10 +16,6 @@ use crate::{
     soc::regi2c,
 };
 
-/// The analog mode-1 control bit in `FIB_ENABLE`; clearing it gives mode 1 to
-/// software (`BROWNOUT_DETECTOR_LL_FIB_ENABLE`).
-const FIB_ENABLE_BOD_MODE1: u32 = 1 << 1;
-
 /// Brownout reset wait, in detector cycles (ESP-IDF's fixed `0x3ff`).
 const RESET_WAIT: u16 = 0x3ff;
 
@@ -68,10 +64,8 @@ pub fn configure(_analog_bus: &mut I2C_ANA_MST<'_>, config: BrownoutConfig) {
 
     // brownout_ll_ana_reset_enable(false): take mode 1 into software control,
     // then disarm its reset; it has the highest priority otherwise.
-    lp_ana.fib_enable().modify(|r, w| unsafe {
-        w.ana_fib_ena()
-            .bits(r.ana_fib_ena().bits() & !FIB_ENABLE_BOD_MODE1)
-    });
+    // `BOD_MODE1_FIB` is `BROWNOUT_DETECTOR_LL_FIB_ENABLE`.
+    lp_ana.fib_enable().modify(|_, w| w.bod_mode1_fib().clear_bit());
     lp_ana
         .bod_mode1_cntl()
         .modify(|_, w| w.bod_mode1_reset_ena().clear_bit());

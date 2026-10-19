@@ -445,6 +445,7 @@ impl<L: RawLock> Drop for LockGuard<'_, L> {
 
 #[inline(never)]
 #[cold]
+#[cfg_attr(any(esp32c5, esp32s31), unsafe(link_section = ".rwtext"))]
 fn panic_lock_not_reentrant() -> ! {
     panic!("lock is not reentrant");
 }

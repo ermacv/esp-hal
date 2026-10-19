@@ -92,12 +92,29 @@ pub struct MspiTimingTuningParam {
     pub extra_dummy_len: u8,
 }
 
+/// Where PSRAM is mapped in the cache window that flash and PSRAM share.
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum PsramOrigin {
+    /// On the MMU page after the last page the bootloader mapped for flash:
+    /// the address follows the image's flash footprint.
+    #[default]
+    AfterFlash,
+    /// At this virtual address, a multiple of the MMU page size inside the
+    /// shared window, whatever flash occupies: a separately linked image can
+    /// be linked at the address. Mapping fails with a panic when the range
+    /// leaves the window or overlaps a valid MMU entry.
+    Fixed(usize),
+}
+
 /// PSRAM configuration
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PsramConfig {
     /// PSRAM size
     pub size: PsramSize,
+    /// Where PSRAM is mapped.
+    pub origin: PsramOrigin,
     /// Frequency of flash memory
     pub flash_frequency: FlashFreq,
     /// Flash timing tuning configuration.
@@ -114,6 +131,7 @@ impl Default for PsramConfig {
     fn default() -> Self {
         Self {
             size: Default::default(),
+            origin: Default::default(),
             flash_frequency: Default::default(),
             flash_tuning: MspiTimingTuningParam {
                 spi_din_mode: 3,
@@ -134,8 +152,19 @@ impl Default for PsramConfig {
 /// Initializes PSRAM to be used for data.
 #[procmacros::ram]
 pub(crate) fn init_psram(config: &mut PsramConfig) -> bool {
+    #[cfg(esp32c5)]
+    adopt_function_clock();
     quad::psram_init(config);
     true
+}
+
+/// Takes the reference on the PLL behind the MSPI core clock (SPLL, which
+/// `mspi_timing_ll_set_core_clock` divides) that PSRAM needs for as long as
+/// the image runs: code and data in PSRAM stop when it powers down. It is
+/// never released.
+#[cfg(esp32c5)]
+pub(crate) fn adopt_function_clock() {
+    crate::soc::clocks::ClockTree::with(crate::soc::clocks::request_pll_clk);
 }
 
 #[procmacros::ram]
@@ -167,21 +196,44 @@ pub(crate) fn map_psram(config: PsramConfig) -> Range<usize> {
     // the linker scripts can produce a gap between mapped IROM and DROM segments
     // bigger than a flash page - i.e. we will see an unmapped memory slot
     // start from the end and find the last mapped flash page
-    let mut mapped_pages = 0;
+    let pages = config.size.get() as u32 / MMU_PAGE_SIZE;
+    let first_entry = match config.origin {
+        PsramOrigin::AfterFlash => {
+            let mut mapped_pages = 0;
 
-    // the bootloader is using the last page to access flash internally
-    // (e.g. to read the app descriptor) so we just skip that
-    for i in (0..(FLASH_MMU_TABLE_SIZE - 1)).rev() {
-        if mmu_entry_is_valid(i) {
-            mapped_pages = i + 1;
-            break;
+            // the bootloader is using the last page to access flash internally
+            // (e.g. to read the app descriptor) so we just skip that
+            for i in (0..(FLASH_MMU_TABLE_SIZE - 1)).rev() {
+                if mmu_entry_is_valid(i) {
+                    mapped_pages = i + 1;
+                    break;
+                }
+            }
+            mapped_pages
         }
-    }
-    let start = EXTMEM_ORIGIN as u32 + (MMU_PAGE_SIZE * mapped_pages);
+        PsramOrigin::Fixed(origin) => {
+            let offset = (origin as u32)
+                .checked_sub(EXTMEM_ORIGIN as u32)
+                .filter(|offset| offset % MMU_PAGE_SIZE == 0)
+                .unwrap_or_else(|| panic!("PSRAM origin {origin:#x} is not an MMU page of the window"));
+            let first = offset / MMU_PAGE_SIZE;
+            // The last entry stays the bootloader's flash access page.
+            assert!(
+                first + pages < FLASH_MMU_TABLE_SIZE,
+                "PSRAM at {origin:#x} leaves the shared cache window"
+            );
+            assert!(
+                (first..first + pages).all(|entry| !mmu_entry_is_valid(entry)),
+                "PSRAM at {origin:#x} overlaps a mapped MMU page"
+            );
+            first
+        }
+    };
+    let start = EXTMEM_ORIGIN as u32 + (MMU_PAGE_SIZE * first_entry);
     debug!("PSRAM start address = {:x}", start);
 
-    for i in 0..config.size.get() as u32 / MMU_PAGE_SIZE {
-        write_psram_mmu_entry(i + mapped_pages, i as u16);
+    for i in 0..pages {
+        write_psram_mmu_entry(i + first_entry, i as u16);
     }
 
     // enable busses

@@ -43,7 +43,7 @@
 
 use core::ops::Range;
 
-#[cfg(esp32s31)]
+#[cfg(any(esp32s31, esp32c5))]
 mod mapping;
 
 #[cfg(any(esp32s2, esp32s3))]
@@ -129,11 +129,13 @@ impl Psram {
     ///
     /// This records the mapping without resetting the device, clocks, caches or
     /// the PSRAM PHY supply.
-    /// Code and data already run from the mapping, so on ESP32-S31 it takes
-    /// the PSRAM function-clock reference that [`Psram::new`] takes: the clock
-    /// tree then keeps MPLL referenced for the life of the image, and another
-    /// MPLL user releasing its own reference cannot power it down. An adopted
-    /// `Psram` is never dropped, so the reference is never released.
+    /// Code and data already run from the mapping, so on ESP32-S31 and
+    /// ESP32-C5 it takes the PSRAM clock reference that [`Psram::new`] takes:
+    /// the clock tree then keeps the PLL that clocks PSRAM (MPLL on
+    /// ESP32-S31, the SPLL behind the MSPI core clock on ESP32-C5) referenced
+    /// for the life of the image, and another user releasing its own
+    /// reference cannot power it down. An adopted `Psram` is never dropped,
+    /// so the reference is never released.
     ///
     /// # Safety
     ///
@@ -143,7 +145,7 @@ impl Psram {
     /// relinquished its peripheral ownership.
     pub unsafe fn from_existing_mapping(peri: PSRAM<'static>, range: Range<usize>) -> Self {
         assert!(range.start < range.end, "PSRAM mapping must be nonempty");
-        #[cfg(esp32s31)]
+        #[cfg(any(esp32s31, esp32c5))]
         adopt_function_clock();
         unsafe { set_psram_range(range) };
         Self { _peri: peri }
@@ -157,7 +159,7 @@ impl Psram {
 }
 
 /// Failure to synchronize executable PSRAM.
-#[cfg(esp32s31)]
+#[cfg(any(esp32s31, esp32c5))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum PsramCacheError {
@@ -165,7 +167,9 @@ pub enum PsramCacheError {
     InvalidAddress,
 }
 
-/// Publishes copied PSRAM code to both instruction caches.
+/// Publishes copied PSRAM code to the instruction fetch path: on ESP32-S31
+/// to both instruction caches, on ESP32-C5 by writing the shared
+/// instruction/data cache back to PSRAM.
 ///
 /// # Safety
 ///
@@ -173,7 +177,7 @@ pub enum PsramCacheError {
 /// during synchronization. Other cores must remain quiescent until the caller
 /// publishes the entry point; each executing core needs an instruction fence
 /// before entering code it could previously have fetched.
-#[cfg(esp32s31)]
+#[cfg(any(esp32s31, esp32c5))]
 #[crate::ram]
 pub unsafe fn prepare_code(ptr: *const u8, size: usize) -> Result<(), PsramCacheError> {
     let start = ptr as usize;
