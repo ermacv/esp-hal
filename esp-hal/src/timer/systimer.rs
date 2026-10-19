@@ -874,3 +874,88 @@ pub mod etm {
         super::CONF_LOCK.lock(|| SYSTIMER::regs().conf().modify(|_, w| w.etm_en().set_bit()));
     }
 }
+
+
+/// Single writer of the alarm configuration words, independently of the
+/// free-running counter latch used by `Instant::now`.
+#[cfg(any(esp32s31, esp32c5))]
+///
+/// ```compile_fail,E0382
+/// use esp_hal::{peripherals::SYSTIMER, timer::systimer::AlarmBank};
+/// fn adopt_twice(timer: SYSTIMER<'static>) {
+///     let first = AlarmBank::adopt(timer);
+///     let second = AlarmBank::adopt(timer);
+/// }
+/// ```
+pub struct AlarmBank<'d> {
+    _systimer: SYSTIMER<'d>,
+}
+
+/// One comparator's write-one-to-clear interrupt acknowledgement authority.
+#[cfg(any(esp32s31, esp32c5))]
+pub struct AlarmAcknowledger<'d, const CHANNEL: u8> {
+    _lifetime: core::marker::PhantomData<&'d mut ()>,
+}
+
+#[cfg(any(esp32s31, esp32c5))]
+impl<'d> AlarmBank<'d> {
+    /// Adopt the running system timer without resetting or reconfiguring it.
+    /// All alarm configuration belongs to the returned writer; each handler
+    /// receives only its own W1C acknowledgement word.
+    pub fn adopt(systimer: SYSTIMER<'d>) -> (
+        Self, AlarmAcknowledger<'d, 0>, AlarmAcknowledger<'d, 1>, AlarmAcknowledger<'d, 2>,
+    ) {
+        (
+            Self { _systimer: systimer },
+            AlarmAcknowledger { _lifetime: core::marker::PhantomData },
+            AlarmAcknowledger { _lifetime: core::marker::PhantomData },
+            AlarmAcknowledger { _lifetime: core::marker::PhantomData },
+        )
+    }
+
+    /// Select unit zero and a one-shot alarm, then enable its interrupt.
+    /// The caller holds the corresponding acknowledger until setup ends.
+    pub fn bind<const CHANNEL: u8>(&mut self, ack: &mut AlarmAcknowledger<'d, CHANNEL>) {
+        const { assert!(CHANNEL < 3, "no such system timer comparator"); }
+        let regs = SYSTIMER::regs();
+        regs.target_conf(CHANNEL as usize)
+            .modify(|_, w| w.period_mode().clear_bit().timer_unit_sel().clear_bit());
+        self.set_enabled(CHANNEL, false);
+        ack.acknowledge();
+        regs.int_ena().modify(|_, w| w.target(CHANNEL).set_bit());
+    }
+
+    fn set_enabled(&mut self, channel: u8, enabled: bool) {
+        SYSTIMER::regs().conf().modify(|_, w| match channel {
+            0 => w.target0_work_en().bit(enabled),
+            1 => w.target1_work_en().bit(enabled),
+            2 => w.target2_work_en().bit(enabled),
+            _ => unreachable!("no such system timer comparator"),
+        });
+    }
+
+    /// Disable, load and enable a one-shot target in hardware ticks.
+    /// `None` leaves the alarm disabled.
+    pub fn program(&mut self, channel: u8, ticks: Option<u64>) {
+        assert!(channel < 3, "no such system timer comparator");
+        self.set_enabled(channel, false);
+        let Some(ticks) = ticks else { return };
+        let regs = SYSTIMER::regs();
+        let target = regs.trgt(channel as usize);
+        target.hi().write(|w| w.hi().set((ticks >> 32) as u32));
+        target.lo().write(|w| w.lo().set(ticks as u32));
+        regs.comp_load(channel as usize).write(|w| w.load().set_bit());
+        self.set_enabled(channel, true);
+    }
+}
+
+#[cfg(any(esp32s31, esp32c5))]
+impl<const CHANNEL: u8> AlarmAcknowledger<'_, CHANNEL> {
+    /// Acknowledge only this comparator. This never reads or modifies a
+    /// word shared with the alarm writer or another interrupt handler.
+    #[inline(always)]
+    pub fn acknowledge(&mut self) {
+        const { assert!(CHANNEL < 3, "no such system timer comparator"); }
+        SYSTIMER::regs().int_clr().write(|w| w.target(CHANNEL).clear_bit_by_one());
+    }
+}

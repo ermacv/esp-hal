@@ -214,3 +214,36 @@ impl rand_core_010::TryRng for Rng {
         Ok(())
     }
 }
+
+#[cfg(esp32s31)]
+pub use trng::SourceStatus;
+
+/// Random-number access bound to the unique peripheral witness.
+/// This preserves `Rng`'s clock and source behavior while keeping one reader
+/// owner in applications that require explicit hardware ownership.
+///
+/// ```compile_fail,E0382
+/// use esp_hal::{peripherals::RNG, rng::RngOwner};
+/// fn two_readers(rng: RNG<'static>) {
+///     let first = RngOwner::new(rng);
+///     let second = RngOwner::new(rng);
+/// }
+/// ```
+pub struct RngOwner<'d> {
+    _rng: crate::peripherals::RNG<'d>,
+}
+
+impl<'d> RngOwner<'d> {
+    /// Consume the unique RNG peripheral.
+    pub fn new(rng: crate::peripherals::RNG<'d>) -> Self {
+        Self { _rng: rng }
+    }
+    /// Read one random word through this owner.
+    pub fn random(&mut self) -> u32 {
+        Rng::new().random()
+    }
+    /// Fill bytes through this owner.
+    pub fn read(&mut self, bytes: &mut [u8]) {
+        Rng::new().read(bytes);
+    }
+}
