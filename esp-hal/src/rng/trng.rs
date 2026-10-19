@@ -40,6 +40,31 @@ impl<'d> TrngSource<'d> {
         Self { _rng: rng }
     }
 
+    /// Read entropy while borrowing its unique source witness.
+    pub fn read(&mut self, bytes: &mut [u8]) -> Result<(), TrngError> {
+        let reader = Trng::try_new()?;
+        reader.read(bytes);
+        Ok(())
+    }
+
+    /// The independent LP TRNG's clock, sampling and health-test state.
+    #[cfg(esp32s31)]
+    pub fn status(&self) -> SourceStatus {
+        let clock = crate::peripherals::LP_PERI::regs().rng_ctrl().read();
+        let trng = RNG::regs();
+        let conf = trng.conf().read();
+        let debug = trng.debug_conf().read();
+        SourceStatus {
+            clocked: clock.lp_rng_clk_en().bit_is_set() && clock.lp_rng_rst_en().bit_is_clear(),
+            sampling: conf.sample_enable().bit_is_set()
+                && conf.noise_crc_en().bit_is_set()
+                && conf.random_output_mode().bit_is_set(),
+            health_tested: debug.health_test_bypass().bit_is_clear()
+                && conf.noise_source_sel().bits() != 0,
+            health_error: trng.int_raw().read().error_int_raw().bit_is_set(),
+        }
+    }
+
     /// Increases the internal entropy source counter.
     ///
     /// # Panics
@@ -332,3 +357,25 @@ impl rand_core_010::TryRng for Trng {
 /// Compatibility with `rand_core 0.10`
 #[instability::unstable]
 impl rand_core_010::TryCryptoRng for Trng {}
+
+/// Read-only observation made through the independent entropy source owner.
+#[cfg(esp32s31)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SourceStatus {
+    /// The source clock runs and reset is released.
+    pub clocked: bool,
+    /// Sampling and the output conditioner are enabled.
+    pub sampling: bool,
+    /// Health tests are enabled for the selected noise source.
+    pub health_tested: bool,
+    /// A startup or continuous health test reported an error.
+    pub health_error: bool,
+}
+
+#[cfg(esp32s31)]
+impl SourceStatus {
+    /// Whether every required source condition holds.
+    pub const fn is_healthy(self) -> bool {
+        self.clocked && self.sampling && self.health_tested && !self.health_error
+    }
+}

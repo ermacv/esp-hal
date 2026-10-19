@@ -114,6 +114,13 @@ pub struct Psram {
 }
 
 impl Psram {
+    /// Observe the PSRAM supply words while this mapping owns their lifetime.
+    #[cfg(esp32s31)]
+    pub fn supply_configuration(&self) -> (u32, u32) {
+        let pmu = crate::peripherals::PMU::regs();
+        (pmu.ext_ldo_ctrl().read().bits(), pmu.psram_cfg().read().bits())
+    }
+
     /// Initializes PSRAM.
     pub fn new(peri: PSRAM<'static>, mut config: PsramConfig) -> Self {
         if init_psram(&mut config) {
@@ -202,4 +209,12 @@ pub unsafe fn prepare_code(ptr: *const u8, size: usize) -> Result<(), PsramCache
 #[crate::ram]
 pub unsafe fn writeback_for_dma(ptr: *const u8, size: usize) {
     unsafe { crate::soc::cache_writeback_addr(ptr as u32, size as u32) };
+}
+
+
+/// Observe the existing mapping's supply before adopting PSRAM.
+#[cfg(esp32s31)]
+pub fn existing_supply_configuration(_psram: &mut crate::peripherals::PSRAM<'_>) -> (u32, u32) {
+    let pmu = crate::peripherals::PMU::regs();
+    (pmu.ext_ldo_ctrl().read().bits(), pmu.psram_cfg().read().bits())
 }

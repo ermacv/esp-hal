@@ -403,6 +403,14 @@ where
         (self.rx, self.tx)
     }
 
+    /// Transfer endpoint and pad control to three disjoint owners.
+    /// The pad owner alone can disconnect the device after its final reply.
+    pub fn split_with_pad_control(self) -> (
+        UsbSerialJtagRx<'d, Dm>, UsbSerialJtagTx<'d, Dm>, UsbPadControl<'d>,
+    ) {
+        (self.rx, self.tx, UsbPadControl { _lifetime: PhantomData })
+    }
+
     /// Writes data to the serial output in chunks of up to 64 bytes.
     pub fn write(&mut self, data: &[u8]) -> Result<(), Error> {
         self.tx.write(data)
@@ -1024,5 +1032,31 @@ fn service_async_interrupt() {
     }
     if tx {
         WAKER_TX.wake();
+    }
+}
+
+
+/// The pad-control authority split from the USB Serial/JTAG driver.
+///
+/// ```compile_fail,E0382
+/// use esp_hal::usb::usb_serial_jtag::UsbPadControl;
+/// fn disconnect_twice(pads: UsbPadControl<'static>) {
+///     pads.disconnect();
+///     pads.disconnect();
+/// }
+/// ```
+pub struct UsbPadControl<'d> {
+    _lifetime: PhantomData<&'d mut ()>,
+}
+
+impl UsbPadControl<'_> {
+    /// Drop the pull-ups and disconnect the endpoint. Only reset reconnects it.
+    pub fn disconnect(self) {
+        USB_DEVICE::regs().conf0().modify(|_, w| {
+            w.pad_pull_override().set_bit()
+                .dp_pullup().clear_bit()
+                .dm_pullup().clear_bit()
+                .usb_pad_enable().clear_bit()
+        });
     }
 }

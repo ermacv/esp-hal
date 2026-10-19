@@ -452,7 +452,8 @@ pub(crate) fn enable(interrupt: Interrupt, _level: Priority) {
 pub(crate) fn disable(_core: Cpu, _interrupt: Interrupt) {}
 
 #[cfg(feature = "static-interrupts")]
-static REQUIRED: [portable_atomic::AtomicU32; 8] = [const { portable_atomic::AtomicU32::new(0) }; 8];
+static REQUIRED: [portable_atomic::AtomicU32; 8] =
+    [const { portable_atomic::AtomicU32::new(0) }; 8];
 
 /// Panic unless the image's table holds a handler for `interrupt` and its
 /// owner has routed it on a core, and record it as required. A driver whose
@@ -463,10 +464,16 @@ fn require_route(interrupt: Interrupt) {
     let bound = bound_handler(interrupt)
         .is_some_and(|handler| handler != DEFAULT_INTERRUPT_HANDLER.handler());
     if !bound {
-        panic!("{:?} has no handler in the image's interrupt table", interrupt);
+        panic!(
+            "{:?} has no handler in the image's interrupt table",
+            interrupt
+        );
     }
     if !Cpu::all().any(|cpu| mapped_to(cpu, interrupt).is_some()) {
-        panic!("{:?} is not routed: its owner routes it before the driver needs it", interrupt);
+        panic!(
+            "{:?} is not routed: its owner routes it before the driver needs it",
+            interrupt
+        );
     }
     let number = interrupt as usize;
     REQUIRED[number / 32].fetch_or(1 << (number % 32), portable_atomic::Ordering::AcqRel);
@@ -489,26 +496,58 @@ pub fn required_routes() -> impl Iterator<Item = u16> {
 #[cfg(feature = "static-interrupts")]
 #[derive(Debug)]
 #[non_exhaustive]
-pub struct InterruptRoutes;
+pub struct InterruptRoutes {
+    _owned: (),
+}
 
 #[cfg(feature = "static-interrupts")]
 impl InterruptRoutes {
     /// Take the capability; `None` after the first call.
-    pub fn take() -> Option<&'static Self> {
+    pub fn take() -> Option<Self> {
         use portable_atomic::{AtomicBool, Ordering};
         static TAKEN: AtomicBool = AtomicBool::new(false);
-        static ROUTES: InterruptRoutes = InterruptRoutes;
-        (!TAKEN.swap(true, Ordering::AcqRel)).then_some(&ROUTES)
+        (!TAKEN.swap(true, Ordering::AcqRel)).then_some(Self { _owned: () })
     }
 
-    /// Route `interrupt` on `cpu` to the vectored CPU interrupt of `level`.
-    pub fn enable(&self, cpu: Cpu, interrupt: Interrupt, level: Priority) {
-        enable_on_cpu(cpu, interrupt, level);
+    /// Partition the matrix into its independently written per-core banks.
+    pub fn split(self) -> (CoreInterruptRoutes, Option<CoreInterruptRoutes>) {
+        (
+            CoreInterruptRoutes { cpu: Cpu::ProCpu },
+            cfg_select! {
+                multi_core => Some(CoreInterruptRoutes { cpu: Cpu::AppCpu }),
+                _ => None,
+            },
+        )
     }
+}
 
-    /// Route `interrupt` on `cpu` to the disabled CPU interrupt.
-    pub fn disable(&self, cpu: Cpu, interrupt: Interrupt) {
-        map_raw(cpu, interrupt, DISABLED_CPU_INTERRUPT)
+/// The unique writer of one core's interrupt-matrix bank.
+#[cfg(feature = "static-interrupts")]
+///
+/// ```compile_fail,E0382
+/// use esp_hal::interrupt::InterruptRoutes;
+/// fn split_twice(routes: InterruptRoutes) {
+///     let first = routes.split();
+///     let second = routes.split();
+/// }
+/// ```
+pub struct CoreInterruptRoutes {
+    cpu: Cpu,
+}
+
+#[cfg(feature = "static-interrupts")]
+impl CoreInterruptRoutes {
+    /// The core whose matrix bank this value owns.
+    pub fn core(&self) -> Cpu {
+        self.cpu
+    }
+    /// Route one source on this core.
+    pub fn enable(&mut self, interrupt: Interrupt, level: Priority) {
+        enable_on_cpu(self.cpu, interrupt, level);
+    }
+    /// Silence one source on this core.
+    pub fn disable(&mut self, interrupt: Interrupt) {
+        map_raw(self.cpu, interrupt, DISABLED_CPU_INTERRUPT);
     }
 }
 
@@ -554,8 +593,7 @@ pub fn mapped_sources(cpu: Cpu) -> impl Iterator<Item = (usize, CpuInterrupt)> {
         .flatten()
         .enumerate()
         .filter_map(|(source, route)| {
-            CpuInterrupt::from_u32(u32::from(route.read().map().bits()))
-                .map(|line| (source, line))
+            CpuInterrupt::from_u32(u32::from(route.read().map().bits())).map(|line| (source, line))
         });
     let core1 = matches!(cpu, Cpu::AppCpu)
         .then(|| INTERRUPT_CORE1::regs().core_1_intr_map_iter())
@@ -563,8 +601,7 @@ pub fn mapped_sources(cpu: Cpu) -> impl Iterator<Item = (usize, CpuInterrupt)> {
         .flatten()
         .enumerate()
         .filter_map(|(source, route)| {
-            CpuInterrupt::from_u32(u32::from(route.read().map().bits()))
-                .map(|line| (source, line))
+            CpuInterrupt::from_u32(u32::from(route.read().map().bits())).map(|line| (source, line))
         });
     core0.chain(core1)
 }

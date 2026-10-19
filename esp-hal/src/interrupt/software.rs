@@ -135,6 +135,14 @@ for_each_sw_interrupt! {
 /// A sender may be borrowed by concurrent publishers. Raising and resetting
 /// are independent single-register writes; their ordering is the caller's
 /// event-publication protocol, never a lock shared with the handler.
+///
+/// ```compile_fail,E0382
+/// use esp_hal::interrupt::software::SoftwareInterrupt;
+/// fn split_twice(line: SoftwareInterrupt<'static, 2>) {
+///     let first = line.split();
+///     let second = line.split();
+/// }
+/// ```
 pub struct SoftwareInterruptSender<'d, const NUM: u8> {
     _lifetime: PhantomData<&'d mut ()>,
 }
