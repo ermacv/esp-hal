@@ -72,6 +72,18 @@ impl<'d, const NUM: u8> SoftwareInterrupt<'d, NUM> {
         }
     }
 
+    /// Transfer this line to a publisher and its interrupt handler.
+    ///
+    /// The sender can only raise the line; the acknowledger can only reset
+    /// it. Neither half can manufacture or recover the other half. Publish
+    /// the acknowledger before enabling the interrupt route.
+    pub fn split(self) -> (SoftwareInterruptSender<'d, NUM>, SoftwareInterruptAcknowledger<'d, NUM>) {
+        (
+            SoftwareInterruptSender { _lifetime: PhantomData },
+            SoftwareInterruptAcknowledger { _lifetime: PhantomData },
+        )
+    }
+
     /// Sets the interrupt handler for this software-interrupt.
     #[instability::unstable]
     pub fn set_interrupt_handler(&mut self, handler: InterruptHandler) {
@@ -94,68 +106,11 @@ impl<'d, const NUM: u8> SoftwareInterrupt<'d, NUM> {
 
     /// Triggers this software-interrupt.
     #[crate::ram]
-    pub fn raise(&self) {
-        let regs = cfg_select! {
-            soc_has_intpri => crate::peripherals::INTPRI::regs(),
-            _ => crate::peripherals::SYSTEM::regs(),
-        };
-        let reg = regs.cpu_intr_from_cpu(NUM as usize);
-
-        cfg_select! {
-            any(xtensa, esp32s31) => {
-                reg.write(|w| w.cpu_intr().set_bit());
-                // Read back to complete publication. On ESP32-S31 the source
-                // can be consumed by the other core before a pending-status
-                // observation, so waiting for that transient state can hang.
-                _ = reg.read();
-            }
-            _ => {
-                crate::interrupt::free(|| {
-                    reg.write(|w| w.cpu_intr().set_bit());
-                    // Wait for the interrupt to actually take effect.
-                    while !self.is_pending() {}
-                });
-            }
-        }
-    }
-
-    #[cfg(all(riscv, not(esp32s31)))]
-    fn is_pending(&self) -> bool {
-        let interrupt;
-        for_each_sw_interrupt! {
-            (all $( ($n:literal, $interrupt_name:ident, $f:ident) ),*) => {
-                interrupt = match NUM {
-                    $($n => Interrupt::$interrupt_name,)*
-                    _ => unreachable!(),
-                };
-            };
-        }
-        crate::interrupt::InterruptStatus::is_pending(interrupt)
-    }
+    pub fn raise(&self) { raise::<NUM>(); }
 
     /// Resets this software-interrupt.
-    pub fn reset(&self) {
-        cfg_select! {
-            soc_has_intpri => {
-                let regs = crate::peripherals::INTPRI::regs();
-            }
-            _ => {
-                let regs = crate::peripherals::SYSTEM::regs();
-            }
-        }
-        let reg;
+    pub fn reset(&self) { reset::<NUM>(); }
 
-        for_each_sw_interrupt! {
-            (all $( ($n:literal, $i:ident, $f:ident) ),*) => {
-                reg = match NUM {
-                    $($n => regs.cpu_intr_from_cpu($n),)*
-                    _ => unreachable!(),
-                };
-            };
-        }
-
-        reg.write(|w| w.cpu_intr().clear_bit());
-    }
 }
 
 impl<const NUM: u8> crate::private::Sealed for SoftwareInterrupt<'_, NUM> {}
@@ -173,4 +128,97 @@ for_each_sw_interrupt! {
     ($n:literal, $i:ident, $field:ident) => {
         impl Instance<$n> for crate::peripherals::$i<'_> {}
     };
+}
+
+/// The raise authority split from one software interrupt owner.
+///
+/// A sender may be borrowed by concurrent publishers. Raising and resetting
+/// are independent single-register writes; their ordering is the caller's
+/// event-publication protocol, never a lock shared with the handler.
+pub struct SoftwareInterruptSender<'d, const NUM: u8> {
+    _lifetime: PhantomData<&'d mut ()>,
+}
+
+impl<const NUM: u8> SoftwareInterruptSender<'_, NUM> {
+    /// Publish this line's interrupt.
+    #[crate::ram]
+    pub fn raise(&self) { raise::<NUM>(); }
+}
+
+/// The reset authority split from one software interrupt owner.
+///
+/// Move this value into the line's handler before enabling its route.
+pub struct SoftwareInterruptAcknowledger<'d, const NUM: u8> {
+    _lifetime: PhantomData<&'d mut ()>,
+}
+
+impl<const NUM: u8> SoftwareInterruptAcknowledger<'_, NUM> {
+    /// Acknowledge this line before taking its published requests.
+    #[inline(always)]
+    pub fn reset(&mut self) { reset::<NUM>(); }
+}
+
+/// Triggers this software-interrupt.
+#[crate::ram]
+fn raise<const NUM: u8>() {
+    let regs = cfg_select! {
+        soc_has_intpri => crate::peripherals::INTPRI::regs(),
+        _ => crate::peripherals::SYSTEM::regs(),
+    };
+    let reg = regs.cpu_intr_from_cpu(NUM as usize);
+
+    cfg_select! {
+        any(xtensa, esp32s31) => {
+            reg.write(|w| w.cpu_intr().set_bit());
+            // Read back to complete publication. On ESP32-S31 the source
+            // can be consumed by the other core before a pending-status
+            // observation, so waiting for that transient state can hang.
+            _ = reg.read();
+        }
+        _ => {
+            crate::interrupt::free(|| {
+                reg.write(|w| w.cpu_intr().set_bit());
+                // Wait for the interrupt to actually take effect.
+                while !is_pending::<NUM>() {}
+            });
+        }
+    }
+}
+
+#[cfg(all(riscv, not(esp32s31)))]
+fn is_pending<const NUM: u8>() -> bool {
+    let interrupt;
+    for_each_sw_interrupt! {
+        (all $( ($n:literal, $interrupt_name:ident, $f:ident) ),*) => {
+            interrupt = match NUM {
+                $($n => Interrupt::$interrupt_name,)*
+                _ => unreachable!(),
+            };
+        };
+    }
+    crate::interrupt::InterruptStatus::is_pending(interrupt)
+}
+
+/// Resets this software-interrupt.
+fn reset<const NUM: u8>() {
+    cfg_select! {
+        soc_has_intpri => {
+            let regs = crate::peripherals::INTPRI::regs();
+        }
+        _ => {
+            let regs = crate::peripherals::SYSTEM::regs();
+        }
+    }
+    let reg;
+
+    for_each_sw_interrupt! {
+        (all $( ($n:literal, $i:ident, $f:ident) ),*) => {
+            reg = match NUM {
+                $($n => regs.cpu_intr_from_cpu($n),)*
+                _ => unreachable!(),
+            };
+        };
+    }
+
+    reg.write(|w| w.cpu_intr().clear_bit());
 }
