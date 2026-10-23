@@ -124,10 +124,10 @@ use core::{convert::Infallible, marker::PhantomData};
 use esp_sync::RawMutex;
 use procmacros::handler;
 
+mod flush;
+
 use crate::{
-    Async,
-    Blocking,
-    DriverMode,
+    Async, Blocking, DriverMode,
     asynch::AtomicWaker,
     pac::usb_device::RegisterBlock,
     peripherals::USB_DEVICE,
@@ -149,6 +149,7 @@ pub struct UsbSerialJtagTx<'d, Dm: DriverMode> {
     peripheral: USB_DEVICE<'d>,
     phantom: PhantomData<Dm>,
     wake_lock: WakeLock,
+    flush_pending: bool,
 }
 
 /// USB Serial/JTAG (Receive)
@@ -167,6 +168,7 @@ where
             peripheral,
             phantom: PhantomData,
             wake_lock: WakeLock::new(),
+            flush_pending: false,
         }
     }
 
@@ -186,6 +188,9 @@ where
     ///
     /// Blocks while the 64-byte IN FIFO is full, until the host reads it.
     pub fn write(&mut self, data: &[u8]) -> Result<(), Error> {
+        if self.flush_pending {
+            self.flush_tx()?;
+        }
         for byte in data {
             // The FIFO may already hold bytes from `write_byte_nb`; a full
             // FIFO is sent to the host without `wr_done`.
@@ -206,6 +211,9 @@ where
     /// Writes data to the serial output in a non-blocking manner.
     /// Requires manual flushing (automatically flushed every 64 bytes).
     pub fn write_byte_nb(&mut self, word: u8) -> nb::Result<(), Error> {
+        if self.flush_pending {
+            self.flush_tx_nb()?;
+        }
         if self
             .regs()
             .ep1_conf()
@@ -224,6 +232,9 @@ where
 
     /// Flushes the output FIFO and blocks until it has been sent.
     pub fn flush_tx(&mut self) -> Result<(), Error> {
+        if self.flush_pending {
+            return nb::block!(self.flush_tx_nb());
+        }
         self.regs().ep1_conf().modify(|_, w| w.wr_done().set_bit());
 
         while !self.tx_settled() {}
@@ -233,13 +244,40 @@ where
 
     /// Flushes the output FIFO but does not block if it is not ready immediately.
     pub fn flush_tx_nb(&mut self) -> nb::Result<(), Error> {
-        self.regs().ep1_conf().modify(|_, w| w.wr_done().set_bit());
-
-        if !self.tx_settled() {
-            Err(nb::Error::WouldBlock)
-        } else {
-            Ok(())
+        let Self {
+            peripheral,
+            flush_pending,
+            ..
+        } = self;
+        match flush::poll(
+            flush_pending,
+            &mut FlushRegisters(peripheral.register_block()),
+        ) {
+            Poll::Pending => Err(nb::Error::WouldBlock),
+            Poll::Ready(()) => Ok(()),
         }
+    }
+}
+
+struct FlushRegisters<'a>(&'a RegisterBlock);
+impl flush::Control for FlushRegisters<'_> {
+    fn clear_completion(&mut self) {
+        self.0
+            .int_clr()
+            .write(|w| w.serial_in_empty().clear_bit_by_one());
+    }
+    fn publish(&mut self) {
+        self.0.ep1_conf().modify(|_, w| w.wr_done().set_bit());
+    }
+    fn complete(&self) -> bool {
+        self.0.int_raw().read().serial_in_empty().bit_is_set()
+    }
+    fn ready(&self) -> bool {
+        self.0
+            .ep1_conf()
+            .read()
+            .serial_in_ep_data_free()
+            .bit_is_set()
     }
 }
 
@@ -344,6 +382,7 @@ impl<'d> UsbSerialJtag<'d, Blocking> {
                 peripheral: self.tx.peripheral,
                 phantom: PhantomData,
                 wake_lock: self.tx.wake_lock,
+                flush_pending: self.tx.flush_pending,
             },
         }
     }
@@ -405,10 +444,20 @@ where
 
     /// Transfer endpoint and pad control to three disjoint owners.
     /// The pad owner alone can disconnect the device after its final reply.
-    pub fn split_with_pad_control(self) -> (
-        UsbSerialJtagRx<'d, Dm>, UsbSerialJtagTx<'d, Dm>, UsbPadControl<'d>,
+    pub fn split_with_pad_control(
+        self,
+    ) -> (
+        UsbSerialJtagRx<'d, Dm>,
+        UsbSerialJtagTx<'d, Dm>,
+        UsbPadControl<'d>,
     ) {
-        (self.rx, self.tx, UsbPadControl { _lifetime: PhantomData })
+        (
+            self.rx,
+            self.tx,
+            UsbPadControl {
+                _lifetime: PhantomData,
+            },
+        )
     }
 
     /// Writes data to the serial output in chunks of up to 64 bytes.
@@ -838,6 +887,7 @@ impl<'d> UsbSerialJtag<'d, Async> {
                 peripheral: self.tx.peripheral,
                 phantom: PhantomData,
                 wake_lock: self.tx.wake_lock,
+                flush_pending: self.tx.flush_pending,
             },
         }
     }
@@ -865,6 +915,10 @@ impl UsbSerialJtagTx<'_, Async> {
     }
 
     async fn write_async(&mut self, words: &[u8]) -> Result<(), Error> {
+        if self.flush_pending {
+            self.wait_tx_ready().await;
+            self.flush_pending = false;
+        }
         for chunk in words.chunks(64) {
             for byte in chunk {
                 self.regs()
@@ -880,6 +934,11 @@ impl UsbSerialJtagTx<'_, Async> {
     }
 
     async fn flush_tx_async(&mut self) -> Result<(), Error> {
+        if self.flush_pending {
+            self.wait_tx_ready().await;
+            self.flush_pending = false;
+            return Ok(());
+        }
         // If write_async transfers a multiple of 64 bytes, flush needs to trigger sending a
         // zero-length packet for the host to consider the transfer complete
         self.regs().ep1_conf().modify(|_, w| w.wr_done().set_bit());
@@ -1035,7 +1094,6 @@ fn service_async_interrupt() {
     }
 }
 
-
 /// The pad-control authority split from the USB Serial/JTAG driver.
 ///
 /// ```compile_fail,E0382
@@ -1053,10 +1111,14 @@ impl UsbPadControl<'_> {
     /// Drop the pull-ups and disconnect the endpoint. Only reset reconnects it.
     pub fn disconnect(self) {
         USB_DEVICE::regs().conf0().modify(|_, w| {
-            w.pad_pull_override().set_bit()
-                .dp_pullup().clear_bit()
-                .dm_pullup().clear_bit()
-                .usb_pad_enable().clear_bit()
+            w.pad_pull_override()
+                .set_bit()
+                .dp_pullup()
+                .clear_bit()
+                .dm_pullup()
+                .clear_bit()
+                .usb_pad_enable()
+                .clear_bit()
         });
     }
 }
