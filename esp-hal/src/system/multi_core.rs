@@ -437,7 +437,7 @@ where
             crate::debugger::set_stack_watchpoint(guard as usize);
         }
         crate::interrupt::init_vectoring();
-        #[cfg(feature = "rt")]
+        #[cfg(all(feature = "rt", feature = "ipc"))]
         crate::interrupt::ipc::install_app();
     }
 

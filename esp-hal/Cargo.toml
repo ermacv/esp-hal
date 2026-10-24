@@ -143,7 +143,7 @@ crypto-bigint = { version = "0.7.5", default-features = false }
 jiff = { version = "0.2", default-features = false, features = ["static"] }
 
 [features]
-default = ["rt", "exception-handler", "float-save-restore"]
+default = ["rt", "exception-handler", "float-save-restore", "ipc"]
 
 # These features are considered private and unstable. They are not covered by
 # semver guarantees and may change or be removed without notice.
@@ -189,6 +189,14 @@ rt = [
 ## not exist, `into_async` binds nothing (route the driver's public handler
 ## from the image), and `init` binds no GPIO handler.
 static-interrupts = []
+
+## Inter-processor calls (`interrupt::ipc`) and the cross-core context switch of
+## an RTOS (`interrupt::__rtos_implementation`) on a multi-core chip. Without it
+## the second core has no IPC line: `handle_interrupts` has no IPC dispatch, the
+## IPC handler is not linked, `init` and the start of the APP CPU install none,
+## and no function is posted to a CPU. A firmware that never starts the APP CPU
+## disables it with `default-features = false`.
+ipc = []
 
 ## Enable a simple exception handler turning exceptions into panics.
 exception-handler = []
