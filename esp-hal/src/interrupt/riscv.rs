@@ -717,7 +717,7 @@ pub(crate) mod rt {
         };
 
         // The IPC line enters here unless an RTOS bound its own handler to it.
-        #[cfg(all(multi_core, interrupt_controller = "clic"))]
+        #[cfg(all(multi_core, interrupt_controller = "clic", feature = "ipc"))]
         if cpu_intr == crate::interrupt::ipc::CLINT_INTERRUPT {
             crate::interrupt::ipc::dispatch();
         }

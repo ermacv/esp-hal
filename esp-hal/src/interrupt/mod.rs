@@ -84,10 +84,11 @@ use crate::pac;
 unstable_driver! {
     pub mod software;
 
-    #[cfg(all(feature = "rt", multi_core))]
+    #[cfg(all(feature = "rt", multi_core, feature = "ipc"))]
     pub mod ipc;
 
-    #[cfg(feature = "rt")]
+    // A multi-core RTOS switches the other CPU's tasks through IPC.
+    #[cfg(all(feature = "rt", any(single_core, feature = "ipc")))]
     #[doc(hidden)]
     pub mod __rtos_implementation;
 }

@@ -39,7 +39,7 @@ bench = false
 esp-hal = { version = "~1.2.0", path = "../esp-hal", default-features = false, features = [
     # FIXME: rt technically shouldn't be enabled, but rtos requires `TrapFrame`
     # and uses reexported riscv/xtensa-lx from esp-hal
-    "requires-unstable", "rt"
+    "requires-unstable", "rt", "ipc"
 ] }
 esp-rom-sys = { version = "~0.1", path = "../esp-rom-sys" }
 

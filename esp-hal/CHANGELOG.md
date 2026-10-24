@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The `ipc` feature (default): without it a multi-core chip has no IPC line. `handle_interrupts` has no IPC dispatch, `init` and the start of the APP CPU install no IPC handler, and `interrupt::ipc` and the multi-core `interrupt::__rtos_implementation` do not exist.
+
 
 ### Changed
 
